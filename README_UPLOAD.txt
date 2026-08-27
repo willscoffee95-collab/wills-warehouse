@@ -1,23 +1,22 @@
-WILLS WAREHOUSE - FLAT GITHUB PACKAGE
+WILLS WAREHOUSE GitHub FLAT v0.1.3 — Cache + Name Fix
 
-Semua file dalam folder ini memang sengaja berada SATU LEVEL dengan index.html.
-Jangan buat folder assets lagi.
+Masalah yang diperbaiki:
+- Nama literal ${d.user.name} tidak lagi bisa muncul: greeting memakai concatenation biasa.
+- index.html memakai cache-busting ?v=0.1.3 untuk app.css, config.js, app.js.
+- service worker diubah menjadi network-first untuk HTML/JS/CSS inti.
+- service worker didaftarkan dengan updateViaCache: 'none'.
 
-Upload SEMUA file ini langsung ke root repository GitHub:
-- index.html
-- app.css
-- app.js
-- config.js
-- manifest.webmanifest
-- sw.js
-- logo.png
-- icon-192.png
-- icon-512.png
-- maskable-512.png
-- apple-touch-icon.png
-- favicon-64.png
+UPLOAD:
+Ganti minimal file berikut di root repository:
+1. index.html
+2. app.js
+3. config.js
+4. sw.js
 
-GitHub Pages:
-Settings > Pages > Deploy from a branch > main > /(root) > Save.
+Setelah GitHub Pages selesai deploy, buka SEKALI:
+https://willscoffee95-collab.github.io/wills-warehouse/?v=0.1.3
 
-Ini masih FRONT-END DEMO dan belum terhubung ke backend produksi.
+Login demo lagi. Target greeting:
+Selamat malam, Wilyanto
+
+Sesudah itu URL normal boleh dipakai kembali.
