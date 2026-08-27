@@ -11,7 +11,7 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="apple-touch-icon.png">
   <link rel="icon" type="image/png" href="favicon-64.png">
-  <link rel="stylesheet" href="app.css?v=0.2.0">
+  <link rel="stylesheet" href="app.css?v=0.2.2">
   <title>Wills Warehouse</title>
 </head>
 <body>
@@ -30,9 +30,8 @@
           </div>
         </div>
 
-        <div class="auth-copy">
-          <span class="status-dot"></span>
-          <span>Apps Script Bridge · Menyiapkan…</span>
+        <div class="auth-connection" id="authConnection" data-state="offline" role="status" aria-live="polite" aria-label="Sistem belum siap">
+          <span class="connection-light" aria-hidden="true"></span>
         </div>
 
         <form id="loginForm" class="auth-form" autocomplete="off">
@@ -44,10 +43,9 @@
             <span>PIN</span>
             <input id="loginPin" type="password" inputmode="numeric" aria-label="PIN" placeholder="••••" autocomplete="current-password">
           </label>
-          <button class="btn btn-primary btn-xl" type="submit">Masuk ke Warehouse</button>
+          <button class="btn btn-primary btn-xl" id="loginBtn" type="submit" disabled>Masuk ke Warehouse</button>
         </form>
 
-        <p class="auth-note">Menyiapkan koneksi aman ke backend Warehouse…</p>
       </div>
     </section>
 
@@ -101,8 +99,8 @@
     <div id="toastRoot" class="toast-root" aria-live="polite"></div>
   </div>
 
-  <script src="config.js?v=0.2.0"></script>
-  <script src="bridge.js?v=0.2.0"></script>
-  <script src="app.js?v=0.2.0"></script>
+  <script src="config.js?v=0.2.2"></script>
+  <script src="bridge.js?v=0.2.2"></script>
+  <script src="app.js?v=0.2.2"></script>
 </body>
 </html>

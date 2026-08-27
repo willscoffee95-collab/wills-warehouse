@@ -58,7 +58,7 @@
     return h < 11 ? 'Selamat pagi' : h < 15 ? 'Selamat siang' : h < 18 ? 'Selamat sore' : 'Selamat malam';
   }
   function pageHead(title, subtitle, chip) {
-    const liveChip = chip || (state.bridgeReady ? 'Live · Backend' : 'Bridge offline');
+    const liveChip = chip || (state.bridgeReady ? 'Sistem aktif' : 'Offline');
     return `<div class="page-head"><div><h1>${esc(title)}</h1><p>${esc(subtitle)}</p></div><span class="sync-chip">${esc(liveChip)}</span></div>`;
   }
 
@@ -284,11 +284,18 @@
     toast.timer = setTimeout(() => root.innerHTML = '', 3200);
   }
 
-  function setAuthStatus(text, isError = false) {
-    const note = $('.auth-note');
-    const copy = $('.auth-copy span:last-child');
-    if (note) note.textContent = text;
-    if (copy) copy.textContent = isError ? 'Backend belum tersambung' : 'Apps Script Bridge · Live';
+  function setAuthStatus(isReady, detail = '') {
+    const indicator = $('#authConnection');
+    const btn = $('#loginBtn');
+    state.bridgeReady = Boolean(isReady);
+    if (indicator) {
+      indicator.classList.toggle('is-ready', state.bridgeReady);
+      indicator.dataset.state = state.bridgeReady ? 'ready' : 'offline';
+      indicator.setAttribute('aria-label', state.bridgeReady ? 'Sistem siap' : 'Sistem belum siap');
+      indicator.title = state.bridgeReady ? 'Sistem siap' : 'Sistem belum siap';
+    }
+    if (btn) btn.disabled = !state.bridgeReady;
+    if (detail && !state.bridgeReady) console.warn('[Wills Warehouse] Sistem belum siap:', detail);
   }
 
   async function loadAppWithToken(token, silent = false) {
@@ -301,7 +308,7 @@
       $('#mainView').classList.remove('is-hidden');
       $('#profileBtn').textContent = initials(data.user && data.user.name || 'WW');
       setPage(activePage);
-      if (!silent) toast('Backend produksi tersambung · mode read-only.');
+      if (!silent) toast('Sistem terhubung.');
       return true;
     } catch (err) {
       localStorage.removeItem(TOKEN_KEY);
@@ -319,22 +326,20 @@
   async function boot() {
     try {
       await bridge.init();
-      state.bridgeReady = true;
       const pub = await bridge.call('getPublicState');
       state.publicState = pub;
-      setAuthStatus('Backend Warehouse terhubung. Masuk dengan username dan PIN produksi.');
+      setAuthStatus(true);
       const existing = localStorage.getItem(TOKEN_KEY) || '';
       if (existing && await loadAppWithToken(existing, true)) return;
     } catch (err) {
-      state.bridgeReady = false;
-      setAuthStatus(err.message, true);
-      toast(err.message);
+      setAuthStatus(false, err.message);
+      toast('Sistem belum siap. Coba beberapa saat lagi.');
     }
   }
 
   $('#loginForm').addEventListener('submit', async e => {
     e.preventDefault();
-    if (!state.bridgeReady) return toast('Bridge backend belum siap. Periksa config.js dan deployment Apps Script.');
+    if (!state.bridgeReady) return toast('Sistem belum siap. Coba beberapa saat lagi.');
     const username = $('#loginUser').value.trim();
     const pin = $('#loginPin').value.trim();
     const btn = e.submitter || e.target.querySelector('button[type=submit]');
