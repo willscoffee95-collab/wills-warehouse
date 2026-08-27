@@ -1,4 +1,4 @@
-const CACHE = 'wills-warehouse-shell-v0.1.1';
+const CACHE = 'wills-warehouse-shell-v0.1.2';
 const ASSETS = [
   './','./index.html','./app.css','./config.js','./app.js','./manifest.webmanifest',
   './logo.png','./icon-192.png','./icon-512.png','./maskable-512.png','./apple-touch-icon.png','./favicon-64.png'

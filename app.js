@@ -66,7 +66,7 @@
 
   function renderHome() {
     const d = demo;
-    return `${pageHead('Selamat malam, ${d.user.name}', 'Pantau gudang tanpa membuka Google Sheet.', 'Sistem siap · demo')}
+    return `${pageHead(`Selamat malam, ${d.user.name}`, 'Pantau gudang tanpa membuka Google Sheet.', 'Sistem siap · demo')}
       <section class="hero">
         <div class="hero-kicker"><span class="pulse"></span>Warehouse Control Center</div>
         <h3>${d.kpi.stockValue}</h3>
