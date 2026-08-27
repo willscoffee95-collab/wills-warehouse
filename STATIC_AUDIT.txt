@@ -1,0 +1,16 @@
+WILLS WAREHOUSE GITHUB SHELL v0.1.0 — STATIC AUDIT
+===================================================
+PASS  index.html exists
+PASS  app.css exists
+PASS  app.js syntax (node --check)
+PASS  config.js syntax (node --check)
+PASS  service worker syntax (node --check)
+PASS  manifest.webmanifest parses as JSON
+PASS  PWA icons 192 / 512 / maskable / Apple / favicon generated
+PASS  selected Wills Warehouse logo included
+PASS  no google.script.run call
+PASS  no script.google.com production URL
+PASS  backend API_URL intentionally empty
+PASS  all transaction actions are demo/prototype only
+
+Scope: FRONT-END SHELL ONLY. No production data write path exists in this package.

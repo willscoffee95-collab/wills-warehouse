@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0a0e13">
+  <meta name="description" content="Wills Warehouse — Front-end shell untuk sistem operasional gudang Wills Coffee.">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Wills Warehouse">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
+  <link rel="icon" type="image/png" href="assets/icons/favicon-64.png">
+  <link rel="stylesheet" href="assets/css/app.css">
+  <title>Wills Warehouse</title>
+</head>
+<body>
+  <div class="noise" aria-hidden="true"></div>
+  <div id="app" class="app-shell">
+    <section id="loginView" class="auth-view">
+      <div class="auth-glow glow-a"></div>
+      <div class="auth-glow glow-b"></div>
+      <div class="auth-card">
+        <div class="brand-lockup auth-brand">
+          <img src="assets/img/wills-warehouse-logo.png" alt="Logo Wills Warehouse" class="brand-logo">
+          <div>
+            <p class="eyebrow">WILLS COFFEE</p>
+            <h1>Warehouse</h1>
+            <p class="subtle">Operational Control System</p>
+          </div>
+        </div>
+
+        <div class="auth-copy">
+          <span class="status-dot"></span>
+          <span>Front-end Shell · GitHub Ready</span>
+        </div>
+
+        <form id="loginForm" class="auth-form" autocomplete="off">
+          <label class="field">
+            <span>User</span>
+            <input id="loginUser" type="text" value="Owner" aria-label="User" placeholder="Nama user">
+          </label>
+          <label class="field">
+            <span>PIN</span>
+            <input id="loginPin" type="password" inputmode="numeric" value="1234" aria-label="PIN" placeholder="••••">
+          </label>
+          <button class="btn btn-primary btn-xl" type="submit">Masuk ke Warehouse</button>
+        </form>
+
+        <p class="auth-note">Mode demo. Belum terhubung ke backend produksi dan tidak menulis data apa pun.</p>
+      </div>
+    </section>
+
+    <section id="mainView" class="main-view is-hidden">
+      <header class="topbar">
+        <div class="brand-lockup compact">
+          <img src="assets/img/wills-warehouse-logo.png" alt="" class="brand-logo small">
+          <div>
+            <p class="eyebrow">WILLS COFFEE</p>
+            <h2>Warehouse</h2>
+          </div>
+        </div>
+        <div class="topbar-actions">
+          <button class="icon-btn" id="notifyBtn" aria-label="Notifikasi">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></svg>
+            <span class="notify-badge">2</span>
+          </button>
+          <button class="avatar" id="profileBtn" aria-label="Profil">WR</button>
+        </div>
+      </header>
+
+      <main id="content" class="content" tabindex="-1"></main>
+
+      <nav class="bottom-nav" aria-label="Navigasi utama">
+        <button class="nav-item is-active" data-page="home">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 11 9-8 9 8v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>
+          <span>Beranda</span>
+        </button>
+        <button class="nav-item" data-page="stock">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21 8-9 5-9-5 9-5z"/><path d="m3 12 9 5 9-5M3 16l9 5 9-5"/></svg>
+          <span>Stok</span>
+        </button>
+        <button class="nav-item nav-main" data-page="transactions" aria-label="Transaksi">
+          <span class="nav-main-circle">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+          </span>
+          <span>Transaksi</span>
+        </button>
+        <button class="nav-item" data-page="history">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/></svg>
+          <span>Riwayat</span>
+        </button>
+        <button class="nav-item" data-page="control">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6V21h-4v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H3v-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3 1.7 1.7 0 0 0 1-1.6V3h4v.1a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.1v4H21a1.7 1.7 0 0 0-1.6 1"/></svg>
+          <span>Kontrol</span>
+        </button>
+      </nav>
+    </section>
+
+    <div id="sheetRoot"></div>
+    <div id="toastRoot" class="toast-root" aria-live="polite"></div>
+  </div>
+
+  <script src="assets/js/config.js"></script>
+  <script src="assets/js/app.js"></script>
+</body>
+</html>
