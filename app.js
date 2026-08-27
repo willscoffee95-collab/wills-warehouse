@@ -66,7 +66,8 @@
 
   function renderHome() {
     const d = demo;
-    return `${pageHead(`Selamat malam, ${d.user.name}`, 'Pantau gudang tanpa membuka Google Sheet.', 'Sistem siap · demo')}
+    const displayName = String((d.user && d.user.name) || 'Wilyanto');
+    return `${pageHead('Selamat malam, ' + displayName, 'Pantau gudang tanpa membuka Google Sheet.', 'Sistem siap · demo')}
       <section class="hero">
         <div class="hero-kicker"><span class="pulse"></span>Warehouse Control Center</div>
         <h3>${d.kpi.stockValue}</h3>
@@ -219,6 +220,6 @@
   $('#profileBtn').addEventListener('click', () => openDemoSheet('users'));
 
   if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
+    window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=0.1.3', { updateViaCache: 'none' }).then(reg => reg.update()).catch(() => {}));
   }
 })();
