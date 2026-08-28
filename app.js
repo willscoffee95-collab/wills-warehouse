@@ -57,9 +57,9 @@
     const h = new Date().getHours();
     return h < 11 ? 'Selamat pagi' : h < 15 ? 'Selamat siang' : h < 18 ? 'Selamat sore' : 'Selamat malam';
   }
-  function pageHead(title, subtitle, chip) {
-    const liveChip = chip || (state.bridgeReady ? 'Sistem aktif' : 'Offline');
-    return `<div class="page-head"><div><h1>${esc(title)}</h1><p>${esc(subtitle)}</p></div><span class="sync-chip">${esc(liveChip)}</span></div>`;
+  function pageHead(title, subtitle = '', chip) {
+    const liveChip = chip === false ? '' : (chip || (state.bridgeReady ? 'Sistem aktif' : 'Belum tersambung'));
+    return `<div class="page-head"><div><h1>${esc(title)}</h1>${subtitle ? `<p>${esc(subtitle)}</p>` : ''}</div>${liveChip ? `<span class="sync-chip">${esc(liveChip)}</span>` : ''}</div>`;
   }
 
   function materialMap() {
@@ -76,8 +76,8 @@
       const factor = Number(m.factor || 1) || 1;
       const physicalQty = Number(s.qty || 0) / factor;
       let type = 'Gudang';
-      if (m.type === 'RAW_BULK') type = 'Bulk';
-      if (m.type === 'PACKED_OUTPUT') type = 'Packed';
+      if (m.type === 'RAW_BULK') type = 'Curah';
+      if (m.type === 'PACKED_OUTPUT') type = 'Hasil Packing';
       const statusRaw = String(s.status || '').toUpperCase();
       const status = statusRaw === 'MENIPIS' ? 'Menipis' : (statusRaw === 'KRITIS' || statusRaw === 'HABIS' ? 'Kritis' : 'Aman');
       return {
@@ -88,7 +88,9 @@
         status,
         type,
         value: Number(s.value || 0),
-        avgCost: Number(s.avgCost || 0) * factor
+        avgCost: Number(s.avgCost || 0) * factor,
+        minimum: Number(s.minimum || 0) / factor,
+        safety: Number(s.safety || 0) / factor
       };
     });
   }
@@ -106,8 +108,22 @@
     OPENING_STOCK: ['Saldo Awal Stok','box'],
     OPENING_BANK: ['Saldo Awal Bank','wallet'],
     OPENING_CASH: ['Saldo Awal Kas','wallet'],
-    REVERSAL: ['Reversal Transaksi','audit']
+    REVERSAL: ['Pembalikan Transaksi','audit'],
+    INTERNAL_PRICE_UPDATE: ['Pembaruan Harga Internal','price'],
+    INTERNAL_PRICE_BULK_SYNC: ['Sinkronisasi Harga Internal','price'],
+    MASTER_SUPPLIER: ['Pembaruan Supplier','user'],
+    SOURCE_MASTER_CONFIG: ['Pengaturan Sumber Bahan','audit'],
+    SOURCE_MASTER_SYNC: ['Sinkronisasi Bahan Master','box']
   };
+
+  function statusLabel(status) {
+    const map = {
+      POSTED:'SELESAI', REVERSED:'DIBALIKKAN', FAILED:'GAGAL', DRAFT:'DRAF',
+      POSTING:'DIPROSES', PENDING:'MENUNGGU', CANCELLED:'DIBATALKAN', CANCELED:'DIBATALKAN'
+    };
+    const key = String(status || '').toUpperCase();
+    return map[key] || String(status || '').replaceAll('_',' ');
+  }
 
   function liveHistory() {
     if (!state.data) return [];
@@ -120,7 +136,7 @@
         title: meta[0],
         meta: [x.txnId, x.user, x.invoiceNo].filter(Boolean).join(' · '),
         amount,
-        badge: st,
+        badge: statusLabel(st),
         cls: st === 'POSTED' ? 'ok' : st === 'REVERSED' ? 'warn' : st === 'FAILED' ? 'bad' : 'brand',
         icon: meta[1]
       };
@@ -132,11 +148,11 @@
     const dash = d.dashboard || {};
     const displayName = d.user && d.user.name ? d.user.name : 'User';
     const history = liveHistory();
-    return `${pageHead(`${greeting()}, ${displayName}`, 'Pantau gudang tanpa membuka Google Sheet.', 'Live · ' + (d.version || 'backend'))}
+    return `${pageHead(`${greeting()}, ${displayName}`, '', 'Sistem aktif')}
       <section class="hero">
-        <div class="hero-kicker"><span class="pulse"></span>Warehouse Control Center</div>
+        <div class="hero-kicker"><span class="pulse"></span>Pusat Kendali Gudang</div>
         <h3>${compactRp(dash.stockValue)}</h3>
-        <p>Total nilai stok aktif · ${num(dash.activeMaterials, 0)} item master</p>
+        <p>Total nilai stok aktif · ${num(dash.activeMaterials, 0)} bahan aktif</p>
         <div class="hero-actions">
           <button class="btn btn-primary" data-action="purchase">+ Belanja Bahan</button>
           <button class="btn btn-soft" data-action="delivery">Buat Surat Jalan</button>
@@ -146,22 +162,22 @@
       <div class="kpi-grid">
         ${kpiCard('Dana Gudang', compactRp(dash.warehouseFunds), `Bank ${compactRp(dash.bankBalance)} · Kas ${compactRp(dash.cashBalance)}`, 'good')}
         ${kpiCard('Piutang Outlet', compactRp(dash.receivablesTotal), `${num(dash.receivablesCount,0)} tagihan aktif`)}
-        ${kpiCard('Transit', `${num(dash.transitLines,0)} item`, compactRp(dash.transitValue), Number(dash.transitLines||0)===0?'good':'')}
-        ${kpiCard('Recovery', num(dash.recoveryPending,0), Number(dash.recoveryPending||0)===0?'Tidak ada proses nyangkut':'Perlu perhatian', Number(dash.recoveryPending||0)===0?'good':'')}
+        ${kpiCard('Dalam Pengiriman', `${num(dash.transitLines,0)} item`, compactRp(dash.transitValue), Number(dash.transitLines||0)===0?'good':'')}
+        ${kpiCard('Pemulihan', num(dash.recoveryPending,0), Number(dash.recoveryPending||0)===0?'Tidak ada proses tertunda':'Perlu perhatian', Number(dash.recoveryPending||0)===0?'good':'')}
       </div>
 
       <section class="section">
         <div class="section-head"><h3>Aksi Cepat</h3><button data-page-jump="transactions">Lihat semua</button></div>
         <div class="quick-grid">
-          ${quickCard('pack','Batch Packing','Bulk → packed output','packing')}
-          ${quickCard('truck','Surat Jalan','Gudang → Transit → Outlet','delivery')}
-          ${quickCard('money','Pembayaran Outlet','Piutang → Kas / Bank','outletPayment')}
+          ${quickCard('pack','Batch Packing','Bahan curah → hasil packing','packing')}
+          ${quickCard('truck','Surat Jalan','Pengiriman barang ke outlet','delivery')}
+          ${quickCard('money','Pembayaran Outlet','Piutang dibayar ke Kas / Bank','outletPayment')}
           ${quickCard('expense','Pengeluaran','Operasional gudang','expense')}
         </div>
       </section>
 
       <section class="section">
-        <div class="section-head"><h3>Aktivitas Terbaru</h3><span>Live backend</span></div>
+        <div class="section-head"><h3>Aktivitas Terbaru</h3><span>Data terbaru</span></div>
         <div class="list">${history.slice(0,3).map(historyCard).join('') || '<div class="empty">Belum ada transaksi.</div>'}</div>
       </section>`;
   }
@@ -174,9 +190,9 @@
   }
 
   function renderStock() {
-    return `${pageHead('Stok Gudang', 'Data live dari ledger/snapshot Warehouse.')}
+    return `${pageHead('Stok Gudang', 'Stok bahan terbaru dari sistem gudang.')}
       <div class="search-wrap">${icons.search}<input id="stockSearch" class="search" placeholder="Cari bahan atau kode..."></div>
-      <div class="chips">${['Semua','Gudang','Bulk','Packed'].map(x=>`<button class="chip ${stockFilter===x?'is-active':''}" data-stock-filter="${x}">${x}</button>`).join('')}</div>
+      <div class="chips">${['Semua','Gudang','Curah','Hasil Packing'].map(x=>`<button class="chip ${stockFilter===x?'is-active':''}" data-stock-filter="${x}">${x}</button>`).join('')}</div>
       <div id="stockRows" class="list">${stockRows(liveStocks())}</div>`;
   }
 
@@ -187,23 +203,23 @@
 
   function renderTransactions() {
     const modules = [
-      ['cart','Belanja Bahan','LUNAS / TEMPO · Kas / Bank','purchase'],
-      ['pack','Batch Packing','Output, remainder, waste & upah','packing'],
-      ['truck','Distribusi / Surat Jalan','DRAFT → DIKIRIM → DITERIMA','delivery'],
+      ['cart','Belanja Bahan','Lunas / Tempo · Kas / Bank','purchase'],
+      ['pack','Batch Packing','Hasil, sisa, susut & upah','packing'],
+      ['truck','Distribusi / Surat Jalan','Draf → Dikirim → Diterima','delivery'],
       ['money','Pembayaran Outlet','Kurangi piutang & tambah saldo','outletPayment'],
       ['expense','Pengeluaran Operasional','Listrik, BBM, maintenance, dll','expense'],
       ['wallet','Bayar Supplier','Bank / Kas Gudang','supplierPayment'],
-      ['audit','Opname / Koreksi','Adjustment dengan audit trail','adjustment'],
+      ['audit','Opname / Koreksi','Koreksi dengan jejak pemeriksaan','adjustment'],
       ['money','Bayar Upah Packing','Kas / Bank · hutang upah','packingWage']
     ];
-    return `${pageHead('Transaksi', 'Gate 1: data live sudah tersambung; posting masih lewat PWA produksi.', 'Live read-only')}
+    return `${pageHead('Transaksi', 'Data gudang sudah tersambung. Untuk sementara transaksi dilakukan melalui aplikasi utama.', 'Hanya baca')}
       <div class="module-grid">${modules.map(m=>moduleCard(...m)).join('')}</div>`;
   }
   function moduleCard(icon,title,desc,action){return `<button class="module-card" data-action="${action}"><span class="module-icon">${icons[icon]}</span><span class="copy"><b>${esc(title)}</b><small>${esc(desc)}</small></span><span class="chev">›</span></button>`}
 
   function renderHistory() {
     const rows = liveHistory();
-    return `${pageHead('Riwayat', 'Riwayat transaksi live dari backend Warehouse.')}
+    return `${pageHead('Riwayat', 'Catatan transaksi terbaru dari sistem gudang.')}
       <div class="search-wrap">${icons.search}<input id="historySearch" class="search" placeholder="Cari transaksi..."></div>
       <div id="historyRows" class="list">${rows.map(historyCard).join('') || '<div class="empty">Belum ada transaksi.</div>'}</div>`;
   }
@@ -212,21 +228,21 @@
   function renderControl() {
     const d = state.data || {};
     const modules = [
-      ['price','Harga Internal Outlet','Preview & sync harga dari Terima Bahan','internalPrice'],
-      ['box','Master Bahan Wills','Source Master + katalog Warehouse','materials'],
-      ['user','User & Role','OWNER · ADMIN · GUDANG · FINANCE','users'],
-      ['audit','Audit Sistem','Invariant, recovery, integritas ledger','audit'],
-      ['warning','Recovery Queue','Pantau transaksi yang perlu recovery','recovery'],
-      ['wallet','Saldo Awal','Opening Bank / Opening Cash','opening']
+      ['price','Harga Internal Outlet','Pratinjau & samakan harga dari Terima Bahan','internalPrice'],
+      ['box','Master Bahan Wills','Sumber master + katalog gudang','materials'],
+      ['user','Pengguna & Peran','Pemilik · Admin · Gudang · Keuangan','users'],
+      ['audit','Audit Sistem','Pemeriksaan integritas dan keamanan transaksi','audit'],
+      ['warning','Antrean Pemulihan','Pantau transaksi yang perlu dipulihkan','recovery'],
+      ['wallet','Saldo Awal','Saldo awal Bank / Kas Gudang','opening']
     ];
-    return `${pageHead('Kontrol', 'Koneksi GitHub ↔ Apps Script aktif.', 'Bridge aktif')}
+    return `${pageHead('Kontrol', 'Pengaturan dan pemantauan sistem gudang.', 'Sistem aktif')}
       <div class="module-grid">${modules.map(m=>moduleCard(...m)).join('')}</div>
-      <section class="section"><div class="section-head"><h3>Status Bridge</h3><span>${esc(config.VERSION || '')}</span></div>
-        <div class="hero"><div class="hero-kicker"><span class="pulse"></span>Apps Script Connected</div><h3>LIVE READ-ONLY</h3><p>Login, dashboard, stok, dan riwayat sudah membaca backend produksi. Posting transaksi masih diarahkan ke PWA Apps Script sampai Gate Write diaktifkan.</p><div class="mini-bars"><i style="height:32%"></i><i style="height:54%"></i><i style="height:44%"></i><i style="height:72%"></i><i style="height:88%"></i><i style="height:68%"></i><i style="height:96%"></i></div></div>
+      <section class="section"><div class="section-head"><h3>Status Sistem</h3><span>Terhubung</span></div>
+        <div class="hero"><div class="hero-kicker"><span class="pulse"></span>Sistem Gudang</div><h3>DATA TERSAMBUNG</h3><p>Dashboard, stok, dan riwayat sudah membaca data dari sistem utama. Untuk sementara transaksi dilakukan melalui aplikasi utama.</p><div class="mini-bars"><i style="height:32%"></i><i style="height:54%"></i><i style="height:44%"></i><i style="height:72%"></i><i style="height:88%"></i><i style="height:68%"></i><i style="height:96%"></i></div></div>
       </section>
       <section class="section"><div class="list">
-        <div class="list-card"><span class="list-icon">${icons.user}</span><div class="list-main"><b>${esc(d.user && d.user.name || '')}</b><small>${esc(d.user && d.user.role || '')} · ${esc(d.user && d.user.username || '')}</small></div><div class="list-side"><span class="badge ok">LOGIN</span></div></div>
-        <div class="list-card"><span class="list-icon">${icons.audit}</span><div class="list-main"><b>Backend</b><small>${esc(d.version || '')}</small></div><div class="list-side"><span class="badge ok">LIVE</span></div></div>
+        <div class="list-card"><span class="list-icon">${icons.user}</span><div class="list-main"><b>${esc(d.user && d.user.name || '')}</b><small>${esc(d.user && d.user.role || '')} · ${esc(d.user && d.user.username || '')}</small></div><div class="list-side"><span class="badge ok">MASUK</span></div></div>
+        <div class="list-card"><span class="list-icon">${icons.audit}</span><div class="list-main"><b>Sistem Utama</b><small>Data gudang tersambung</small></div><div class="list-side"><span class="badge ok">AKTIF</span></div></div>
       </div></section>`;
   }
 
@@ -259,19 +275,19 @@
   }
 
   const actionNames = {
-    purchase:'Belanja Bahan', packing:'Batch Packing', delivery:'Surat Jalan', outletPayment:'Pembayaran Outlet', expense:'Pengeluaran Operasional', supplierPayment:'Bayar Supplier', adjustment:'Opname / Koreksi', packingWage:'Bayar Upah Packing', internalPrice:'Harga Internal Outlet', materials:'Master Bahan Wills', users:'User & Role', audit:'Audit Sistem', recovery:'Recovery Queue', opening:'Saldo Awal'
+    purchase:'Belanja Bahan', packing:'Batch Packing', delivery:'Surat Jalan', outletPayment:'Pembayaran Outlet', expense:'Pengeluaran Operasional', supplierPayment:'Bayar Supplier', adjustment:'Opname / Koreksi', packingWage:'Bayar Upah Packing', internalPrice:'Harga Internal Outlet', materials:'Master Bahan Wills', users:'Pengguna & Peran', audit:'Audit Sistem', recovery:'Antrean Pemulihan', opening:'Saldo Awal'
   };
 
   function openReadOnlySheet(action) {
     const title = actionNames[action] || 'Modul';
     const root = $('#sheetRoot');
-    root.innerHTML = `<div class="sheet-backdrop" id="sheetBackdrop"><div class="sheet" role="dialog" aria-modal="true" aria-label="${esc(title)}"><div class="grabber"></div><div class="sheet-head"><h3>${esc(title)}</h3><button class="sheet-close" id="sheetClose">×</button></div><p>Data GitHub sudah terhubung ke backend produksi. Untuk Gate 1 ini, transaksi <b>${esc(title)}</b> belum diizinkan dari GitHub agar ledger yang sudah berjalan tidak berubah sebelum write bridge lolos QA.</p><div class="demo-box"><b>LIVE READ-ONLY</b><br>Gunakan tombol di bawah untuk membuka PWA Apps Script produksi jika perlu melakukan transaksi sekarang.</div><div class="actions"><button class="btn btn-line" id="sheetCancel">Tutup</button><button class="btn btn-primary" id="openProduction">Buka PWA Produksi</button></div></div></div>`;
+    root.innerHTML = `<div class="sheet-backdrop" id="sheetBackdrop"><div class="sheet" role="dialog" aria-modal="true" aria-label="${esc(title)}"><div class="grabber"></div><div class="sheet-head"><h3>${esc(title)}</h3><button class="sheet-close" id="sheetClose">×</button></div><p>Data sudah tersambung ke sistem utama. Untuk sementara transaksi <b>${esc(title)}</b> dilakukan melalui aplikasi utama agar pencatatan tetap aman.</p><div class="demo-box"><b>MODE HANYA BACA</b><br>Gunakan tombol di bawah jika perlu melakukan transaksi sekarang.</div><div class="actions"><button class="btn btn-line" id="sheetCancel">Tutup</button><button class="btn btn-primary" id="openProduction">Buka Aplikasi Utama</button></div></div></div>`;
     $('#sheetClose').onclick = closeSheet;
     $('#sheetCancel').onclick = closeSheet;
     $('#sheetBackdrop').onclick = e => { if (e.target.id === 'sheetBackdrop') closeSheet(); };
     $('#openProduction').onclick = () => {
       const url = String(config.APPS_SCRIPT_URL || '').trim();
-      if (!bridge.validWebAppUrl(url)) return toast('URL Apps Script belum valid.');
+      if (!bridge.validWebAppUrl(url)) return toast('Alamat aplikasi utama belum valid.');
       window.open(url, '_blank', 'noopener');
     };
   }
@@ -282,6 +298,50 @@
     root.innerHTML = `<div class="toast">${esc(message)}</div>`;
     clearTimeout(toast.timer);
     toast.timer = setTimeout(() => root.innerHTML = '', 3200);
+  }
+
+  function stockAlerts() {
+    const priority = {Kritis:0, Menipis:1};
+    return liveStocks()
+      .filter(x => x.status === 'Kritis' || x.status === 'Menipis')
+      .sort((a,b) => (priority[a.status] - priority[b.status]) || String(a.name).localeCompare(String(b.name), 'id'));
+  }
+
+  function notificationCount() {
+    const dash = state.data && state.data.dashboard || {};
+    let count = stockAlerts().length;
+    if (Number(dash.recoveryPending || 0) > 0) count += 1;
+    if (Number(dash.packingWageCount || 0) > 0) count += 1;
+    return count;
+  }
+
+  function updateNotificationBadge() {
+    const badge = $('#notifyBadge');
+    const btn = $('#notifyBtn');
+    if (!badge || !btn) return;
+    const count = state.data ? notificationCount() : 0;
+    badge.textContent = count > 99 ? '99+' : String(count);
+    badge.classList.toggle('is-hidden', count === 0);
+    btn.setAttribute('aria-label', count ? `Notifikasi, ${count} perlu perhatian` : 'Notifikasi, tidak ada yang perlu perhatian');
+  }
+
+  function openNotifications() {
+    const root = $('#sheetRoot');
+    const alerts = stockAlerts();
+    const dash = state.data && state.data.dashboard || {};
+    const stockHtml = alerts.length ? alerts.map(x => {
+      const isCritical = x.status === 'Kritis';
+      const minText = Number(x.minimum || 0) > 0 ? ` · Batas minimum ${num(x.minimum)} ${esc(x.unit)}` : '';
+      return `<div class="notice-row"><span class="notice-icon ${isCritical ? 'bad' : ''}">${icons.warning}</span><div class="notice-copy"><b>${esc(x.name)}</b><small>${esc(x.code)} · Stok ${num(x.qty)} ${esc(x.unit)}${minText}</small></div><div class="notice-side"><strong>${num(x.qty)} ${esc(x.unit)}</strong><span class="badge ${isCritical ? 'bad' : 'warn'}">${esc(x.status)}</span></div></div>`;
+    }).join('') : '<div class="notice-ok">Semua stok bahan masih dalam kondisi aman.</div>';
+
+    const other = [];
+    if (Number(dash.recoveryPending || 0) > 0) other.push(`<div class="notice-row"><span class="notice-icon bad">${icons.warning}</span><div class="notice-copy"><b>Pemulihan transaksi</b><small>Ada transaksi yang perlu diperiksa sistem.</small></div><div class="notice-side"><strong>${num(dash.recoveryPending,0)}</strong><span class="badge bad">PERIKSA</span></div></div>`);
+    if (Number(dash.packingWageCount || 0) > 0) other.push(`<div class="notice-row"><span class="notice-icon">${icons.money}</span><div class="notice-copy"><b>Upah packing belum dibayar</b><small>${num(dash.packingWageCount,0)} kewajiban upah masih terbuka.</small></div><div class="notice-side"><strong>${compactRp(dash.packingWageOutstanding)}</strong><span class="badge warn">BELUM LUNAS</span></div></div>`);
+
+    root.innerHTML = `<div class="sheet-backdrop" id="sheetBackdrop"><div class="sheet" role="dialog" aria-modal="true" aria-label="Pemberitahuan"><div class="grabber"></div><div class="sheet-head"><h3>Pemberitahuan</h3><button class="sheet-close" id="sheetClose">×</button></div><div class="notice-section"><div class="notice-heading"><b>Bahan yang perlu dibelanja</b><span>${alerts.length} bahan</span></div><div class="notice-list">${stockHtml}</div></div>${other.length ? `<div class="notice-section"><div class="notice-heading"><b>Perlu perhatian</b><span>${other.length} pemberitahuan</span></div><div class="notice-list">${other.join('')}</div></div>` : ''}<div class="notice-summary">Daftar belanja mengikuti status stok <b>Kritis</b> dan <b>Menipis</b> dari sistem gudang. Nama bahan dan jumlah stok ditampilkan langsung agar Admin bisa menindaklanjuti tanpa menebak itemnya.</div></div></div>`;
+    $('#sheetClose').onclick = closeSheet;
+    $('#sheetBackdrop').onclick = e => { if (e.target.id === 'sheetBackdrop') closeSheet(); };
   }
 
   function setAuthStatus(isReady, detail = '') {
@@ -307,8 +367,9 @@
       $('#loginView').classList.add('is-hidden');
       $('#mainView').classList.remove('is-hidden');
       $('#profileBtn').textContent = initials(data.user && data.user.name || 'WW');
+      updateNotificationBadge();
       setPage(activePage);
-      if (!silent) toast('Sistem terhubung.');
+      if (!silent) toast('Sistem siap digunakan.');
       return true;
     } catch (err) {
       localStorage.removeItem(TOKEN_KEY);
@@ -356,15 +417,7 @@
   });
 
   $$('.nav-item').forEach(btn => btn.addEventListener('click', () => setPage(btn.dataset.page)));
-  $('#notifyBtn').addEventListener('click', () => {
-    const dash = state.data && state.data.dashboard || {};
-    const alerts = [];
-    if (Number(dash.criticalStock||0)) alerts.push(`${dash.criticalStock} stok kritis`);
-    if (Number(dash.lowStock||0)) alerts.push(`${dash.lowStock} stok menipis`);
-    if (Number(dash.recoveryPending||0)) alerts.push(`${dash.recoveryPending} recovery`);
-    if (Number(dash.packingWageCount||0)) alerts.push(`${dash.packingWageCount} upah packing belum lunas`);
-    toast(alerts.length ? alerts.join(' · ') : 'Tidak ada alert sistem.');
-  });
+  $('#notifyBtn').addEventListener('click', openNotifications);
   $('#profileBtn').addEventListener('click', () => {
     const d = state.data || {};
     const root = $('#sheetRoot');
@@ -372,14 +425,14 @@
     $('#sheetClose').onclick = closeSheet; $('#sheetCancel').onclick = closeSheet;
     $('#logoutBtn').onclick = async () => {
       try { if (state.token) await bridge.call('logoutWarehouse', state.token); } catch (_) {}
-      localStorage.removeItem(TOKEN_KEY); state.token=''; state.data=null; closeSheet();
+      localStorage.removeItem(TOKEN_KEY); state.token=''; state.data=null; updateNotificationBadge(); closeSheet();
       $('#mainView').classList.add('is-hidden'); $('#loginView').classList.remove('is-hidden');
       toast('Logout berhasil.');
     };
   });
 
   if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=0.2.0', { updateViaCache: 'none' }).then(reg => reg.update()).catch(() => {}));
+    window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=0.2.3', { updateViaCache: 'none' }).then(reg => reg.update()).catch(() => {}));
   }
 
   boot();

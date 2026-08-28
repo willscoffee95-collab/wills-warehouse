@@ -11,7 +11,7 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="apple-touch-icon.png">
   <link rel="icon" type="image/png" href="favicon-64.png">
-  <link rel="stylesheet" href="app.css?v=0.2.2">
+  <link rel="stylesheet" href="app.css?v=0.2.3">
   <title>Wills Warehouse</title>
 </head>
 <body>
@@ -26,7 +26,7 @@
           <div>
             <p class="eyebrow">WILLS COFFEE</p>
             <h1>Warehouse</h1>
-            <p class="subtle">Operational Control System</p>
+            <p class="subtle">Sistem Kendali Operasional</p>
           </div>
         </div>
 
@@ -36,8 +36,8 @@
 
         <form id="loginForm" class="auth-form" autocomplete="off">
           <label class="field">
-            <span>User</span>
-            <input id="loginUser" type="text" aria-label="User" placeholder="Username produksi" autocomplete="username">
+            <span>Pengguna</span>
+            <input id="loginUser" type="text" aria-label="Pengguna" placeholder="Nama pengguna" autocomplete="username">
           </label>
           <label class="field">
             <span>PIN</span>
@@ -61,7 +61,7 @@
         <div class="topbar-actions">
           <button class="icon-btn" id="notifyBtn" aria-label="Notifikasi">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></svg>
-            <span class="notify-badge">2</span>
+            <span class="notify-badge is-hidden" id="notifyBadge">0</span>
           </button>
           <button class="avatar" id="profileBtn" aria-label="Profil">WR</button>
         </div>
@@ -99,8 +99,8 @@
     <div id="toastRoot" class="toast-root" aria-live="polite"></div>
   </div>
 
-  <script src="config.js?v=0.2.2"></script>
-  <script src="bridge.js?v=0.2.2"></script>
-  <script src="app.js?v=0.2.2"></script>
+  <script src="config.js?v=0.2.3"></script>
+  <script src="bridge.js?v=0.2.3"></script>
+  <script src="app.js?v=0.2.3"></script>
 </body>
 </html>
