@@ -37,8 +37,15 @@
   let activePage = 'home';
   let stockFilter = 'Semua';
   let featureOpening = false;
+  let busyDepth = 0;
+  let toastShowing = false;
+  const toastQueue = [];
+  let appHistoryReady = false;
+  let sheetHistoryActive = false;
+  let ignoreNextPop = false;
+  let lastBackAt = 0;
 
-  // v1.2.7.0 — role split mirrors backend permission matrix.
+  // v1.2.7.1 — UX guard patch on top of v1.2.7.0 role split.
   const ROLE_LABELS = Object.freeze({
     OWNER:'Owner', ADMIN:'Admin Legacy', ADMIN_1:'Admin 1', ADMIN_2:'Admin 2',
     STAFF_GUDANG:'Staff Gudang Legacy', STAFF_LOGISTIK:'Staff Logistik', FINANCE:'Finance'
@@ -168,6 +175,20 @@
     return map[key] || String(status || '').replaceAll('_',' ');
   }
 
+  function deliveryStatusClass(status) {
+    const s = String(status || '').toUpperCase();
+    if (s === 'DRAFT') return 'status-draft';
+    if (s === 'DIKIRIM') return 'status-sent';
+    if (s === 'DIBATALKAN' || s === 'CANCELLED' || s === 'CANCELED') return 'status-cancelled';
+    if (s === 'SELESAI') return 'status-done';
+    if (s === 'DITERIMA') return 'status-received';
+    if (s === 'SELISIH') return 'bad';
+    return 'brand';
+  }
+  function deliveryStatusBadge(status) {
+    return `<span class="badge ${deliveryStatusClass(status)}">${esc(String(status || '-').toUpperCase())}</span>`;
+  }
+
   function liveHistory() {
     if (!state.data) return [];
     return (state.data.history || []).map(x => {
@@ -196,19 +217,19 @@
     const financeVisible=dash.financeVisible!==false;
     const heroActions=[];
     if(roleCan('PURCHASE')) heroActions.push('<button class="btn btn-primary" data-action="purchase">+ Belanja Bahan</button>');
-    if(actionAllowed('delivery')) heroActions.push(`<button class="btn btn-soft" data-action="delivery">${requestCount?'Bahan Harus Dikirim':'Surat Jalan'}</button>`);
+    if(actionAllowed('delivery')) heroActions.push('<button class="btn btn-soft" data-action="delivery">Bahan Harus Dikirim</button>');
     const quick=[];
     if(roleCan('PACKING')) quick.push(quickCard('pack','Batch Packing','Bahan curah → hasil packing','packing'));
-    if(actionAllowed('delivery')&&requestCount) quick.push(quickCard('truck','Bahan yang Harus Dikirim Sekarang',`${requestCount} permintaan outlet`,'delivery'));
+    if(actionAllowed('delivery')) quick.push(quickCard('truck','Bahan yang Harus Dikirim Sekarang','Cek daftar & siapkan bahan outlet','delivery'));
     if(actionAllowed('delivery')) quick.push(quickCard('truck','Surat Jalan','Pengiriman barang ke outlet','delivery'));
     if(actionAllowed('draftPrint')&&draftCount) quick.push(quickCard('printer','Draft Siap Kirim',`${draftCount} draft · cetak thermal Bluetooth`,'draftPrint'));
     if(roleCan('OUTLET_PAYMENT')) quick.push(quickCard('money','Pembayaran Outlet','Piutang dibayar ke Kas / Bank','outletPayment'));
     if(roleCan('EXPENSE')) quick.push(quickCard('expense','Pengeluaran','Operasional gudang','expense'));
-    const heroValue=financeVisible?compactRp(dash.stockValue):`${num(requestCount,0)} permintaan`;
-    const heroDesc=financeVisible?`Total nilai stok aktif · ${num(dash.activeMaterials,0)} bahan aktif`:`Bahan yang perlu ditangani · ${num(dash.activeMaterials,0)} bahan aktif`;
+    const heroValue=financeVisible?compactRp(dash.stockValue):`${num(dash.activeMaterials,0)} bahan`;
+    const heroDesc=financeVisible?`Total nilai stok aktif · ${num(dash.activeMaterials,0)} bahan aktif`:'Permintaan outlet aktif ditampilkan melalui lonceng notifikasi';
     const kpis=financeVisible
       ? `${kpiCard('Dana Gudang', compactRp(dash.warehouseFunds), `Bank ${compactRp(dash.bankBalance)} · Kas ${compactRp(dash.cashBalance)}`, 'good')}${kpiCard('Piutang Outlet', compactRp(dash.receivablesTotal), `${num(dash.receivablesCount,0)} tagihan aktif`)}${kpiCard('Dalam Pengiriman', `${num(dash.transitLines,0)} item`, compactRp(dash.transitValue), Number(dash.transitLines||0)===0?'good':'')}${kpiCard('Pemulihan', num(dash.recoveryPending,0), Number(dash.recoveryPending||0)===0?'Tidak ada proses tertunda':'Perlu perhatian', Number(dash.recoveryPending||0)===0?'good':'')}`
-      : `${kpiCard('Bahan Aktif', num(dash.activeMaterials,0), 'Stok fisik tersedia')}${kpiCard('Harus Dikirim', num(requestCount,0), requestCount?'Permintaan outlet perlu disiapkan':'Tidak ada antrean', requestCount?'':'good')}${kpiCard('Dalam Pengiriman', `${num(dash.transitLines,0)} item`, Number(dash.transitLines||0)===0?'Tidak ada barang di transit':'Sedang menuju outlet', Number(dash.transitLines||0)===0?'good':'')}${kpiCard('Pemulihan', num(dash.recoveryPending,0), Number(dash.recoveryPending||0)===0?'Tidak ada proses tertunda':'Perlu perhatian', Number(dash.recoveryPending||0)===0?'good':'')}`;
+      : `${kpiCard('Bahan Aktif', num(dash.activeMaterials,0), 'Stok fisik tersedia')}${kpiCard('Permintaan Outlet', 'Lihat Lonceng', 'Antrean aktif ada di notifikasi', 'good')}${kpiCard('Dalam Pengiriman', `${num(dash.transitLines,0)} item`, Number(dash.transitLines||0)===0?'Tidak ada barang di transit':'Sedang menuju outlet', Number(dash.transitLines||0)===0?'good':'')}${kpiCard('Pemulihan', num(dash.recoveryPending,0), Number(dash.recoveryPending||0)===0?'Tidak ada proses tertunda':'Perlu perhatian', Number(dash.recoveryPending||0)===0?'good':'')}`;
     return `${pageHead(`${greeting()}, ${displayName}`, roleName(d.user&&d.user.role||''), 'Sistem aktif')}
       <section class="hero">
         <div class="hero-kicker"><span class="pulse"></span>Pusat Kendali Gudang</div>
@@ -244,7 +265,7 @@
     const all = [
       ['cart','Belanja Bahan','Lunas / Tempo · Kas / Bank','purchase'],
       ['pack','Batch Packing','Hasil, sisa, susut & upah','packing'],
-      ['truck','Bahan yang Harus Dikirim Sekarang',`${((state.data||{}).incomingRequests||[]).filter(x=>!['SELESAI','DIBATALKAN'].includes(String(x.warehouseStatus||''))).length} permintaan aktif dari outlet`,'delivery'],
+      ['truck','Bahan yang Harus Dikirim Sekarang','Cek notifikasi lalu siapkan pesanan outlet','delivery'],
       ['printer','Draft Siap Kirim','Checklist & cetak thermal Bluetooth','draftPrint'],
       ['money','Pembayaran Outlet','Kurangi piutang & tambah saldo','outletPayment'],
       ['expense','Pengeluaran Operasional','Listrik, BBM, maintenance, dll','expense'],
@@ -288,15 +309,24 @@
       </div></section>`;
   }
 
-  async function setPage(page) {
+  async function setPage(page, options = {}) {
     if (!pages[page] || !state.data) return;
+    const previous = activePage;
+    const pushHistory = options.pushHistory !== false;
+    if(page!=='home' && !state.fullLoaded){
+      beginBusy('Memuat data…');
+      try{await ensureFullData();}catch(e){toast(e.message);return;}finally{endBusy();}
+    }
     activePage = page;
-    if(page!=='home' && !state.fullLoaded){ try{await ensureFullData();}catch(e){toast(e.message);return;} }
     $('#content').innerHTML = pages[page]();
     $$('.nav-item').forEach(x => x.classList.toggle('is-active', x.dataset.page === page));
     bindPage();
     $('#content').focus({ preventScroll: true });
     window.scrollTo({ top: 0, behavior: 'auto' });
+    if (pushHistory && appHistoryReady && previous !== page) {
+      history.pushState({ willsWarehouse: true, page }, document.title);
+      lastBackAt = 0;
+    }
   }
 
   function bindPage() {
@@ -325,35 +355,45 @@
   async function openFeatureOneTap(action, trigger) {
     if (!actionNames[action]) return toast('Fitur tidak dikenali.');
     if (!actionAllowed(action)) return toast('Menu ini tidak termasuk hak akses ' + roleName(currentRole()) + '.');
-    if (featureOpening) return;
+    if (featureOpening || busyDepth > 0) return;
     featureOpening = true;
     if (trigger) {
       trigger.disabled = true;
       trigger.setAttribute('aria-busy', 'true');
+      trigger.classList.add('is-loading');
     }
+    beginBusy('Membuka ' + actionNames[action] + '…');
     try {
       await ensureFullData();
       openDirectSheet(action);
     } catch (err) {
       toast(err && err.message ? err.message : 'Fitur belum dapat dibuka.');
     } finally {
+      endBusy();
       featureOpening = false;
       if (trigger) {
         trigger.disabled = false;
         trigger.removeAttribute('aria-busy');
+        trigger.classList.remove('is-loading');
       }
     }
   }
 
+  function pushSheetHistory() {
+    if (!appHistoryReady || sheetHistoryActive) return;
+    history.pushState({ willsWarehouse: true, page: activePage, sheet: true }, document.title);
+    sheetHistoryActive = true;
+  }
   function sheetHtml(title, body) {
     const root=$('#sheetRoot');
     root.innerHTML=`<div class="sheet-backdrop" id="sheetBackdrop"><div class="sheet" role="dialog" aria-modal="true" aria-label="${esc(title)}"><div class="grabber"></div><div class="sheet-head"><h3>${esc(title)}</h3><button class="sheet-close" id="sheetClose">×</button></div>${body}</div></div>`;
+    pushSheetHistory();
     $('#sheetClose').onclick=closeSheet; $('#sheetBackdrop').onclick=e=>{if(e.target.id==='sheetBackdrop')closeSheet()};
   }
   function idemKey(action){const k='ww_gh_idem_'+action;let x;try{x=JSON.parse(localStorage.getItem(k)||'null')}catch(_){x=null}if(x&&Date.now()-x.ts<86400000)return x.id;const id=action+':'+Date.now()+':'+Math.random().toString(36).slice(2);localStorage.setItem(k,JSON.stringify({id,ts:Date.now()}));return id}
-  async function writeDirect(action,method,payload){const idem=idemKey(action);try{toast('Menyimpan…');const r=await bridge.call(method,state.token,payload||{},idem);if(r&&r.ok===false)throw new Error(r.message||'Transaksi gagal');localStorage.removeItem('ww_gh_idem_'+action);toast('Berhasil disimpan'+(r&&r.txnId?' · '+r.txnId:''));closeSheet();await reloadFull();return r}catch(e){toast(e.message);throw e}}
+  async function writeDirect(action,method,payload){const idem=idemKey(action);beginBusy('Menyimpan…');try{const r=await bridge.call(method,state.token,payload||{},idem);if(r&&r.ok===false)throw new Error(r.message||'Transaksi gagal');localStorage.removeItem('ww_gh_idem_'+action);toast('Berhasil disimpan'+(r&&r.txnId?' · '+r.txnId:''));closeSheet();await reloadFull();return r}catch(e){toast(e.message);throw e}finally{endBusy()}}
   async function reloadDeliveryModule(){const m=await bridge.call('getAppModule',state.token,'delivery');Object.assign(state.data,m||{});return m;}
-  async function writeDeliveryDirect(action,method,payload,sjId){const idem=idemKey(action);try{toast('Menyimpan…');const r=await bridge.call(method,state.token,payload||{},idem);if(r&&r.ok===false)throw new Error(r.message||'Perintah gagal');localStorage.removeItem('ww_gh_idem_'+action);await reloadDeliveryModule();toast('Berhasil disimpan'+(r&&r.txnId?' · '+r.txnId:''));directDeliveryDetail(sjId);return r}catch(e){toast(e.message);throw e}}
+  async function writeDeliveryDirect(action,method,payload,sjId){const idem=idemKey(action);beginBusy('Memproses Surat Jalan…');try{const r=await bridge.call(method,state.token,payload||{},idem);if(r&&r.ok===false)throw new Error(r.message||'Perintah gagal');localStorage.removeItem('ww_gh_idem_'+action);await reloadDeliveryModule();toast('Berhasil disimpan'+(r&&r.txnId?' · '+r.txnId:''));directDeliveryDetail(sjId);return r}catch(e){toast(e.message);throw e}finally{endBusy()}}
   async function callDirect(method,...args){return bridge.call(method,state.token,...args)}
   const matByCode=()=>Object.fromEntries(((state.data||{}).materials||[]).map(m=>[m.code,m]));
   const matOpts=(purch=false)=>((state.data||{}).materials||[]).filter(m=>m.active==='YA'&&(!purch||m.purchasable!==false)).map(m=>`<option value="${esc(m.code)}">${esc(m.name)} · ${esc(m.receiveUnit||'')}</option>`).join('');
@@ -374,11 +414,11 @@
     if(roleCan('REQUEST_SYNC'))tools.push('<button class="btn btn-soft" id="ghSyncReq">Perbarui Permintaan</button>');
     if(roleCan('DELIVERY_SYNC'))tools.push('<button class="btn btn-primary" id="ghSyncRec">Sinkron Penerimaan</button>');
     if(canAny('AUDIT_OPERATIONAL','DELIVERY_SYNC'))tools.push('<button class="btn btn-line" id="ghDiag">Diagnostik</button>');
-    sheetHtml('Bahan yang Harus Dikirim Sekarang',`${tools.length?`<div class="direct-toolbar">${tools.join('')}</div>`:''}<h4>Permintaan Aktif</h4><div class="direct-list">${req.map(x=>`<div class="direct-card"><b>${esc(x.outletName)} · ${esc(x.needDate||'')}</b><small>${esc(x.requestId)} · ${num(x.itemCount||0)} bahan${x.linkedNoSj?' · '+esc(x.linkedNoSj):''}</small><span class="badge warn">${esc(x.warehouseStatus||'')}</span></div>`).join('')||'<div class="empty">Tidak ada permintaan aktif.</div>'}</div><h4>Surat Jalan</h4><div class="direct-list">${rows.slice(0,30).map(x=>`<button class="direct-card direct-click" data-sjid="${esc(x.sjId)}"><b>${esc(x.noSj)} · ${esc(x.outletName)}</b><small>${(x.lines||[]).length} item${x.status==='DRAFT'?' · siap checklist thermal':''}${x.lastError?' · '+esc(x.lastError):''}</small><span class="badge ${x.status==='DITERIMA'||x.status==='SELESAI'?'ok':x.status==='SELISIH'?'bad':'warn'}">${esc(x.status)}</span></button>`).join('')||'<div class="empty">Belum ada SJ.</div>'}</div>`);
+    sheetHtml('Bahan yang Harus Dikirim Sekarang',`${tools.length?`<div class="direct-toolbar">${tools.join('')}</div>`:''}<h4>Permintaan Aktif</h4><div class="direct-list">${req.map(x=>`<div class="direct-card"><b>${esc(x.outletName)} · ${esc(x.needDate||'')}</b><small>${esc(x.requestId)} · ${num(x.itemCount||0)} bahan${x.linkedNoSj?' · '+esc(x.linkedNoSj):''}</small><span class="badge warn">${esc(x.warehouseStatus||'')}</span></div>`).join('')||'<div class="empty">Tidak ada permintaan aktif.</div>'}</div><h4>Surat Jalan</h4><div class="direct-list">${rows.slice(0,30).map(x=>`<button class="direct-card direct-click" data-sjid="${esc(x.sjId)}"><b>${esc(x.noSj)} · ${esc(x.outletName)}</b><small>${(x.lines||[]).length} item${x.status==='DRAFT'?' · siap checklist thermal':''}${x.lastError?' · '+esc(x.lastError):''}</small>${deliveryStatusBadge(x.status)}</button>`).join('')||'<div class="empty">Belum ada SJ.</div>'}</div>`);
     const newSj=$('#ghNewSj');if(newSj)newSj.onclick=directNewSj;
-    const syncReq=$('#ghSyncReq');if(syncReq)syncReq.onclick=async()=>{try{await callDirect('syncOutletMaterialRequestsNowV1250');toast('Permintaan diperbarui.');await reloadDeliveryModule();directDelivery()}catch(e){toast(e.message)}};
-    const syncRec=$('#ghSyncRec');if(syncRec)syncRec.onclick=async()=>{try{const r=await callDirect('syncOutletReceipts');toast('Penerimaan disinkronkan'+(r.elapsedMs?' · '+r.elapsedMs+' ms':''));await reloadDeliveryModule();directDelivery()}catch(e){toast(e.message)}};
-    const diag=$('#ghDiag');if(diag)diag.onclick=async()=>{try{const r=await callDirect('auditReceiptSyncDiagnosticAppV1260');showDiagnostic(r)}catch(e){toast(e.message)}};
+    const syncReq=$('#ghSyncReq');if(syncReq)syncReq.onclick=async()=>{try{await withBusy('Memperbarui permintaan…',async()=>{await callDirect('syncOutletMaterialRequestsNowV1250');await reloadDeliveryModule();});toast('Permintaan diperbarui.');directDelivery()}catch(e){toast(e.message)}};
+    const syncRec=$('#ghSyncRec');if(syncRec)syncRec.onclick=async()=>{try{let r;await withBusy('Sinkron penerimaan…',async()=>{r=await callDirect('syncOutletReceipts');await reloadDeliveryModule();});toast('Penerimaan disinkronkan'+(r&&r.elapsedMs?' · '+r.elapsedMs+' ms':''));directDelivery()}catch(e){toast(e.message)}};
+    const diag=$('#ghDiag');if(diag)diag.onclick=async()=>{try{let r;await withBusy('Menjalankan diagnostik…',async()=>{r=await callDirect('auditReceiptSyncDiagnosticAppV1260')});showDiagnostic(r)}catch(e){toast(e.message)}};
     $$('[data-sjid]').forEach(b=>b.onclick=()=>directDeliveryDetail(b.dataset.sjid));
   }
 
@@ -395,13 +435,13 @@
     const canPrepare=roleCan('DELIVERY_PREPARE'),canCancel=roleCan('DELIVERY_CANCEL'),canDispatch=roleCan('DELIVERY_DISPATCH'),canComplete=roleCan('DELIVERY_COMPLETE'),canSync=roleCan('DELIVERY_SYNC');
     const req=findRequestForDelivery(d);
     const requestMeta=req?`<div class="delivery-request-meta"><b>Permintaan outlet</b><span>${esc(req.requestId)}${req.needDate?' · dibutuhkan '+esc(req.needDate):''}</span></div>`:'';
-    sheetHtml(d.noSj,`<p><b>${esc(d.outletName)}</b> · ${esc(d.status)}${d.createdBy?' · dibuat '+esc(d.createdBy):''}</p>${requestMeta}<div class="direct-list">${(d.lines||[]).map(l=>{const requested=Number(l.requestedQtyUnit!=null?l.requestedQtyUnit:(l.qtyUnit||0)),approved=Number(l.qtyUnit||0),received=Number(l.receivedBase||0)/Number(l.factor||1),fulfillment=l.fulfillmentStatus||'DIPENUHI',fc=fulfillment==='DIPENUHI'?'ok':fulfillment==='TIDAK TERSEDIA'?'bad':'warn';return `<div class="direct-card"><b>${esc(l.name)}</b><small>Diminta ${num(requested)} · disiapkan ${num(approved)} ${esc(l.sendUnit)}${d.status!=='DRAFT'?' · diterima '+num(received):''}</small>${l.fulfillmentReason?`<small>Alasan: ${esc(l.fulfillmentReason)}</small>`:''}<span class="badge ${fc}">${esc(fulfillment)}</span></div>`}).join('')}</div><div class="actions">${d.status!=='DIBATALKAN'&&actionAllowed('draftPrint')?'<button class="btn btn-thermal" id="ghPrintSj">Cetak Thermal</button>':''}${d.status==='DRAFT'&&canPrepare?'<button class="btn btn-soft" id="ghAdjustSj">Atur Ketersediaan</button>':''}${d.status==='DRAFT'&&canCancel?'<button class="btn btn-line" id="ghCancelSj">Batalkan</button>':''}${d.status==='DRAFT'&&canDispatch?'<button class="btn btn-primary" id="ghSendSj">Konfirmasi Kirim</button>':''}${d.status==='DITERIMA'&&canComplete?'<button class="btn btn-primary" id="ghCompleteSj">Selesaikan & Bentuk Piutang</button>':''}${!['DRAFT','DIBATALKAN'].includes(d.status)&&canSync?'<button class="btn btn-soft" id="ghSyncSj">Sinkron SJ Ini</button>':''}</div>`);
+    sheetHtml(d.noSj,`<p><b>${esc(d.outletName)}</b> · ${deliveryStatusBadge(d.status)}${d.createdBy?' · dibuat '+esc(d.createdBy):''}</p>${requestMeta}<div class="direct-list">${(d.lines||[]).map(l=>{const requested=Number(l.requestedQtyUnit!=null?l.requestedQtyUnit:(l.qtyUnit||0)),approved=Number(l.qtyUnit||0),received=Number(l.receivedBase||0)/Number(l.factor||1),fulfillment=l.fulfillmentStatus||'DIPENUHI',fc=fulfillment==='DIPENUHI'?'ok':fulfillment==='TIDAK TERSEDIA'?'bad':'warn';return `<div class="direct-card"><b>${esc(l.name)}</b><small>Diminta ${num(requested)} · disiapkan ${num(approved)} ${esc(l.sendUnit)}${d.status!=='DRAFT'?' · diterima '+num(received):''}</small>${l.fulfillmentReason?`<small>Alasan: ${esc(l.fulfillmentReason)}</small>`:''}<span class="badge ${fc}">${esc(fulfillment)}</span></div>`}).join('')}</div><div class="actions">${d.status!=='DIBATALKAN'&&actionAllowed('draftPrint')?'<button class="btn btn-thermal" id="ghPrintSj">Cetak Thermal</button>':''}${d.status==='DRAFT'&&canPrepare?'<button class="btn btn-soft" id="ghAdjustSj">Atur Ketersediaan</button>':''}${d.status==='DRAFT'&&canCancel?'<button class="btn btn-line" id="ghCancelSj">Batalkan</button>':''}${d.status==='DRAFT'&&canDispatch?'<button class="btn btn-primary" id="ghSendSj">Konfirmasi Kirim</button>':''}${d.status==='DITERIMA'&&canComplete?'<button class="btn btn-primary" id="ghCompleteSj">Selesaikan & Bentuk Piutang</button>':''}${!['DRAFT','DIBATALKAN'].includes(d.status)&&canSync?'<button class="btn btn-soft" id="ghSyncSj">Sinkron SJ Ini</button>':''}</div>`);
     const p=$('#ghPrintSj');if(p)p.onclick=()=>directPrintDeliveryDraft(id);
     const a=$('#ghAdjustSj');if(a)a.onclick=()=>directFulfillment(id);
     const c=$('#ghCancelSj');if(c)c.onclick=()=>writeDeliveryDirect('cancel_'+id,'cancelDeliveryDraft',{sjId:id,reason:'Dibatalkan dari GitHub PWA'},id);
     const k=$('#ghSendSj');if(k)k.onclick=()=>confirm('Hanya qty yang sudah disiapkan/disetujui yang akan mengurangi stok. Barang benar-benar siap dikirim?')&&writeDeliveryDirect('dispatch_'+id,'dispatchDelivery',{sjId:id},id);
     const f=$('#ghCompleteSj');if(f)f.onclick=()=>confirm('Selesaikan SJ dan bentuk piutang outlet?')&&writeDirect('complete_'+id,'completeDelivery',{sjId:id});
-    const y=$('#ghSyncSj');if(y)y.onclick=async()=>{try{const r=await callDirect('syncOutletReceiptForDelivery',{sjId:id});if(!r.ok)throw new Error(r.error||'Sinkron gagal.');toast('Penerimaan SJ diperbarui · '+r.elapsedMs+' ms');await reloadDeliveryModule();directDeliveryDetail(id)}catch(e){toast(e.message)}};
+    const y=$('#ghSyncSj');if(y)y.onclick=async()=>{try{let r;await withBusy('Sinkron SJ…',async()=>{r=await callDirect('syncOutletReceiptForDelivery',{sjId:id});if(!r.ok)throw new Error(r.error||'Sinkron gagal.');await reloadDeliveryModule();});toast('Penerimaan SJ diperbarui · '+r.elapsedMs+' ms');directDeliveryDetail(id)}catch(e){toast(e.message)}};
   }
 
   function findRequestForDelivery(d){
@@ -442,24 +482,104 @@
   function directSupplierPayment(){const rows=((state.data||{}).payables||[]).filter(x=>x.outstanding>0);sheetHtml('Bayar Supplier',`<form id="ghPaySup"><label class="field"><span>Sumber</span><select name="paymentSource"><option value="CASH">Kas Gudang</option><option value="BANK">Bank</option></select></label><div class="direct-list">${rows.map(x=>`<label class="direct-card"><b>${esc(x.supplier)}</b><small>${esc(x.purchaseTxnId)} · ${rp(x.outstanding)}</small><input class="spck" type="checkbox" data-id="${esc(x.purchaseTxnId)}" data-sup="${esc(x.supplierId)}"><input class="spamt" data-id="${esc(x.purchaseTxnId)}" type="number" value="${x.outstanding}" min="0.01" max="${x.outstanding}"></label>`).join('')||'<div class="empty">Tidak ada hutang.</div>'}</div><label class="field"><span>Catatan</span><textarea name="note"></textarea></label><div class="actions"><button class="btn btn-line" type="button" id="ghCancel">Tutup</button><button class="btn btn-primary">Posting</button></div></form>`);$('#ghCancel').onclick=closeSheet;$('#ghPaySup').onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.target),cks=$$('.spck:checked'),sup=[...new Set(cks.map(x=>x.dataset.sup))];if(!cks.length)return toast('Pilih hutang.');if(sup.length>1)return toast('Pilih satu supplier.');await writeDirect('supplierPayment','postSupplierPayment',{paymentSource:fd.get('paymentSource'),note:fd.get('note'),allocations:cks.map(x=>({purchaseTxnId:x.dataset.id,amount:$(`.spamt[data-id="${CSS.escape(x.dataset.id)}"]`).value}))})};}
   function directAdjustment(){sheetHtml('Opname / Koreksi',`<form id="ghAdj"><label class="field"><span>Alasan</span><select name="reason"><option value="SELISIH_OPNAME">Selisih opname</option><option value="STOK_AWAL_TERLEWAT">Stok awal terlewat</option><option value="BARANG_DITEMUKAN">Barang ditemukan</option><option value="BARANG_RUSAK">Barang rusak</option><option value="BARANG_HILANG">Barang hilang</option><option value="KESALAHAN_PENCATATAN">Kesalahan pencatatan</option><option value="KOREKSI_INVESTIGASI">Koreksi investigasi</option><option value="LAINNYA">Lainnya</option></select></label><div id="ghAdjLines"></div><button class="btn btn-soft" type="button" id="ghAddAdj">+ Tambah bahan</button><label class="field"><span>Catatan</span><textarea name="note"></textarea></label><div class="actions"><button class="btn btn-line" type="button" id="ghCancel">Tutup</button><button class="btn btn-primary">Posting Koreksi</button></div></form>`);const box=$('#ghAdjLines'),add=()=>{const el=document.createElement('div');el.className='direct-line';el.innerHTML=`<select class="code"><option value="">Pilih bahan</option>${matOpts(false)}</select><input class="physical" type="number" min="0" step="0.000001" placeholder="Stok fisik unit"><input class="cost" type="number" min="0" step="0.01" placeholder="Modal/unit jika perlu"><button class="line-remove" type="button">×</button>`;el.querySelector('.line-remove').onclick=()=>el.remove();box.appendChild(el)};add();$('#ghAddAdj').onclick=add;$('#ghCancel').onclick=closeSheet;$('#ghAdj').onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.target),mm=matByCode(),items=[...box.querySelectorAll('.direct-line')].map(x=>{const m=mm[x.querySelector('.code').value],physical=Number(x.querySelector('.physical').value||0),cost=x.querySelector('.cost').value;return{code:m.code,physicalQtyBase:physical*Number(m.factor||1),unitCostBase:cost===''?'':Number(cost)/Number(m.factor||1)}});await writeDirect('adjustment','postStockAdjustment',{reason:fd.get('reason'),note:fd.get('note'),items})};}
   function directPackingWage(){const rows=((state.data||{}).packingWages||[]).filter(x=>x.outstanding>0);sheetHtml('Bayar Upah Packing',`<form id="ghPw"><label class="field"><span>Sumber</span><select name="paymentSource"><option value="CASH">Kas Gudang</option><option value="BANK">Bank</option></select></label><div class="direct-list">${rows.map(x=>`<label class="direct-card"><b>${esc(x.packer)}</b><small>${esc(x.batchId)} · ${rp(x.outstanding)}</small><input class="pwck" type="checkbox" data-id="${esc(x.batchId)}" data-packer="${esc(x.packer)}"><input class="pwamt" data-id="${esc(x.batchId)}" type="number" value="${x.outstanding}" min="0.01" max="${x.outstanding}"></label>`).join('')||'<div class="empty">Tidak ada upah terhutang.</div>'}</div><label class="field"><span>Catatan</span><textarea name="note"></textarea></label><div class="actions"><button class="btn btn-line" type="button" id="ghCancel">Tutup</button><button class="btn btn-primary">Posting</button></div></form>`);$('#ghCancel').onclick=closeSheet;$('#ghPw').onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.target),cks=$$('.pwck:checked'),pack=[...new Set(cks.map(x=>x.dataset.packer))];if(!cks.length)return toast('Pilih upah.');if(pack.length>1)return toast('Pilih satu packer.');await writeDirect('packingWage','postPackingWagePayment',{paymentSource:fd.get('paymentSource'),note:fd.get('note'),allocations:cks.map(x=>({batchId:x.dataset.id,amount:$(`.pwamt[data-id="${CSS.escape(x.dataset.id)}"]`).value}))})};}
-  function directInternalPrice(){const mats=((state.data||{}).materials||[]).filter(x=>x.active==='YA'&&x.distributable!==false);sheetHtml('Harga Internal Outlet',`<form id="ghPrice"><label class="field"><span>Bahan</span><select name="code"><option value="">Pilih</option>${mats.map(x=>`<option value="${esc(x.code)}">${esc(x.name)} · ${Number(x.internalPrice||0)>0?rp(x.internalPrice):'BELUM DISET'}</option>`).join('')}</select></label><label class="field"><span>Harga / unit</span><input name="internalPrice" type="number" min="0" required></label><div class="actions"><button class="btn btn-line" type="button" id="ghPreviewPrice">Preview dari Outlet</button><button class="btn btn-primary">Simpan</button></div></form><div id="ghPricePreview"></div>`);$('#ghPrice').onsubmit=async e=>{e.preventDefault();await writeDirect('internalPrice','saveWarehouseInternalPrice',Object.fromEntries(new FormData(e.target).entries()))};$('#ghPreviewPrice').onclick=async()=>{try{const r=await callDirect('previewOutletReceiptInternalPrices');$('#ghPricePreview').innerHTML=`<div class="demo-box">Siap diubah ${(r.stats||{}).ready||0} · Konflik ${(r.stats||{}).conflict||0} · Belum ada ${(r.stats||{}).missing||0}</div>`}catch(e){toast(e.message)}};}
+  function directInternalPrice(){const mats=((state.data||{}).materials||[]).filter(x=>x.active==='YA'&&x.distributable!==false);sheetHtml('Harga Internal Outlet',`<form id="ghPrice"><label class="field"><span>Bahan</span><select name="code"><option value="">Pilih</option>${mats.map(x=>`<option value="${esc(x.code)}">${esc(x.name)} · ${Number(x.internalPrice||0)>0?rp(x.internalPrice):'BELUM DISET'}</option>`).join('')}</select></label><label class="field"><span>Harga / unit</span><input name="internalPrice" type="number" min="0" required></label><div class="actions"><button class="btn btn-line" type="button" id="ghPreviewPrice">Preview dari Outlet</button><button class="btn btn-primary">Simpan</button></div></form><div id="ghPricePreview"></div>`);$('#ghPrice').onsubmit=async e=>{e.preventDefault();await writeDirect('internalPrice','saveWarehouseInternalPrice',Object.fromEntries(new FormData(e.target).entries()))};$('#ghPreviewPrice').onclick=async()=>{try{let r;await withBusy('Memuat preview harga…',async()=>{r=await callDirect('previewOutletReceiptInternalPrices')});$('#ghPricePreview').innerHTML=`<div class="demo-box">Siap diubah ${(r.stats||{}).ready||0} · Konflik ${(r.stats||{}).conflict||0} · Belum ada ${(r.stats||{}).missing||0}</div>`}catch(e){toast(e.message)}};}
   function directUsers(){
     const users=(state.data||{}).users||[];
     sheetHtml('Pengguna & Peran',`<div class="role-guide"><b>Pembagian kerja</b><span><strong>Admin 1</strong> · stok gudang, belanja/pemasukan, pengeluaran & koreksi stok</span><span><strong>Admin 2</strong> · cek pesanan outlet, siapkan bahan, Surat Jalan & pengiriman</span><span><strong>Finance</strong> · pembayaran, hutang/piutang & arus dana</span><span><strong>Staff Logistik</strong> · packing, penyiapan & pengiriman fisik</span></div><form id="ghUser"><label class="field"><span>Nama</span><input name="name" required></label><label class="field"><span>Username</span><input name="username" required></label><label class="field"><span>Role</span><select name="role"><option value="ADMIN_1">Admin 1</option><option value="ADMIN_2">Admin 2</option><option value="FINANCE">Finance</option><option value="STAFF_LOGISTIK">Staff Logistik</option><option value="OWNER">Owner</option></select></label><label class="field"><span>PIN</span><input name="pin" type="password" inputmode="numeric" required></label><div class="actions"><button class="btn btn-primary">Simpan User</button></div></form><div class="direct-list">${users.map(x=>`<div class="direct-card"><b>${esc(x.name)}</b><small>@${esc(x.username)} · ${esc(roleName(x.role))}${['ADMIN','STAFF_GUDANG'].includes(String(x.role||''))?' · legacy, sebaiknya ubah role':''}</small></div>`).join('')}</div>`);
     $('#ghUser').onsubmit=async e=>{e.preventDefault();await writeDirect('user','saveUser',Object.fromEntries(new FormData(e.target).entries()))};
   }
-  function directAudit(){sheetHtml('Audit Sistem',`<div class="actions"><button class="btn btn-primary" id="ghAudit1260">Audit Warehouse</button><button class="btn btn-line" id="ghAuditReceipt">Diagnostik Penerimaan</button></div><pre id="ghAuditOut" class="audit-pre">Pilih audit.</pre>`);$('#ghAudit1260').onclick=async()=>{try{$('#ghAuditOut').textContent=JSON.stringify(await callDirect('auditWarehouseAppV1260'),null,2)}catch(e){toast(e.message)}};$('#ghAuditReceipt').onclick=async()=>{try{showDiagnostic(await callDirect('auditReceiptSyncDiagnosticAppV1260'))}catch(e){toast(e.message)}};}
+  function directAudit(){sheetHtml('Audit Sistem',`<div class="actions"><button class="btn btn-primary" id="ghAudit1260">Audit Warehouse</button><button class="btn btn-line" id="ghAuditReceipt">Diagnostik Penerimaan</button></div><pre id="ghAuditOut" class="audit-pre">Pilih audit.</pre>`);$('#ghAudit1260').onclick=async()=>{try{let r;await withBusy('Menjalankan audit…',async()=>{r=await callDirect('auditWarehouseAppV1260')});$('#ghAuditOut').textContent=JSON.stringify(r,null,2)}catch(e){toast(e.message)}};$('#ghAuditReceipt').onclick=async()=>{try{let r;await withBusy('Memeriksa penerimaan…',async()=>{r=await callDirect('auditReceiptSyncDiagnosticAppV1260')});showDiagnostic(r)}catch(e){toast(e.message)}};}
   function directRecovery(){const dash=(state.data||{}).dashboard||{};sheetHtml('Antrean Pemulihan',`<div class="demo-box"><b>${num(dash.recoveryPending||0)}</b> transaksi menunggu pemulihan. Recovery engine tetap berjalan di backend dan tidak boleh dihapus manual.</div>`)}
   function directOpening(){const c=(state.data||{}).controls||{};sheetHtml('Saldo Awal',`<p>Status: Stok ${c.openingStockOpen?'TERBUKA':'TERKUNCI'} · Bank ${c.openingBankOpen?'TERBUKA':'TERKUNCI'} · Kas ${c.openingCashOpen?'TERBUKA':'TERKUNCI'}.</p>${c.openingBankOpen?'<form id="ghOpenBank"><label class="field"><span>Nama rekening</span><input name="accountName" required></label><label class="field"><span>Saldo</span><input name="amount" type="number" min="0" required></label><button class="btn btn-primary">Posting Saldo Awal Bank</button></form>':''}${c.openingCashOpen?'<form id="ghOpenCash"><label class="field"><span>Referensi</span><input name="reference" value="Kas Gudang"></label><label class="field"><span>Saldo</span><input name="amount" type="number" min="0" required></label><button class="btn btn-primary">Posting Saldo Awal Kas</button></form>':''}`);const b=$('#ghOpenBank');if(b)b.onsubmit=async e=>{e.preventDefault();await writeDirect('openBank','postOpeningBank',Object.fromEntries(new FormData(e.target).entries()))};const csh=$('#ghOpenCash');if(csh)csh.onsubmit=async e=>{e.preventDefault();await writeDirect('openCash','postOpeningCash',Object.fromEntries(new FormData(e.target).entries()))};}
   function directMaterials(){const mats=(state.data||{}).materials||[];sheetHtml('Master Bahan Wills',`<div class="direct-list">${mats.map(x=>`<div class="direct-card"><b>${esc(x.name)}</b><small>${esc(x.code)} · 1 ${esc(x.receiveUnit)} = ${num(x.factor)} ${esc(x.baseUnit)}</small></div>`).join('')}</div>`)}
-  function closeSheet(){ $('#sheetRoot').innerHTML = ''; }
-
-  function toast(message) {
-    const root = $('#toastRoot');
-    root.innerHTML = `<div class="toast">${esc(message)}</div>`;
-    clearTimeout(toast.timer);
-    toast.timer = setTimeout(() => root.innerHTML = '', 3200);
+  function closeSheet(options = {}){
+    $('#sheetRoot').innerHTML = '';
+    const fromBack = options.fromBack === true;
+    if (sheetHistoryActive) {
+      sheetHistoryActive = false;
+      if (!fromBack && appHistoryReady) {
+        ignoreNextPop = true;
+        history.back();
+      }
+    }
   }
+
+  function beginBusy(label = 'Memuat…') {
+    busyDepth += 1;
+    const root = $('#busyRoot');
+    const text = $('#busyText');
+    if (text) text.textContent = label;
+    if (root) root.classList.remove('is-hidden');
+    document.documentElement.classList.add('app-busy');
+  }
+  function endBusy() {
+    busyDepth = Math.max(0, busyDepth - 1);
+    if (busyDepth > 0) return;
+    const root = $('#busyRoot');
+    if (root) root.classList.add('is-hidden');
+    document.documentElement.classList.remove('app-busy');
+  }
+  async function withBusy(label, fn) {
+    beginBusy(label);
+    try { return await fn(); } finally { endBusy(); }
+  }
+
+  function toast(message, duration = 3600) {
+    const text = String(message == null ? '' : message).trim();
+    if (!text) return;
+    toastQueue.push({ message: text, duration: Math.max(3000, Number(duration || 3600)) });
+    showNextToast();
+  }
+  function showNextToast() {
+    if (toastShowing || !toastQueue.length) return;
+    toastShowing = true;
+    const item = toastQueue.shift();
+    const root = $('#toastRoot');
+    root.innerHTML = `<div class="toast">${esc(item.message)}</div>`;
+    setTimeout(() => {
+      root.innerHTML = '';
+      toastShowing = false;
+      setTimeout(showNextToast, 120);
+    }, item.duration);
+  }
+
+  function initAppHistory() {
+    if (appHistoryReady) return;
+    history.replaceState({ willsWarehouse: true, page: 'home', base: true }, document.title);
+    history.pushState({ willsWarehouse: true, page: 'home', guard: true }, document.title);
+    appHistoryReady = true;
+    lastBackAt = 0;
+  }
+
+  window.addEventListener('popstate', event => {
+    if (!appHistoryReady || $('#mainView').classList.contains('is-hidden')) return;
+    if (ignoreNextPop) { ignoreNextPop = false; return; }
+    if ($('#sheetRoot').children.length) {
+      sheetHistoryActive = false;
+      closeSheet({ fromBack: true });
+      return;
+    }
+    const target = event.state && event.state.willsWarehouse ? event.state.page : 'home';
+    if (activePage !== target) {
+      setPage(target || 'home', { pushHistory: false });
+      lastBackAt = 0;
+      return;
+    }
+    if (activePage !== 'home') {
+      setPage('home', { pushHistory: false });
+      history.pushState({ willsWarehouse: true, page: 'home', guard: true }, document.title);
+      return;
+    }
+    const now = Date.now();
+    if (now - lastBackAt < 2200) {
+      appHistoryReady = false;
+      history.back();
+      return;
+    }
+    lastBackAt = now;
+    toast('Sudah di Beranda. Tekan tombol kembali sekali lagi untuk keluar.');
+    history.pushState({ willsWarehouse: true, page: 'home', guard: true }, document.title);
+  });
 
   function stockAlerts() {
     const priority = {Kritis:0, Menipis:1};
@@ -505,6 +625,7 @@
     if(req.length) other.push(`<div class="notice-row"><span class="notice-icon">${icons.truck}</span><div class="notice-copy"><b>Bahan yang Harus Dikirim Sekarang</b><small>${req.slice(0,4).map(x=>esc(x.outletName)+' · '+num(x.itemCount||0)+' bahan').join('<br>')}${req.length>4?'<br>+'+(req.length-4)+' permintaan lainnya':''}</small></div><div class="notice-side"><strong>${req.length}</strong><span class="badge warn">SIAPKAN</span></div></div>`);
 
     root.innerHTML = `<div class="sheet-backdrop" id="sheetBackdrop"><div class="sheet" role="dialog" aria-modal="true" aria-label="Pemberitahuan"><div class="grabber"></div><div class="sheet-head"><h3>Pemberitahuan</h3><button class="sheet-close" id="sheetClose">×</button></div><div class="notice-section"><div class="notice-heading"><b>Bahan yang perlu dibelanja</b><span>${alerts.length} bahan</span></div><div class="notice-list">${stockHtml}</div></div>${other.length ? `<div class="notice-section"><div class="notice-heading"><b>Perlu perhatian</b><span>${other.length} pemberitahuan</span></div><div class="notice-list">${other.join('')}</div></div>` : ''}<div class="notice-summary">Daftar belanja mengikuti status stok <b>Kritis</b> dan <b>Menipis</b> dari sistem gudang. Nama bahan dan jumlah stok ditampilkan langsung agar Admin bisa menindaklanjuti tanpa menebak itemnya.</div></div></div>`;
+    pushSheetHistory();
     $('#sheetClose').onclick = closeSheet;
     $('#sheetBackdrop').onclick = e => { if (e.target.id === 'sheetBackdrop') closeSheet(); };
   }
@@ -533,7 +654,7 @@
       localStorage.setItem(TOKEN_KEY, token);
       $('#loginView').classList.add('is-hidden'); $('#mainView').classList.remove('is-hidden');
       $('#profileBtn').textContent = initials(data.user && data.user.name || 'WW');
-      updateNotificationBadge(); setPage('home');
+      updateNotificationBadge(); await setPage('home', { pushHistory: false }); initAppHistory();
       loadFullData(token).catch(err=>console.warn('[Wills Warehouse] background full load:',err.message));
       if (!silent) toast('Sistem siap digunakan.'); return true;
     } catch (err) {
@@ -548,7 +669,7 @@
 
   async function boot() {
     try {
-      // v1.2.7.0: lampu siap tidak lagi menunggu getPublicState/ensureAllSheets.
+      // v1.2.7.1: lampu siap tetap cepat; UX loading sekarang memakai busy guard.
       // Begitu bridge siap menerima login, indikator langsung hijau; public state dimuat paralel.
       await bridge.init();
       setAuthStatus(true);
@@ -567,7 +688,8 @@
     const username = $('#loginUser').value.trim();
     const pin = $('#loginPin').value.trim();
     const btn = e.submitter || e.target.querySelector('button[type=submit]');
-    if (btn) { btn.disabled = true; btn.textContent = 'Menghubungkan…'; }
+    if (btn) { btn.disabled = true; btn.textContent = 'Menghubungkan…'; btn.setAttribute('aria-busy','true'); btn.classList.add('is-loading'); }
+    beginBusy('Menghubungkan…');
     try {
       const r = await bridge.call('loginWarehouse', { username, pin });
       await loadAppWithToken(r.token);
@@ -575,7 +697,8 @@
     } catch (err) {
       toast(err.message);
     } finally {
-      if (btn) { btn.disabled = false; btn.textContent = 'Masuk ke Warehouse'; }
+      endBusy();
+      if (btn) { btn.disabled = false; btn.textContent = 'Masuk ke Warehouse'; btn.removeAttribute('aria-busy'); btn.classList.remove('is-loading'); }
     }
   });
 
@@ -585,12 +708,16 @@
     const d = state.data || {};
     const root = $('#sheetRoot');
     root.innerHTML = `<div class="sheet-backdrop" id="sheetBackdrop"><div class="sheet"><div class="grabber"></div><div class="sheet-head"><h3>Profil</h3><button class="sheet-close" id="sheetClose">×</button></div><p><b>${esc(d.user && d.user.name || '')}</b><br>${esc(roleName(d.user && d.user.role || ''))} · @${esc(d.user && d.user.username || '')}</p><div class="actions"><button class="btn btn-line" id="sheetCancel">Tutup</button><button class="btn btn-primary" id="logoutBtn">Logout</button></div></div></div>`;
+    pushSheetHistory();
     $('#sheetClose').onclick = closeSheet; $('#sheetCancel').onclick = closeSheet;
     $('#logoutBtn').onclick = async () => {
-      try { if (state.token) await bridge.call('logoutWarehouse', state.token); } catch (_) {}
-      localStorage.removeItem(TOKEN_KEY); state.token=''; state.data=null; updateNotificationBadge(); closeSheet();
-      $('#mainView').classList.add('is-hidden'); $('#loginView').classList.remove('is-hidden');
-      toast('Logout berhasil.');
+      beginBusy('Logout…');
+      try { try { if (state.token) await bridge.call('logoutWarehouse', state.token); } catch (_) {}
+        localStorage.removeItem(TOKEN_KEY); state.token=''; state.data=null; updateNotificationBadge(); closeSheet();
+        appHistoryReady=false; sheetHistoryActive=false; history.replaceState({willsLogin:true}, document.title);
+        $('#mainView').classList.add('is-hidden'); $('#loginView').classList.remove('is-hidden');
+        toast('Logout berhasil.');
+      } finally { endBusy(); }
     };
   });
 
@@ -601,7 +728,7 @@
       reloadingForUpdate = true;
       window.location.reload();
     });
-    window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=0.4.0', { updateViaCache: 'none' }).then(reg => reg.update()).catch(() => {}));
+    window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=0.4.1', { updateViaCache: 'none' }).then(reg => reg.update()).catch(() => {}));
   }
 
   // Scroll tetap native/normal. Pull-to-refresh dicegah lewat CSS overscroll-behavior,

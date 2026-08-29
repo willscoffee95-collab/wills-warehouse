@@ -191,3 +191,25 @@ body{
 @media(max-width:330px){
   .kpi-grid,.quick-grid{grid-template-columns:1fr}
 }
+
+/* ================================================================
+   v0.4.1 / Warehouse v1.2.7.1 — UX Guard & Status Indicators
+   ================================================================ */
+/* Four delivery lifecycle states are intentionally distinct. */
+.badge.status-draft{background:#fff3df!important;color:#a85a00!important;border:1px solid #ffd79d!important}
+.badge.status-sent{background:#eef5ff!important;color:#2869b7!important;border:1px solid #cfe1fb!important}
+.badge.status-cancelled{background:#fff0f0!important;color:#b33f43!important;border:1px solid #f3cfd1!important}
+.badge.status-done{background:#edf9f2!important;color:#287e55!important;border:1px solid #cfe9da!important}
+.badge.status-received{background:#eef9f7!important;color:#287b70!important;border:1px solid #cfe9e4!important}
+
+/* Visible loading guard prevents double taps during async work. */
+.busy-root{position:fixed;z-index:180;inset:0;display:grid;place-items:center;padding:24px;background:rgba(255,255,255,.46);backdrop-filter:blur(2px);pointer-events:auto}
+.busy-root.is-hidden{display:none!important}
+.busy-card{display:flex;align-items:center;gap:11px;max-width:min(86vw,360px);padding:12px 16px;border:1px solid #f0ded5;border-radius:16px;background:rgba(255,255,255,.98);box-shadow:0 14px 34px rgba(60,45,37,.13);color:#393330;font-size:12px;font-weight:800}
+.busy-spinner{width:20px;height:20px;flex:0 0 20px;border:3px solid #ffe0d3;border-top-color:var(--brand);border-radius:50%;animation:wwSpin .72s linear infinite}
+@keyframes wwSpin{to{transform:rotate(360deg)}}
+html.app-busy{cursor:progress}
+button.is-loading,[aria-busy="true"]{position:relative;pointer-events:none!important}
+button.is-loading:after,[aria-busy="true"]:after{content:"";position:absolute;right:10px;top:10px;width:17px;height:17px;border:2px solid rgba(244,81,30,.18);border-top-color:var(--brand);border-radius:50%;animation:wwSpin .72s linear infinite;background:transparent}
+.btn-primary.is-loading:after,.btn-thermal.is-loading:after{border-color:rgba(255,255,255,.35);border-top-color:#fff}
+@media (prefers-reduced-motion:reduce){.busy-spinner,button.is-loading:after,[aria-busy="true"]:after{animation-duration:1.6s}}
