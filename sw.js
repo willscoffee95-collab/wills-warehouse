@@ -1,6 +1,6 @@
-const CACHE = 'wills-warehouse-shell-v0.4.1-ux-guard-status-back';
+const CACHE = 'wills-warehouse-shell-v0.4.3-owner-control-hpp-foundation';
 const ASSETS = [
-  './','./index.html','./app.css?v=0.4.1','./config.js?v=0.4.1','./bridge.js?v=0.4.1','./app.js?v=0.4.1','./manifest.webmanifest',
+  './','./index.html','./app.css?v=0.4.3','./config.js?v=0.4.3','./bridge.js?v=0.4.3','./app.js?v=0.4.3','./manifest.webmanifest',
   './logo.png','./icon-192.png','./icon-512.png','./maskable-512.png','./apple-touch-icon.png','./favicon-64.png'
 ];
 
