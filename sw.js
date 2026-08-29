@@ -1,6 +1,6 @@
-const CACHE = 'wills-warehouse-shell-v0.2.3-ui-polish-notifications';
+const CACHE = 'wills-warehouse-shell-v0.3.2-one-tap-card-routing';
 const ASSETS = [
-  './','./index.html','./app.css?v=0.2.3','./config.js?v=0.2.3','./bridge.js?v=0.2.3','./app.js?v=0.2.3','./manifest.webmanifest',
+  './','./index.html','./app.css?v=0.3.2','./config.js?v=0.3.2','./bridge.js?v=0.3.2','./app.js?v=0.3.2','./manifest.webmanifest',
   './logo.png','./icon-192.png','./icon-512.png','./maskable-512.png','./apple-touch-icon.png','./favicon-64.png'
 ];
 

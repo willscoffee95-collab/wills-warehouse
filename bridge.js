@@ -69,7 +69,7 @@
     iframe.setAttribute('aria-hidden', 'true');
     iframe.style.cssText = 'position:fixed;width:1px;height:1px;left:-9999px;top:-9999px;border:0;opacity:0;pointer-events:none;';
     const sep = url.includes('?') ? '&' : '?';
-    iframe.src = url + sep + 'view=bridge&v=0.2.0';
+    iframe.src = url + sep + 'view=bridge&v=0.3.2';
     document.body.appendChild(iframe);
 
     setTimeout(() => {
@@ -86,8 +86,8 @@
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         pending.delete(requestId);
-        reject(new Error('Backend timeout. Coba lagi.'));
-      }, 45000);
+        reject(new Error('Backend belum selesai setelah 3 menit. Jangan ulangi transaksi stok sebelum memeriksa Riwayat; untuk sinkron, coba per SJ.'));
+      }, 180000);
       pending.set(requestId, { resolve, reject, timer });
       bridgeWindow.postMessage({
         type: 'WW_BRIDGE_CALL',

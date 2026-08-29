@@ -3,7 +3,7 @@
 
   const $ = (q, root = document) => root.querySelector(q);
   const $$ = (q, root = document) => [...root.querySelectorAll(q)];
-  const config = window.WILLS_CONFIG || { MODE: 'live-readonly' };
+  const config = window.WILLS_CONFIG || { MODE: 'live' };
   const bridge = window.WILLS_BRIDGE;
   const TOKEN_KEY = 'ww_github_token_v1';
 
@@ -28,10 +28,13 @@
     publicState: null,
     token: localStorage.getItem(TOKEN_KEY) || '',
     data: null,
-    bridgeReady: false
+    bridgeReady: false,
+    fullLoaded: false,
+    fullPromise: null
   };
   let activePage = 'home';
   let stockFilter = 'Semua';
+  let featureOpening = false;
 
   const pages = {
     home: renderHome,
@@ -155,7 +158,7 @@
         <p>Total nilai stok aktif · ${num(dash.activeMaterials, 0)} bahan aktif</p>
         <div class="hero-actions">
           <button class="btn btn-primary" data-action="purchase">+ Belanja Bahan</button>
-          <button class="btn btn-soft" data-action="delivery">Buat Surat Jalan</button>
+          <button class="btn btn-soft" data-action="delivery">${((d.incomingRequests||[]).filter(x=>!['SELESAI','DIBATALKAN'].includes(String(x.warehouseStatus||''))).length)?'Bahan Harus Dikirim':'Buat Surat Jalan'}</button>
         </div>
       </section>
 
@@ -170,6 +173,7 @@
         <div class="section-head"><h3>Aksi Cepat</h3><button data-page-jump="transactions">Lihat semua</button></div>
         <div class="quick-grid">
           ${quickCard('pack','Batch Packing','Bahan curah → hasil packing','packing')}
+          ${((d.incomingRequests||[]).filter(x=>!['SELESAI','DIBATALKAN'].includes(String(x.warehouseStatus||''))).length)?quickCard('truck','Bahan yang Harus Dikirim Sekarang',`${(d.incomingRequests||[]).filter(x=>!['SELESAI','DIBATALKAN'].includes(String(x.warehouseStatus||''))).length} permintaan outlet`,'delivery'):''}
           ${quickCard('truck','Surat Jalan','Pengiriman barang ke outlet','delivery')}
           ${quickCard('money','Pembayaran Outlet','Piutang dibayar ke Kas / Bank','outletPayment')}
           ${quickCard('expense','Pengeluaran','Operasional gudang','expense')}
@@ -205,6 +209,7 @@
     const modules = [
       ['cart','Belanja Bahan','Lunas / Tempo · Kas / Bank','purchase'],
       ['pack','Batch Packing','Hasil, sisa, susut & upah','packing'],
+      ['truck','Bahan yang Harus Dikirim Sekarang',`${((state.data||{}).incomingRequests||[]).filter(x=>!['SELESAI','DIBATALKAN'].includes(String(x.warehouseStatus||''))).length} permintaan aktif dari outlet`,'delivery'],
       ['truck','Distribusi / Surat Jalan','Draf → Dikirim → Diterima','delivery'],
       ['money','Pembayaran Outlet','Kurangi piutang & tambah saldo','outletPayment'],
       ['expense','Pengeluaran Operasional','Listrik, BBM, maintenance, dll','expense'],
@@ -212,7 +217,7 @@
       ['audit','Opname / Koreksi','Koreksi dengan jejak pemeriksaan','adjustment'],
       ['money','Bayar Upah Packing','Kas / Bank · hutang upah','packingWage']
     ];
-    return `${pageHead('Transaksi', 'Data gudang sudah tersambung. Untuk sementara transaksi dilakukan melalui aplikasi utama.', 'Hanya baca')}
+    return `${pageHead('Transaksi', 'Transaksi langsung dari PWA Warehouse.', 'Siap transaksi')}
       <div class="module-grid">${modules.map(m=>moduleCard(...m)).join('')}</div>`;
   }
   function moduleCard(icon,title,desc,action){return `<button class="module-card" data-action="${action}"><span class="module-icon">${icons[icon]}</span><span class="copy"><b>${esc(title)}</b><small>${esc(desc)}</small></span><span class="chev">›</span></button>`}
@@ -223,7 +228,7 @@
       <div class="search-wrap">${icons.search}<input id="historySearch" class="search" placeholder="Cari transaksi..."></div>
       <div id="historyRows" class="list">${rows.map(historyCard).join('') || '<div class="empty">Belum ada transaksi.</div>'}</div>`;
   }
-  function historyCard(x){return `<div class="list-card"><span class="list-icon">${icons[x.icon]||icons.clock}</span><div class="list-main"><b>${esc(x.title)}</b><small>${esc(x.meta)}</small></div><div class="list-side"><strong>${esc(x.amount)}</strong><small><span class="badge ${x.cls}">${esc(x.badge)}</span></small></div></div>`}
+  function historyCard(x){const canRev=((state.data||{}).user||{}).role==='OWNER'&&x.badge==='SELESAI';return `<div class="list-card"><span class="list-icon">${icons[x.icon]||icons.clock}</span><div class="list-main"><b>${esc(x.title)}</b><small>${esc(x.meta)}</small></div><div class="list-side"><strong>${esc(x.amount)}</strong><small><span class="badge ${x.cls}">${esc(x.badge)}</span></small>${canRev?`<button class="history-reverse" data-reverse-txn="${esc(x.txnId)}">Batalkan</button>`:''}</div></div>`}
 
   function renderControl() {
     const d = state.data || {};
@@ -238,7 +243,7 @@
     return `${pageHead('Kontrol', 'Pengaturan dan pemantauan sistem gudang.', 'Sistem aktif')}
       <div class="module-grid">${modules.map(m=>moduleCard(...m)).join('')}</div>
       <section class="section"><div class="section-head"><h3>Status Sistem</h3><span>Terhubung</span></div>
-        <div class="hero"><div class="hero-kicker"><span class="pulse"></span>Sistem Gudang</div><h3>DATA TERSAMBUNG</h3><p>Dashboard, stok, dan riwayat sudah membaca data dari sistem utama. Untuk sementara transaksi dilakukan melalui aplikasi utama.</p><div class="mini-bars"><i style="height:32%"></i><i style="height:54%"></i><i style="height:44%"></i><i style="height:72%"></i><i style="height:88%"></i><i style="height:68%"></i><i style="height:96%"></i></div></div>
+        <div class="hero"><div class="hero-kicker"><span class="pulse"></span>Sistem Gudang</div><h3>DATA TERSAMBUNG</h3><p>Dashboard, stok, riwayat, dan transaksi berjalan langsung melalui sistem utama dengan audit dan idempotensi yang sama.</p><div class="mini-bars"><i style="height:32%"></i><i style="height:54%"></i><i style="height:44%"></i><i style="height:72%"></i><i style="height:88%"></i><i style="height:68%"></i><i style="height:96%"></i></div></div>
       </section>
       <section class="section"><div class="list">
         <div class="list-card"><span class="list-icon">${icons.user}</span><div class="list-main"><b>${esc(d.user && d.user.name || '')}</b><small>${esc(d.user && d.user.role || '')} · ${esc(d.user && d.user.username || '')}</small></div><div class="list-side"><span class="badge ok">MASUK</span></div></div>
@@ -246,9 +251,10 @@
       </div></section>`;
   }
 
-  function setPage(page) {
+  async function setPage(page) {
     if (!pages[page] || !state.data) return;
     activePage = page;
+    if(page!=='home' && !state.fullLoaded){ try{await ensureFullData();}catch(e){toast(e.message);return;} }
     $('#content').innerHTML = pages[page]();
     $$('.nav-item').forEach(x => x.classList.toggle('is-active', x.dataset.page === page));
     bindPage();
@@ -257,7 +263,7 @@
   }
 
   function bindPage() {
-    $$('[data-action]').forEach(btn => btn.addEventListener('click', () => openReadOnlySheet(btn.dataset.action)));
+    $$('[data-action]').forEach(btn => btn.addEventListener('click', () => openFeatureOneTap(btn.dataset.action, btn)));
     $$('[data-page-jump]').forEach(btn => btn.addEventListener('click', () => setPage(btn.dataset.pageJump)));
     $$('[data-stock-filter]').forEach(btn => btn.addEventListener('click', () => { stockFilter = btn.dataset.stockFilter; setPage('stock'); }));
     const stockSearch = $('#stockSearch');
@@ -266,6 +272,7 @@
       const rows = liveStocks().filter(x => `${x.code} ${x.name}`.toLowerCase().includes(q));
       $('#stockRows').innerHTML = stockRows(rows);
     });
+    $$('[data-reverse-txn]').forEach(btn=>btn.addEventListener('click',()=>directReverse(btn.dataset.reverseTxn)));
     const historySearch = $('#historySearch');
     if (historySearch) historySearch.addEventListener('input', () => {
       const q = historySearch.value.trim().toLowerCase();
@@ -275,22 +282,74 @@
   }
 
   const actionNames = {
-    purchase:'Belanja Bahan', packing:'Batch Packing', delivery:'Surat Jalan', outletPayment:'Pembayaran Outlet', expense:'Pengeluaran Operasional', supplierPayment:'Bayar Supplier', adjustment:'Opname / Koreksi', packingWage:'Bayar Upah Packing', internalPrice:'Harga Internal Outlet', materials:'Master Bahan Wills', users:'Pengguna & Peran', audit:'Audit Sistem', recovery:'Antrean Pemulihan', opening:'Saldo Awal'
+    purchase:'Belanja Bahan', packing:'Batch Packing', delivery:'Bahan yang Harus Dikirim Sekarang / Surat Jalan', outletPayment:'Pembayaran Outlet', expense:'Pengeluaran Operasional', supplierPayment:'Bayar Supplier', adjustment:'Opname / Koreksi', packingWage:'Bayar Upah Packing', internalPrice:'Harga Internal Outlet', materials:'Master Bahan Wills', users:'Pengguna & Peran', audit:'Audit Sistem', recovery:'Antrean Pemulihan', opening:'Saldo Awal'
   };
 
-  function openReadOnlySheet(action) {
-    const title = actionNames[action] || 'Modul';
-    const root = $('#sheetRoot');
-    root.innerHTML = `<div class="sheet-backdrop" id="sheetBackdrop"><div class="sheet" role="dialog" aria-modal="true" aria-label="${esc(title)}"><div class="grabber"></div><div class="sheet-head"><h3>${esc(title)}</h3><button class="sheet-close" id="sheetClose">×</button></div><p>Data sudah tersambung ke sistem utama. Untuk sementara transaksi <b>${esc(title)}</b> dilakukan melalui aplikasi utama agar pencatatan tetap aman.</p><div class="demo-box"><b>MODE HANYA BACA</b><br>Gunakan tombol di bawah jika perlu melakukan transaksi sekarang.</div><div class="actions"><button class="btn btn-line" id="sheetCancel">Tutup</button><button class="btn btn-primary" id="openProduction">Buka Aplikasi Utama</button></div></div></div>`;
-    $('#sheetClose').onclick = closeSheet;
-    $('#sheetCancel').onclick = closeSheet;
-    $('#sheetBackdrop').onclick = e => { if (e.target.id === 'sheetBackdrop') closeSheet(); };
-    $('#openProduction').onclick = () => {
-      const url = String(config.APPS_SCRIPT_URL || '').trim();
-      if (!bridge.validWebAppUrl(url)) return toast('Alamat aplikasi utama belum valid.');
-      window.open(url, '_blank', 'noopener');
-    };
+  async function openFeatureOneTap(action, trigger) {
+    if (!actionNames[action]) return toast('Fitur tidak dikenali.');
+    if (featureOpening) return;
+    featureOpening = true;
+    if (trigger) {
+      trigger.disabled = true;
+      trigger.setAttribute('aria-busy', 'true');
+    }
+    try {
+      await ensureFullData();
+      openDirectSheet(action);
+    } catch (err) {
+      toast(err && err.message ? err.message : 'Fitur belum dapat dibuka.');
+    } finally {
+      featureOpening = false;
+      if (trigger) {
+        trigger.disabled = false;
+        trigger.removeAttribute('aria-busy');
+      }
+    }
   }
+
+  function sheetHtml(title, body) {
+    const root=$('#sheetRoot');
+    root.innerHTML=`<div class="sheet-backdrop" id="sheetBackdrop"><div class="sheet" role="dialog" aria-modal="true" aria-label="${esc(title)}"><div class="grabber"></div><div class="sheet-head"><h3>${esc(title)}</h3><button class="sheet-close" id="sheetClose">×</button></div>${body}</div></div>`;
+    $('#sheetClose').onclick=closeSheet; $('#sheetBackdrop').onclick=e=>{if(e.target.id==='sheetBackdrop')closeSheet()};
+  }
+  function idemKey(action){const k='ww_gh_idem_'+action;let x;try{x=JSON.parse(localStorage.getItem(k)||'null')}catch(_){x=null}if(x&&Date.now()-x.ts<86400000)return x.id;const id=action+':'+Date.now()+':'+Math.random().toString(36).slice(2);localStorage.setItem(k,JSON.stringify({id,ts:Date.now()}));return id}
+  async function writeDirect(action,method,payload){const idem=idemKey(action);try{toast('Menyimpan…');const r=await bridge.call(method,state.token,payload||{},idem);if(r&&r.ok===false)throw new Error(r.message||'Transaksi gagal');localStorage.removeItem('ww_gh_idem_'+action);toast('Berhasil disimpan'+(r&&r.txnId?' · '+r.txnId:''));closeSheet();await reloadFull();return r}catch(e){toast(e.message);throw e}}
+  async function reloadDeliveryModule(){const m=await bridge.call('getAppModule',state.token,'delivery');Object.assign(state.data,m||{});return m;}
+  async function writeDeliveryDirect(action,method,payload,sjId){const idem=idemKey(action);try{toast('Menyimpan…');const r=await bridge.call(method,state.token,payload||{},idem);if(r&&r.ok===false)throw new Error(r.message||'Perintah gagal');localStorage.removeItem('ww_gh_idem_'+action);await reloadDeliveryModule();toast('Berhasil disimpan'+(r&&r.txnId?' · '+r.txnId:''));directDeliveryDetail(sjId);return r}catch(e){toast(e.message);throw e}}
+  async function callDirect(method,...args){return bridge.call(method,state.token,...args)}
+  const matByCode=()=>Object.fromEntries(((state.data||{}).materials||[]).map(m=>[m.code,m]));
+  const matOpts=(purch=false)=>((state.data||{}).materials||[]).filter(m=>m.active==='YA'&&(!purch||m.purchasable!==false)).map(m=>`<option value="${esc(m.code)}">${esc(m.name)} · ${esc(m.receiveUnit||'')}</option>`).join('');
+  function openDirectSheet(action){
+    if(action==='purchase')return directPurchase(); if(action==='packing')return directPacking(); if(action==='delivery')return directDelivery();
+    if(action==='outletPayment')return directOutletPayment(); if(action==='expense')return directExpense(); if(action==='supplierPayment')return directSupplierPayment();
+    if(action==='adjustment')return directAdjustment(); if(action==='packingWage')return directPackingWage(); if(action==='internalPrice')return directInternalPrice();
+    if(action==='users')return directUsers(); if(action==='audit')return directAudit(); if(action==='recovery')return directRecovery(); if(action==='opening')return directOpening();
+    if(action==='materials')return directMaterials();
+    toast('Modul belum tersedia.');
+  }
+  function directPurchase(){const d=state.data||{},sups=d.suppliers||[];sheetHtml('Belanja Bahan',`<form id="ghPurchase"><label class="field"><span>Supplier</span><select name="supplierId"><option value="">Supplier sekali pakai</option>${sups.filter(x=>x.active==='YA').map(x=>`<option value="${esc(x.id)}">${esc(x.name)}</option>`).join('')}</select></label><label class="field"><span>Nama supplier sekali pakai</span><input name="supplierName"></label><div class="form-2"><label class="field"><span>Pembayaran</span><select name="paymentStatus"><option>LUNAS</option><option>TEMPO</option></select></label><label class="field"><span>Sumber</span><select name="paymentSource"><option value="CASH">Kas Gudang</option><option value="BANK">Bank</option></select></label></div><div class="form-2"><label class="field"><span>Status nota</span><select name="notaStatus"><option>ADA NOTA</option><option>TANPA NOTA</option><option>NOTA MENYUSUL</option></select></label><label class="field"><span>No Nota</span><input name="invoiceNo"></label></div><label class="field"><span>Jatuh tempo (Tempo)</span><input name="dueDate" type="date"></label><label class="field"><span>Catatan</span><textarea name="note"></textarea></label><div id="ghPurchaseLines"></div><button class="btn btn-soft" type="button" id="ghAddPurchase">+ Tambah item</button><div class="actions"><button class="btn btn-line" type="button" id="ghCancel">Tutup</button><button class="btn btn-primary" type="submit">Posting Belanja</button></div></form>`);const box=$('#ghPurchaseLines'),add=()=>{const el=document.createElement('div');el.className='direct-line';el.innerHTML=`<select class="code" required><option value="">Pilih bahan</option>${matOpts(true)}</select><input class="qty" type="number" min="0.000001" step="0.000001" placeholder="Qty" required><input class="price" type="number" min="0" step="0.01" placeholder="Harga/unit" required><button class="line-remove" type="button">×</button>`;el.querySelector('.line-remove').onclick=()=>el.remove();box.appendChild(el)};add();$('#ghAddPurchase').onclick=add;$('#ghCancel').onclick=closeSheet;$('#ghPurchase').onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.target),supplierId=fd.get('supplierId'),items=[...box.querySelectorAll('.direct-line')].map(x=>({code:x.querySelector('.code').value,qtyUnit:x.querySelector('.qty').value,priceUnit:x.querySelector('.price').value}));await writeDirect('purchase','postPurchase',{supplier:supplierId?{id:supplierId}:{name:fd.get('supplierName')},paymentStatus:fd.get('paymentStatus'),paymentSource:fd.get('paymentSource'),notaStatus:fd.get('notaStatus'),invoiceNo:fd.get('invoiceNo'),dueDate:fd.get('dueDate'),note:fd.get('note'),items})};}
+  function directPacking(){const maps=((state.data||{}).mappings||[]).filter(x=>x.kind==='PACKING'&&x.active==='YA');sheetHtml('Batch Packing',`<form id="ghPack"><label class="field"><span>Proses</span><select name="mappingId" required><option value="">Pilih</option>${maps.map(x=>`<option value="${esc(x.id)}">${esc(x.sourceName)} → ${esc(x.outputName)}</option>`).join('')}</select></label><div class="form-2"><label class="field"><span>Bahan masuk (base)</span><input name="inputQtyBase" type="number" min="0.000001" step="0.000001" required></label><label class="field"><span>Pack bagus</span><input name="outputQtyUnit" type="number" min="1" step="1" required></label><label class="field"><span>Sisa usable</span><input name="remainderQtyBase" type="number" min="0" step="0.000001" value="0"></label><label class="field"><span>Waste</span><input name="wasteQtyBase" type="number" min="0" step="0.000001" value="0"></label></div><div class="form-2"><label class="field"><span>Packer</span><input name="packer" value="${esc((state.data.user||{}).name||'')}" required></label><label class="field"><span>Upah</span><input name="wageAmount" type="number" min="0" value="0"></label></div><label class="field"><span>Catatan</span><textarea name="note"></textarea></label><div class="actions"><button class="btn btn-line" type="button" id="ghCancel">Tutup</button><button class="btn btn-primary">Posting Packing</button></div></form>`);$('#ghCancel').onclick=closeSheet;$('#ghPack').onsubmit=async e=>{e.preventDefault();const p=Object.fromEntries(new FormData(e.target).entries());await writeDirect('packing','postPackingBatch',p)};}
+  function directDelivery(){const d=state.data||{},req=(d.incomingRequests||[]).filter(x=>!['SELESAI','DIBATALKAN'].includes(String(x.warehouseStatus||''))),rows=d.deliveries||[];sheetHtml('Bahan yang Harus Dikirim Sekarang',`<div class="direct-toolbar"><button class="btn btn-primary" id="ghNewSj">+ SJ Manual</button><button class="btn btn-soft" id="ghSyncReq">Perbarui Permintaan</button><button class="btn btn-primary" id="ghSyncRec">Sinkron Semua Penerimaan</button><button class="btn btn-line" id="ghDiag">Diagnostik</button></div><h4>Permintaan Aktif</h4><div class="direct-list">${req.map(x=>`<div class="direct-card"><b>${esc(x.outletName)} · ${esc(x.needDate||'')}</b><small>${esc(x.requestId)} · ${num(x.itemCount||0)} bahan</small><span class="badge warn">${esc(x.warehouseStatus||'')}</span></div>`).join('')||'<div class="empty">Tidak ada permintaan aktif.</div>'}</div><h4>Surat Jalan</h4><div class="direct-list">${rows.slice(0,30).map(x=>`<button class="direct-card direct-click" data-sjid="${esc(x.sjId)}"><b>${esc(x.noSj)} · ${esc(x.outletName)}</b><small>${(x.lines||[]).length} item${x.lastError?' · '+esc(x.lastError):''}</small><span class="badge ${x.status==='DITERIMA'||x.status==='SELESAI'?'ok':x.status==='SELISIH'?'bad':'warn'}">${esc(x.status)}</span></button>`).join('')||'<div class="empty">Belum ada SJ.</div>'}</div>`);$('#ghNewSj').onclick=directNewSj;$('#ghSyncReq').onclick=async()=>{try{await callDirect('syncOutletMaterialRequestsNowV1250');toast('Permintaan diperbarui.');await reloadDeliveryModule();directDelivery()}catch(e){toast(e.message)}};$('#ghSyncRec').onclick=async()=>{try{const r=await callDirect('syncOutletReceipts');toast('Penerimaan disinkronkan'+(r.elapsedMs?' · '+r.elapsedMs+' ms':''));await reloadDeliveryModule();directDelivery()}catch(e){toast(e.message)}};$('#ghDiag').onclick=async()=>{try{const r=await callDirect('auditReceiptSyncDiagnosticAppV1260');showDiagnostic(r)}catch(e){toast(e.message)}};$$('[data-sjid]').forEach(b=>b.onclick=()=>directDeliveryDetail(b.dataset.sjid));}
+  function directNewSj(){const d=state.data||{},outs=(d.outlets||[]).filter(x=>x.active==='YA'),mats=(d.materials||[]).filter(x=>x.active==='YA'&&x.distributable!==false);sheetHtml('Buat Surat Jalan Manual',`<form id="ghSj"><label class="field"><span>Outlet</span><select name="outletCode" required><option value="">Pilih</option>${outs.map(x=>`<option value="${esc(x.code)}">${esc(x.name)}</option>`).join('')}</select></label><div id="ghSjLines"></div><button type="button" class="btn btn-soft" id="ghAddSj">+ Tambah bahan</button><label class="field"><span>Catatan</span><textarea name="note"></textarea></label><div class="actions"><button class="btn btn-line" type="button" id="ghCancel">Tutup</button><button class="btn btn-primary">Buat DRAFT</button></div></form>`);const box=$('#ghSjLines'),opts=mats.map(x=>`<option value="${esc(x.code)}">${esc(x.name)} · ${esc(x.receiveUnit||'')}</option>`).join(''),add=()=>{const el=document.createElement('div');el.className='direct-line';el.innerHTML=`<select class="code"><option value="">Pilih bahan</option>${opts}</select><input class="qty" type="number" min="0.000001" step="0.000001" placeholder="Qty unit"><span></span><button class="line-remove" type="button">×</button>`;el.querySelector('.line-remove').onclick=()=>el.remove();box.appendChild(el)};add();$('#ghAddSj').onclick=add;$('#ghCancel').onclick=closeSheet;$('#ghSj').onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.target),items=[...box.querySelectorAll('.direct-line')].map(x=>({code:x.querySelector('.code').value,qtyUnit:x.querySelector('.qty').value}));await writeDirect('manualSj','createDeliveryDraft',{outletCode:fd.get('outletCode'),note:fd.get('note'),items})};}
+  function directReverse(txnId){const reason=prompt('Alasan pembatalan / reversal transaksi '+txnId+':');if(!reason)return;writeDirect('reverse_'+txnId,'reverseTransaction',{txnId:txnId,reason:reason}).catch(()=>{});}
+  function directDeliveryDetail(id){
+    const d=((state.data||{}).deliveries||[]).find(x=>x.sjId===id);if(!d)return toast('SJ tidak ditemukan.');const role=((state.data||{}).user||{}).role,canOperate=['OWNER','ADMIN','STAFF_GUDANG'].includes(role),canAdmin=['OWNER','ADMIN'].includes(role);
+    sheetHtml(d.noSj,`<p><b>${esc(d.outletName)}</b> · ${esc(d.status)}</p><div class="direct-list">${(d.lines||[]).map(l=>{const requested=Number(l.requestedQtyUnit!=null?l.requestedQtyUnit:(l.qtyUnit||0)),approved=Number(l.qtyUnit||0),received=Number(l.receivedBase||0)/Number(l.factor||1),fulfillment=l.fulfillmentStatus||'DIPENUHI',fc=fulfillment==='DIPENUHI'?'ok':fulfillment==='TIDAK TERSEDIA'?'bad':'warn';return `<div class="direct-card"><b>${esc(l.name)}</b><small>Diminta ${num(requested)} · disetujui ${num(approved)} ${esc(l.sendUnit)} · diterima ${num(received)}</small>${l.fulfillmentReason?`<small>Alasan: ${esc(l.fulfillmentReason)}</small>`:''}<span class="badge ${fc}">${esc(fulfillment)}</span></div>`}).join('')}</div><div class="actions">${d.status==='DRAFT'&&canOperate?'<button class="btn btn-soft" id="ghAdjustSj">Atur Ketersediaan</button>':''}${d.status==='DRAFT'&&canAdmin?'<button class="btn btn-line" id="ghCancelSj">Batalkan</button>':''}${d.status==='DRAFT'&&canOperate?'<button class="btn btn-primary" id="ghSendSj">Konfirmasi Kirim</button>':''}${d.status==='DITERIMA'&&canAdmin?'<button class="btn btn-primary" id="ghCompleteSj">Selesaikan & Bentuk Piutang</button>':''}${!['DRAFT','DIBATALKAN'].includes(d.status)?'<button class="btn btn-soft" id="ghSyncSj">Sinkron SJ Ini</button>':''}</div>`);
+    const a=$('#ghAdjustSj');if(a)a.onclick=()=>directFulfillment(id);const c=$('#ghCancelSj');if(c)c.onclick=()=>writeDeliveryDirect('cancel_'+id,'cancelDeliveryDraft',{sjId:id,reason:'Dibatalkan dari GitHub PWA'},id);const k=$('#ghSendSj');if(k)k.onclick=()=>confirm('Hanya qty disetujui yang akan mengurangi stok. Barang siap dikirim?')&&writeDeliveryDirect('dispatch_'+id,'dispatchDelivery',{sjId:id},id);const f=$('#ghCompleteSj');if(f)f.onclick=()=>confirm('Selesaikan SJ dan bentuk piutang?')&&writeDirect('complete_'+id,'completeDelivery',{sjId:id});const y=$('#ghSyncSj');if(y)y.onclick=async()=>{try{const r=await callDirect('syncOutletReceiptForDelivery',{sjId:id});if(!r.ok)throw new Error(r.error||'Sinkron gagal.');toast('Penerimaan SJ diperbarui · '+r.elapsedMs+' ms');await reloadDeliveryModule();directDeliveryDetail(id)}catch(e){toast(e.message)}};
+  }
+  function directFulfillment(id){const d=((state.data||{}).deliveries||[]).find(x=>x.sjId===id);if(!d||d.status!=='DRAFT')return toast('SJ bukan DRAFT.');sheetHtml('Atur Ketersediaan',`<p>Permintaan asli outlet tidak diubah. Isi 0 jika tidak tersedia; alasan wajib jika qty dikurangi.</p><form id="ghFulfillment"><div class="direct-list">${(d.lines||[]).map(l=>{const req=Number(l.requestedQtyUnit!=null?l.requestedQtyUnit:(l.qtyUnit||0));return `<div class="direct-card" data-ful-line="${l.lineNo}"><b>${esc(l.name)}</b><small>Diminta ${num(req)} ${esc(l.sendUnit)}</small><label class="field"><span>Qty disetujui</span><input class="approved" type="number" min="0" max="${req}" step="0.000001" value="${Number(l.qtyUnit||0)}" required></label><label class="field"><span>Alasan jika kurang / kosong</span><textarea class="reason">${esc(l.fulfillmentReason||'')}</textarea></label></div>`}).join('')}</div><div class="actions"><button class="btn btn-line" type="button" id="ghBackSj">Kembali</button><button class="btn btn-primary">Simpan</button></div></form>`);$('#ghBackSj').onclick=()=>directDeliveryDetail(id);$('#ghFulfillment').onsubmit=async e=>{e.preventDefault();const items=$$('[data-ful-line]').map(x=>({lineNo:Number(x.dataset.fulLine),approvedQtyUnit:x.querySelector('.approved').value,reason:x.querySelector('.reason').value}));await writeDeliveryDirect('fulfillment_'+id,'adjustDeliveryDraftFulfillment',{sjId:id,items},id)};}
+  function showDiagnostic(r){sheetHtml('Diagnostik Sinkron Penerimaan',`<p>Audit ini hanya membaca data outlet dan Surat Jalan.</p><div class="direct-list">${((r||{}).diagnostics||[]).map(x=>`<div class="direct-card"><b>${esc(x.noSj)} · ${esc(x.outletName||x.outletCode||'')}</b><small>${x.matched}/${x.receiptCount} receipt cocok · alias ${x.aliasMatched||0}</small><span class="badge ${x.ok?'ok':'bad'}">${x.ok?'COCOK':'PERLU CEK'}</span>${x.issues&&x.issues.length?`<div class="direct-issues">${x.issues.map(i=>esc((i.code||i.name)+' · '+i.reason+(i.expectedUnit?' · '+i.baseUnit+'→'+i.expectedUnit:''))).join('<br>')}</div>`:''}</div>`).join('')||'<div class="empty">Belum ada receipt yang cocok dengan SJ aktif.</div>'}</div>`)}
+  function directOutletPayment(){const rows=((state.data||{}).receivables||[]).filter(x=>x.outstanding>0);sheetHtml('Pembayaran Outlet',`<form id="ghAr"><label class="field"><span>Masuk ke</span><select name="destination"><option value="CASH">Kas Gudang</option><option value="BANK">Bank</option></select></label><label class="field"><span>Referensi</span><input name="reference"></label><div class="direct-list">${rows.map(x=>`<label class="direct-card"><b>${esc(x.outletName)} · ${esc(x.noSj)}</b><small>Sisa ${rp(x.outstanding)}</small><input type="checkbox" class="arck" data-id="${esc(x.sjId)}" data-outlet="${esc(x.outletCode)}"><input class="aramt" data-id="${esc(x.sjId)}" type="number" value="${x.outstanding}" min="0.01" max="${x.outstanding}"></label>`).join('')||'<div class="empty">Tidak ada piutang.</div>'}</div><label class="field"><span>Catatan</span><textarea name="note"></textarea></label><div class="actions"><button class="btn btn-line" type="button" id="ghCancel">Tutup</button><button class="btn btn-primary">Posting Pembayaran</button></div></form>`);$('#ghCancel').onclick=closeSheet;$('#ghAr').onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.target),cks=$$('.arck:checked');const outs=[...new Set(cks.map(x=>x.dataset.outlet))];if(!cks.length)return toast('Pilih piutang.');if(outs.length>1)return toast('Satu pembayaran hanya untuk satu outlet.');await writeDirect('outletPayment','postOutletPayment',{destination:fd.get('destination'),reference:fd.get('reference'),note:fd.get('note'),allocations:cks.map(x=>({sjId:x.dataset.id,amount:$(`.aramt[data-id="${CSS.escape(x.dataset.id)}"]`).value}))})};}
+  function directExpense(){const cats=(state.data||{}).expenseCategories||[];sheetHtml('Pengeluaran Operasional',`<form id="ghExp"><label class="field"><span>Kategori</span><select name="category">${cats.map(x=>`<option value="${esc(x.code)}">${esc(x.label)}</option>`).join('')}</select></label><div class="form-2"><label class="field"><span>Sumber</span><select name="paymentSource"><option value="CASH">Kas Gudang</option><option value="BANK">Bank</option></select></label><label class="field"><span>Nominal</span><input name="amount" type="number" min="1" required></label></div><label class="field"><span>Referensi</span><input name="reference"></label><label class="field"><span>Catatan</span><textarea name="note"></textarea></label><div class="actions"><button class="btn btn-line" type="button" id="ghCancel">Tutup</button><button class="btn btn-primary">Posting</button></div></form>`);$('#ghCancel').onclick=closeSheet;$('#ghExp').onsubmit=async e=>{e.preventDefault();await writeDirect('expense','postOperationalExpense',Object.fromEntries(new FormData(e.target).entries()))};}
+  function directSupplierPayment(){const rows=((state.data||{}).payables||[]).filter(x=>x.outstanding>0);sheetHtml('Bayar Supplier',`<form id="ghPaySup"><label class="field"><span>Sumber</span><select name="paymentSource"><option value="CASH">Kas Gudang</option><option value="BANK">Bank</option></select></label><div class="direct-list">${rows.map(x=>`<label class="direct-card"><b>${esc(x.supplier)}</b><small>${esc(x.purchaseTxnId)} · ${rp(x.outstanding)}</small><input class="spck" type="checkbox" data-id="${esc(x.purchaseTxnId)}" data-sup="${esc(x.supplierId)}"><input class="spamt" data-id="${esc(x.purchaseTxnId)}" type="number" value="${x.outstanding}" min="0.01" max="${x.outstanding}"></label>`).join('')||'<div class="empty">Tidak ada hutang.</div>'}</div><label class="field"><span>Catatan</span><textarea name="note"></textarea></label><div class="actions"><button class="btn btn-line" type="button" id="ghCancel">Tutup</button><button class="btn btn-primary">Posting</button></div></form>`);$('#ghCancel').onclick=closeSheet;$('#ghPaySup').onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.target),cks=$$('.spck:checked'),sup=[...new Set(cks.map(x=>x.dataset.sup))];if(!cks.length)return toast('Pilih hutang.');if(sup.length>1)return toast('Pilih satu supplier.');await writeDirect('supplierPayment','postSupplierPayment',{paymentSource:fd.get('paymentSource'),note:fd.get('note'),allocations:cks.map(x=>({purchaseTxnId:x.dataset.id,amount:$(`.spamt[data-id="${CSS.escape(x.dataset.id)}"]`).value}))})};}
+  function directAdjustment(){sheetHtml('Opname / Koreksi',`<form id="ghAdj"><label class="field"><span>Alasan</span><select name="reason"><option value="SELISIH_OPNAME">Selisih opname</option><option value="STOK_AWAL_TERLEWAT">Stok awal terlewat</option><option value="BARANG_DITEMUKAN">Barang ditemukan</option><option value="BARANG_RUSAK">Barang rusak</option><option value="BARANG_HILANG">Barang hilang</option><option value="KESALAHAN_PENCATATAN">Kesalahan pencatatan</option><option value="KOREKSI_INVESTIGASI">Koreksi investigasi</option><option value="LAINNYA">Lainnya</option></select></label><div id="ghAdjLines"></div><button class="btn btn-soft" type="button" id="ghAddAdj">+ Tambah bahan</button><label class="field"><span>Catatan</span><textarea name="note"></textarea></label><div class="actions"><button class="btn btn-line" type="button" id="ghCancel">Tutup</button><button class="btn btn-primary">Posting Koreksi</button></div></form>`);const box=$('#ghAdjLines'),add=()=>{const el=document.createElement('div');el.className='direct-line';el.innerHTML=`<select class="code"><option value="">Pilih bahan</option>${matOpts(false)}</select><input class="physical" type="number" min="0" step="0.000001" placeholder="Stok fisik unit"><input class="cost" type="number" min="0" step="0.01" placeholder="Modal/unit jika perlu"><button class="line-remove" type="button">×</button>`;el.querySelector('.line-remove').onclick=()=>el.remove();box.appendChild(el)};add();$('#ghAddAdj').onclick=add;$('#ghCancel').onclick=closeSheet;$('#ghAdj').onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.target),mm=matByCode(),items=[...box.querySelectorAll('.direct-line')].map(x=>{const m=mm[x.querySelector('.code').value],physical=Number(x.querySelector('.physical').value||0),cost=x.querySelector('.cost').value;return{code:m.code,physicalQtyBase:physical*Number(m.factor||1),unitCostBase:cost===''?'':Number(cost)/Number(m.factor||1)}});await writeDirect('adjustment','postStockAdjustment',{reason:fd.get('reason'),note:fd.get('note'),items})};}
+  function directPackingWage(){const rows=((state.data||{}).packingWages||[]).filter(x=>x.outstanding>0);sheetHtml('Bayar Upah Packing',`<form id="ghPw"><label class="field"><span>Sumber</span><select name="paymentSource"><option value="CASH">Kas Gudang</option><option value="BANK">Bank</option></select></label><div class="direct-list">${rows.map(x=>`<label class="direct-card"><b>${esc(x.packer)}</b><small>${esc(x.batchId)} · ${rp(x.outstanding)}</small><input class="pwck" type="checkbox" data-id="${esc(x.batchId)}" data-packer="${esc(x.packer)}"><input class="pwamt" data-id="${esc(x.batchId)}" type="number" value="${x.outstanding}" min="0.01" max="${x.outstanding}"></label>`).join('')||'<div class="empty">Tidak ada upah terhutang.</div>'}</div><label class="field"><span>Catatan</span><textarea name="note"></textarea></label><div class="actions"><button class="btn btn-line" type="button" id="ghCancel">Tutup</button><button class="btn btn-primary">Posting</button></div></form>`);$('#ghCancel').onclick=closeSheet;$('#ghPw').onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.target),cks=$$('.pwck:checked'),pack=[...new Set(cks.map(x=>x.dataset.packer))];if(!cks.length)return toast('Pilih upah.');if(pack.length>1)return toast('Pilih satu packer.');await writeDirect('packingWage','postPackingWagePayment',{paymentSource:fd.get('paymentSource'),note:fd.get('note'),allocations:cks.map(x=>({batchId:x.dataset.id,amount:$(`.pwamt[data-id="${CSS.escape(x.dataset.id)}"]`).value}))})};}
+  function directInternalPrice(){const mats=((state.data||{}).materials||[]).filter(x=>x.active==='YA'&&x.distributable!==false);sheetHtml('Harga Internal Outlet',`<form id="ghPrice"><label class="field"><span>Bahan</span><select name="code"><option value="">Pilih</option>${mats.map(x=>`<option value="${esc(x.code)}">${esc(x.name)} · ${Number(x.internalPrice||0)>0?rp(x.internalPrice):'BELUM DISET'}</option>`).join('')}</select></label><label class="field"><span>Harga / unit</span><input name="internalPrice" type="number" min="0" required></label><div class="actions"><button class="btn btn-line" type="button" id="ghPreviewPrice">Preview dari Outlet</button><button class="btn btn-primary">Simpan</button></div></form><div id="ghPricePreview"></div>`);$('#ghPrice').onsubmit=async e=>{e.preventDefault();await writeDirect('internalPrice','saveWarehouseInternalPrice',Object.fromEntries(new FormData(e.target).entries()))};$('#ghPreviewPrice').onclick=async()=>{try{const r=await callDirect('previewOutletReceiptInternalPrices');$('#ghPricePreview').innerHTML=`<div class="demo-box">Siap diubah ${(r.stats||{}).ready||0} · Konflik ${(r.stats||{}).conflict||0} · Belum ada ${(r.stats||{}).missing||0}</div>`}catch(e){toast(e.message)}};}
+  function directUsers(){const users=(state.data||{}).users||[];sheetHtml('Pengguna & Peran',`<form id="ghUser"><label class="field"><span>Nama</span><input name="name" required></label><label class="field"><span>Username</span><input name="username" required></label><label class="field"><span>Role</span><select name="role"><option>ADMIN</option><option>STAFF_GUDANG</option><option>FINANCE</option><option>OWNER</option></select></label><label class="field"><span>PIN</span><input name="pin" type="password" inputmode="numeric" required></label><div class="actions"><button class="btn btn-primary">Simpan User</button></div></form><div class="direct-list">${users.map(x=>`<div class="direct-card"><b>${esc(x.name)}</b><small>@${esc(x.username)} · ${esc(x.role)}</small></div>`).join('')}</div>`);$('#ghUser').onsubmit=async e=>{e.preventDefault();await writeDirect('user','saveUser',Object.fromEntries(new FormData(e.target).entries()))};}
+  function directAudit(){sheetHtml('Audit Sistem',`<div class="actions"><button class="btn btn-primary" id="ghAudit1260">Audit Warehouse</button><button class="btn btn-line" id="ghAuditReceipt">Diagnostik Penerimaan</button></div><pre id="ghAuditOut" class="audit-pre">Pilih audit.</pre>`);$('#ghAudit1260').onclick=async()=>{try{$('#ghAuditOut').textContent=JSON.stringify(await callDirect('auditWarehouseAppV1260'),null,2)}catch(e){toast(e.message)}};$('#ghAuditReceipt').onclick=async()=>{try{showDiagnostic(await callDirect('auditReceiptSyncDiagnosticAppV1260'))}catch(e){toast(e.message)}};}
+  function directRecovery(){const dash=(state.data||{}).dashboard||{};sheetHtml('Antrean Pemulihan',`<div class="demo-box"><b>${num(dash.recoveryPending||0)}</b> transaksi menunggu pemulihan. Recovery engine tetap berjalan di backend dan tidak boleh dihapus manual.</div>`)}
+  function directOpening(){const c=(state.data||{}).controls||{};sheetHtml('Saldo Awal',`<p>Status: Stok ${c.openingStockOpen?'TERBUKA':'TERKUNCI'} · Bank ${c.openingBankOpen?'TERBUKA':'TERKUNCI'} · Kas ${c.openingCashOpen?'TERBUKA':'TERKUNCI'}.</p>${c.openingBankOpen?'<form id="ghOpenBank"><label class="field"><span>Nama rekening</span><input name="accountName" required></label><label class="field"><span>Saldo</span><input name="amount" type="number" min="0" required></label><button class="btn btn-primary">Posting Saldo Awal Bank</button></form>':''}${c.openingCashOpen?'<form id="ghOpenCash"><label class="field"><span>Referensi</span><input name="reference" value="Kas Gudang"></label><label class="field"><span>Saldo</span><input name="amount" type="number" min="0" required></label><button class="btn btn-primary">Posting Saldo Awal Kas</button></form>':''}`);const b=$('#ghOpenBank');if(b)b.onsubmit=async e=>{e.preventDefault();await writeDirect('openBank','postOpeningBank',Object.fromEntries(new FormData(e.target).entries()))};const csh=$('#ghOpenCash');if(csh)csh.onsubmit=async e=>{e.preventDefault();await writeDirect('openCash','postOpeningCash',Object.fromEntries(new FormData(e.target).entries()))};}
+  function directMaterials(){const mats=(state.data||{}).materials||[];sheetHtml('Master Bahan Wills',`<div class="direct-list">${mats.map(x=>`<div class="direct-card"><b>${esc(x.name)}</b><small>${esc(x.code)} · 1 ${esc(x.receiveUnit)} = ${num(x.factor)} ${esc(x.baseUnit)}</small></div>`).join('')}</div>`)}
   function closeSheet(){ $('#sheetRoot').innerHTML = ''; }
 
   function toast(message) {
@@ -312,6 +371,8 @@
     let count = stockAlerts().length;
     if (Number(dash.recoveryPending || 0) > 0) count += 1;
     if (Number(dash.packingWageCount || 0) > 0) count += 1;
+    const req=((state.data||{}).incomingRequests||[]).filter(x=>!['SELESAI','DIBATALKAN'].includes(String(x.warehouseStatus||'')));
+    if(req.length) count += 1;
     return count;
   }
 
@@ -338,6 +399,8 @@
     const other = [];
     if (Number(dash.recoveryPending || 0) > 0) other.push(`<div class="notice-row"><span class="notice-icon bad">${icons.warning}</span><div class="notice-copy"><b>Pemulihan transaksi</b><small>Ada transaksi yang perlu diperiksa sistem.</small></div><div class="notice-side"><strong>${num(dash.recoveryPending,0)}</strong><span class="badge bad">PERIKSA</span></div></div>`);
     if (Number(dash.packingWageCount || 0) > 0) other.push(`<div class="notice-row"><span class="notice-icon">${icons.money}</span><div class="notice-copy"><b>Upah packing belum dibayar</b><small>${num(dash.packingWageCount,0)} kewajiban upah masih terbuka.</small></div><div class="notice-side"><strong>${compactRp(dash.packingWageOutstanding)}</strong><span class="badge warn">BELUM LUNAS</span></div></div>`);
+    const req=((state.data||{}).incomingRequests||[]).filter(x=>!['SELESAI','DIBATALKAN'].includes(String(x.warehouseStatus||'')));
+    if(req.length) other.push(`<div class="notice-row"><span class="notice-icon">${icons.truck}</span><div class="notice-copy"><b>Bahan yang Harus Dikirim Sekarang</b><small>${req.slice(0,4).map(x=>esc(x.outletName)+' · '+num(x.itemCount||0)+' bahan').join('<br>')}${req.length>4?'<br>+'+(req.length-4)+' permintaan lainnya':''}</small></div><div class="notice-side"><strong>${req.length}</strong><span class="badge warn">SIAPKAN</span></div></div>`);
 
     root.innerHTML = `<div class="sheet-backdrop" id="sheetBackdrop"><div class="sheet" role="dialog" aria-modal="true" aria-label="Pemberitahuan"><div class="grabber"></div><div class="sheet-head"><h3>Pemberitahuan</h3><button class="sheet-close" id="sheetClose">×</button></div><div class="notice-section"><div class="notice-heading"><b>Bahan yang perlu dibelanja</b><span>${alerts.length} bahan</span></div><div class="notice-list">${stockHtml}</div></div>${other.length ? `<div class="notice-section"><div class="notice-heading"><b>Perlu perhatian</b><span>${other.length} pemberitahuan</span></div><div class="notice-list">${other.join('')}</div></div>` : ''}<div class="notice-summary">Daftar belanja mengikuti status stok <b>Kritis</b> dan <b>Menipis</b> dari sistem gudang. Nama bahan dan jumlah stok ditampilkan langsung agar Admin bisa menindaklanjuti tanpa menebak itemnya.</div></div></div>`;
     $('#sheetClose').onclick = closeSheet;
@@ -358,25 +421,22 @@
     if (detail && !state.bridgeReady) console.warn('[Wills Warehouse] Sistem belum siap:', detail);
   }
 
+  async function loadFullData(token=state.token){if(state.fullLoaded&&state.data)return state.data;if(state.fullPromise)return state.fullPromise;state.fullPromise=bridge.call('getAppData',token).then(data=>{state.data={...(state.data||{}),...data};state.fullLoaded=true;state.fullPromise=null;updateNotificationBadge();if(activePage!=='home')setPage(activePage);return state.data}).catch(e=>{state.fullPromise=null;throw e});return state.fullPromise;}
+  async function ensureFullData(){if(!state.fullLoaded)await loadFullData();return state.data;}
+  async function reloadFull(){state.fullLoaded=false;state.fullPromise=null;await loadFullData();setPage(activePage);}
   async function loadAppWithToken(token, silent = false) {
     try {
-      const data = await bridge.call('getAppData', token);
-      state.token = token;
-      state.data = data;
+      const data = await bridge.call('getAppBootstrap', token);
+      state.token = token; state.data = data; state.fullLoaded=false; state.fullPromise=null;
       localStorage.setItem(TOKEN_KEY, token);
-      $('#loginView').classList.add('is-hidden');
-      $('#mainView').classList.remove('is-hidden');
+      $('#loginView').classList.add('is-hidden'); $('#mainView').classList.remove('is-hidden');
       $('#profileBtn').textContent = initials(data.user && data.user.name || 'WW');
-      updateNotificationBadge();
-      setPage(activePage);
-      if (!silent) toast('Sistem siap digunakan.');
-      return true;
+      updateNotificationBadge(); setPage('home');
+      loadFullData(token).catch(err=>console.warn('[Wills Warehouse] background full load:',err.message));
+      if (!silent) toast('Sistem siap digunakan.'); return true;
     } catch (err) {
-      localStorage.removeItem(TOKEN_KEY);
-      state.token = '';
-      state.data = null;
-      if (!silent) toast(err.message);
-      return false;
+      localStorage.removeItem(TOKEN_KEY); state.token=''; state.data=null; state.fullLoaded=false;
+      if (!silent) toast(err.message); return false;
     }
   }
 
@@ -432,8 +492,19 @@
   });
 
   if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=0.2.3', { updateViaCache: 'none' }).then(reg => reg.update()).catch(() => {}));
+    let reloadingForUpdate = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (reloadingForUpdate) return;
+      reloadingForUpdate = true;
+      window.location.reload();
+    });
+    window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=0.3.2', { updateViaCache: 'none' }).then(reg => reg.update()).catch(() => {}));
   }
+
+  let pullStartY=0,pullGuard=false;
+  document.addEventListener('touchstart',e=>{if(window.scrollY<=0&&e.touches&&e.touches.length===1){pullStartY=e.touches[0].clientY;pullGuard=true}else pullGuard=false},{passive:true});
+  document.addEventListener('touchmove',e=>{if(!pullGuard||!e.touches||e.touches.length!==1)return;if(window.scrollY<=0&&e.touches[0].clientY-pullStartY>8)e.preventDefault()},{passive:false});
+  document.addEventListener('touchend',()=>{pullGuard=false},{passive:true});
 
   boot();
 })();
