@@ -45,7 +45,7 @@
   let ignoreNextPop = false;
   let lastBackAt = 0;
 
-  // v1.2.8.0 — clean canonical UI + packing yield variance.
+  // v1.2.8.1 — clean canonical UI + packing yield variance.
   const ROLE_LABELS = Object.freeze({
     OWNER:'Owner', ADMIN:'Admin Legacy', ADMIN_1:'Admin 1 Finance', ADMIN_2:'Admin 2 Staff Gudang',
     STAFF_GUDANG:'Staff Gudang Legacy', STAFF_LOGISTIK:'Staff Logistik', FINANCE:'Finance'
@@ -421,7 +421,7 @@
       code.onchange=refresh;el.querySelector('.line-remove').onclick=()=>el.remove();box.appendChild(el);
     };
     add();$('#ghAddPurchase').onclick=add;$('#ghCancel').onclick=closeSheet;
-    $('#ghPurchase').onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.target),supplierId=fd.get('supplierId'),items=[...box.querySelectorAll('.direct-line')].map(x=>({code:x.querySelector('.code').value,purchaseUnit:x.querySelector('.purchase-unit').value,qtyUnit:x.querySelector('.qty').value,priceUnit:x.querySelector('.price').value}));let guard;await withBusy('Memeriksa satuan & HPP…',async()=>{guard=await callDirect('previewPurchaseGuard',{items})});if(guard&&guard.requiresConfirmation){const details=(guard.warnings||[]).join('\n• ');if(!window.confirm('PERINGATAN BELANJA\n\n• '+details+'\n\nPastikan qty, satuan, dan harga pada nota benar. Tetap posting?'))return;}await writeDirect('purchase','postPurchase',{supplier:supplierId?{id:supplierId}:{name:fd.get('supplierName')},paymentStatus:fd.get('paymentStatus'),paymentSource:fd.get('paymentSource'),notaStatus:fd.get('notaStatus'),invoiceNo:fd.get('invoiceNo'),dueDate:fd.get('dueDate'),note:fd.get('note'),items,guardAccepted:!!(guard&&guard.requiresConfirmation),guardHash:guard&&guard.guardHash||''});};
+    $('#ghPurchase').onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.target),supplierId=fd.get('supplierId'),items=[...box.querySelectorAll('.purchase-line-card')].map(x=>({code:x.querySelector('.code').value,purchaseUnit:x.querySelector('.purchase-unit').value,qtyUnit:x.querySelector('.qty').value,priceUnit:x.querySelector('.price').value}));let guard;await withBusy('Memeriksa satuan & HPP…',async()=>{guard=await callDirect('previewPurchaseGuard',{items})});if(guard&&guard.requiresConfirmation){const details=(guard.warnings||[]).join('\n• ');if(!window.confirm('PERINGATAN BELANJA\n\n• '+details+'\n\nPastikan qty, satuan, dan harga pada nota benar. Tetap posting?'))return;}await writeDirect('purchase','postPurchase',{supplier:supplierId?{id:supplierId}:{name:fd.get('supplierName')},paymentStatus:fd.get('paymentStatus'),paymentSource:fd.get('paymentSource'),notaStatus:fd.get('notaStatus'),invoiceNo:fd.get('invoiceNo'),dueDate:fd.get('dueDate'),note:fd.get('note'),items,guardAccepted:!!(guard&&guard.requiresConfirmation),guardHash:guard&&guard.guardHash||''});};
   }
   function directPacking(){
     const maps=((state.data||{}).mappings||[]).filter(x=>x.kind==='PACKING'&&x.active==='YA'),mats=((state.data||{}).materials||[]),stock=((state.data||{}).stock||[]);

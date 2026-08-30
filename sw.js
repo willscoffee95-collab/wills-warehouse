@@ -1,4 +1,4 @@
-const CACHE = 'wills-warehouse-shell-v0.5.0-packing-yield-variance';
+const CACHE = 'wills-warehouse-shell-v0.5.1-packing-yield-variance';
 const ASSETS = [
   './','./index.html','./app.css?v=0.5.0','./config.js?v=0.5.0','./bridge.js?v=0.5.0','./app.js?v=0.5.0','./manifest.webmanifest',
   './logo.png','./icon-192.png','./icon-512.png','./maskable-512.png','./apple-touch-icon.png','./favicon-64.png'
