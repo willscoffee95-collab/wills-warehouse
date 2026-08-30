@@ -45,7 +45,7 @@
   let ignoreNextPop = false;
   let lastBackAt = 0;
 
-  // v1.2.7.4 — Source Master price + unit conversion + purchase guard + historical HPP correction.
+  // v1.2.7.5 — Luxury Elegant UI Polish (visual only, no structural flow changes).
   const ROLE_LABELS = Object.freeze({
     OWNER:'Owner', ADMIN:'Admin Legacy', ADMIN_1:'Admin 1 Finance', ADMIN_2:'Admin 2 Staff Gudang',
     STAFF_GUDANG:'Staff Gudang Legacy', STAFF_LOGISTIK:'Staff Logistik', FINANCE:'Finance'
