@@ -1,6 +1,6 @@
-const CACHE = 'wills-warehouse-shell-v0.4.7-clean-fix';
+const CACHE = 'wills-warehouse-shell-v0.4.8-hpp-decimal-fix';
 const ASSETS = [
-  './','./index.html','./app.css?v=0.4.7','./config.js?v=0.4.7','./bridge.js?v=0.4.7','./app.js?v=0.4.7','./manifest.webmanifest',
+  './','./index.html','./app.css?v=0.4.8','./config.js?v=0.4.8','./bridge.js?v=0.4.8','./app.js?v=0.4.8','./manifest.webmanifest',
   './logo.png','./icon-192.png','./icon-512.png','./maskable-512.png','./apple-touch-icon.png','./favicon-64.png'
 ];
 
