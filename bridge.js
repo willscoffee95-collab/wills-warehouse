@@ -69,7 +69,7 @@
     iframe.setAttribute('aria-hidden', 'true');
     iframe.style.cssText = 'position:fixed;width:1px;height:1px;left:-9999px;top:-9999px;border:0;opacity:0;pointer-events:none;';
     const sep = url.includes('?') ? '&' : '?';
-    iframe.src = url + sep + 'view=bridge&v=0.4.6';
+    iframe.src = url + sep + 'view=bridge&v=0.5.0';
     document.body.appendChild(iframe);
 
     setTimeout(() => {

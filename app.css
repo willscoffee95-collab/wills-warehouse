@@ -87,7 +87,7 @@ body{background:linear-gradient(180deg,#fff 0%,#f7f8fa 45%,#f3f5f7 100%)!importa
 .history-reverse{margin-top:7px;border:1px solid #f0cccc;border-radius:9px;background:#fff2f2;color:#b53e3e;padding:6px 8px;font-size:9px;font-weight:800}
 
 /* ================================================================
-   CANONICAL UI v0.4.7 / Warehouse v1.2.7.7
+   CANONICAL UI v0.5.0 / Warehouse v1.2.8.0
    Luxury elegant, responsive, no stacked legacy overrides.
    ================================================================ */
 :root{--brand:#e85b2b;--brand-2:#c94821;--brand-3:#f08a61;--bg:#fbf7f2;--bg-2:#fffdf9;--surface:#fffdf9;--surface-2:#faf5ef;--surface-3:#f4ece4;--line:#e7ddd4;--line-strong:#d9cbc0;--text:#251f1b;--muted:#786f69;--muted-2:#9b9189;--green:#2f9c68;--yellow:#b77a15;--red:#bb4747;--blue:#3f78b7;--shadow:0 16px 40px rgba(72,52,40,.075);--safe-bottom:env(safe-area-inset-bottom,0px)}
