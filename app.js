@@ -518,11 +518,18 @@
     const b=$('#ghOpenBank');if(b)b.onsubmit=async e=>{e.preventDefault();await writeDirect('setOpenBank','setOpeningBankBalance',Object.fromEntries(new FormData(e.target).entries()))};
     const csh=$('#ghOpenCash');if(csh)csh.onsubmit=async e=>{e.preventDefault();await writeDirect('setOpenCash','setOpeningCashBalance',Object.fromEntries(new FormData(e.target).entries()))};
   }
+  function parsePositiveDecimal_(value,label='Nilai') {
+    const raw=String(value==null?'':value).trim().replace(/\s+/g,'').replace(',','.');
+    if(!/^\d+(?:\.\d+)?$/.test(raw)) throw new Error(label+' harus berupa angka yang valid.');
+    const n=Number(raw);
+    if(!Number.isFinite(n)||n<=0) throw new Error(label+' harus lebih dari 0.');
+    return n;
+  }
   function directHistoricalHppCorrection(){
     if(currentRole()!=='OWNER')return toast('Koreksi HPP historis hanya untuk Owner.');
     const mats=((state.data||{}).materials||[]).filter(x=>x.active==='YA');
-    sheetHtml('Koreksi HPP Historis',`<div class="role-guide"><b>Tidak mengubah stok sekarang</b><span>Fitur ini membuat ledger koreksi cost terpisah dan memperbarui snapshot cost Surat Jalan/Transit. Ledger Stok asli tetap utuh sebagai audit.</span></div><form id="ghHppCorr"><label class="field"><span>Bahan</span><select name="code" required><option value="">Pilih bahan</option>${mats.map(x=>`<option value="${esc(x.code)}">${esc(x.name)} · ${esc(x.receiveUnit)}</option>`).join('')}</select></label><div class="form-2"><label class="field"><span>Dari tanggal</span><input name="from" type="date" required></label><label class="field"><span>Sampai tanggal</span><input name="to" type="date" required></label></div><label class="field"><span>HPP koreksi / unit terima</span><input name="correctedCostReceive" type="number" min="0.000001" step="any" inputmode="decimal" required></label><label class="field"><span>Alasan</span><textarea name="reason" required placeholder="Contoh: koreksi PURCHASE salah input karton sebagai pcs"></textarea></label><div class="actions"><button class="btn btn-soft" type="button" id="ghHppPreview">Preview</button><button class="btn btn-primary" type="submit">Posting Koreksi HPP</button></div><div id="ghHppResult"></div></form>`);
-    const form=$('#ghHppCorr'),result=$('#ghHppResult'),payload=()=>Object.fromEntries(new FormData(form).entries());
+    sheetHtml('Koreksi HPP Historis',`<div class="role-guide"><b>Tidak mengubah stok sekarang</b><span>Fitur ini membuat ledger koreksi cost terpisah dan memperbarui snapshot cost Surat Jalan/Transit. Ledger Stok asli tetap utuh sebagai audit.</span></div><form id="ghHppCorr"><label class="field"><span>Bahan</span><select name="code" required><option value="">Pilih bahan</option>${mats.map(x=>`<option value="${esc(x.code)}">${esc(x.name)} · ${esc(x.receiveUnit)}</option>`).join('')}</select></label><div class="form-2"><label class="field"><span>Dari tanggal</span><input name="from" type="date" required></label><label class="field"><span>Sampai tanggal</span><input name="to" type="date" required></label></div><label class="field"><span>HPP koreksi / unit terima</span><input name="correctedCostReceive" type="text" inputmode="decimal" autocomplete="off" placeholder="Contoh: 18035.71" required></label><label class="field"><span>Alasan</span><textarea name="reason" required placeholder="Contoh: koreksi PURCHASE salah input karton sebagai pcs"></textarea></label><div class="actions"><button class="btn btn-soft" type="button" id="ghHppPreview">Preview</button><button class="btn btn-primary" type="submit">Posting Koreksi HPP</button></div><div id="ghHppResult"></div></form>`);
+    const form=$('#ghHppCorr'),result=$('#ghHppResult'),payload=()=>{const p=Object.fromEntries(new FormData(form).entries());p.correctedCostReceive=parsePositiveDecimal_(p.correctedCostReceive,'HPP koreksi');return p;};
     const preview=async()=>{let r;await withBusy('Menghitung histori HPP…',async()=>{r=await callDirect('previewHistoricalHppCorrection',payload())});result.innerHTML=`<div class="demo-box"><b>${r.items.length}</b> dispatch · cost lama ${rp(r.totalOld)} → koreksi ${rp(r.totalNew)} · delta ${rp(r.totalDelta)}</div><div class="direct-list">${r.items.slice(0,20).map(x=>`<div class="direct-card"><b>${esc(x.time)} · ${esc(x.txnId)}</b><small>${num(x.qtyBase)} ${esc(r.baseUnit)} · ${rp(x.oldCost)} → ${rp(x.newCost)}</small></div>`).join('')}</div>`;return r;};
     $('#ghHppPreview').onclick=preview;form.onsubmit=async e=>{e.preventDefault();const r=await preview();if(!r.items.length)return toast('Tidak ada dispatch untuk dikoreksi.');if(!window.confirm(`Posting koreksi HPP untuk ${r.items.length} dispatch? Stok sekarang tidak berubah.`))return;await writeDirect('hppCorrection','postHistoricalHppCorrection',payload());};
   }
@@ -766,7 +773,7 @@
       reloadingForUpdate = true;
       window.location.reload();
     });
-    window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=0.4.7', { updateViaCache: 'none' }).then(reg => reg.update()).catch(() => {}));
+    window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=0.4.9', { updateViaCache: 'none' }).then(reg => reg.update()).catch(() => {}));
   }
 
   // Scroll tetap native/normal. Pull-to-refresh dicegah lewat CSS overscroll-behavior,
