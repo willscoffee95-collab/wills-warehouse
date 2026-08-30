@@ -45,7 +45,7 @@
   let ignoreNextPop = false;
   let lastBackAt = 0;
 
-  // v1.2.7.5 — Luxury Elegant UI Polish (visual only, no structural flow changes).
+  // v1.2.7.6 — clean UI + purchase reference fix + historical HPP route fix.
   const ROLE_LABELS = Object.freeze({
     OWNER:'Owner', ADMIN:'Admin Legacy', ADMIN_1:'Admin 1 Finance', ADMIN_2:'Admin 2 Staff Gudang',
     STAFF_GUDANG:'Staff Gudang Legacy', STAFF_LOGISTIK:'Staff Logistik', FINANCE:'Finance'
@@ -352,7 +352,7 @@
   }
 
   const actionNames = {
-    purchase:'Belanja Bahan', packing:'Batch Packing', delivery:'Bahan yang Harus Dikirim Sekarang / Surat Jalan', draftPrint:'Draft Siap Kirim / Cetak Thermal', outletPayment:'Pembayaran Outlet', expense:'Pengeluaran Operasional', supplierPayment:'Bayar Supplier', adjustment:'Opname / Koreksi', packingWage:'Bayar Upah Packing', internalPrice:'Harga Internal Outlet', materials:'Master Bahan Wills', users:'Pengguna & Peran', audit:'Audit Sistem', recovery:'Antrean Pemulihan', opening:'Saldo Awal'
+    purchase:'Belanja Bahan', packing:'Batch Packing', delivery:'Bahan yang Harus Dikirim Sekarang / Surat Jalan', draftPrint:'Draft Siap Kirim / Cetak Thermal', outletPayment:'Pembayaran Outlet', expense:'Pengeluaran Operasional', supplierPayment:'Bayar Supplier', adjustment:'Opname / Koreksi', packingWage:'Bayar Upah Packing', internalPrice:'Harga Internal Outlet', materials:'Master Bahan Wills', users:'Pengguna & Peran', audit:'Audit Sistem', recovery:'Antrean Pemulihan', opening:'Saldo Awal', hppCorrection:'Koreksi HPP Historis'
   };
 
   async function openFeatureOneTap(action, trigger) {
@@ -414,10 +414,10 @@
     const box=$('#ghPurchaseLines'),mats=((state.data||{}).materials||[]);
     const unitsFor=m=>Array.isArray(m&&m.purchaseUnits)&&m.purchaseUnits.length?m.purchaseUnits:[{unit:m&&m.receiveUnit||'',multiplier:1,label:m&&m.receiveUnit||''}];
     const add=()=>{
-      const el=document.createElement('div');el.className='direct-line';
-      el.innerHTML=`<select class="code" required><option value="">Pilih bahan</option>${matOpts(true)}</select><select class="purchase-unit" required><option value="">Satuan</option></select><input class="qty" type="number" min="0.000001" step="0.000001" placeholder="Qty" required><input class="price" type="number" min="0" step="0.01" placeholder="Harga / satuan" required><small class="purchase-hint"></small><button class="line-remove" type="button">×</button>`;
+      const el=document.createElement('div');el.className='purchase-line-card';
+      el.innerHTML=`<div class="purchase-line-head"><b>Item Belanja</b><button class="line-remove" type="button" aria-label="Hapus item">×</button></div><label class="field purchase-material"><span>Bahan</span><select class="code" required><option value="">Pilih bahan</option>${matOpts(true)}</select></label><div class="purchase-grid"><label class="field"><span>Satuan Beli</span><select class="purchase-unit" required><option value="">Satuan</option></select></label><label class="field"><span>Qty</span><input class="qty" type="number" min="0.000001" step="0.000001" inputmode="decimal" placeholder="0" required></label><label class="field purchase-price-field"><span>Harga / Satuan Beli</span><input class="price" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0" required></label></div><div class="purchase-hint" aria-live="polite"></div>`;
       const code=el.querySelector('.code'),unit=el.querySelector('.purchase-unit'),price=el.querySelector('.price'),hint=el.querySelector('.purchase-hint');
-      const refresh=()=>{const m=mats.find(z=>z.code===code.value);if(!m){unit.innerHTML='<option value="">Satuan</option>';hint.textContent='';return;}const profiles=unitsFor(m);unit.innerHTML=profiles.map(x=>`<option value="${esc(x.unit)}" data-mul="${Number(x.multiplier||1)}">${esc(x.label||x.unit)}${Number(x.multiplier||1)>1?' · '+Number(x.multiplier)+' '+esc(m.receiveUnit):''}</option>`).join('');const applyPrice=()=>{const opt=unit.options[unit.selectedIndex],mul=Number(opt&&opt.dataset.mul||1),base=Number(m.lastPurchasePrice||m.defaultPurchasePrice||0);if(base>0)price.value=String(base*mul);hint.textContent=`Canonical: 1 ${unit.value} = ${num(mul*Number(m.factor||1))} ${m.baseUnit}${base>0?' · harga beli terakhir '+rp(base)+'/'+m.receiveUnit:''}`;};unit.onchange=applyPrice;applyPrice();};
+      const refresh=()=>{const m=mats.find(z=>z.code===code.value);if(!m){unit.innerHTML='<option value="">Satuan</option>';hint.textContent='';price.value='';return;}const profiles=unitsFor(m);unit.innerHTML=profiles.map(x=>`<option value="${esc(x.unit)}" data-mul="${Number(x.multiplier||1)}">${esc(x.label||x.unit)}${Number(x.multiplier||1)>1?' · '+Number(x.multiplier)+' '+esc(m.receiveUnit):''}</option>`).join('');const applyPrice=()=>{const opt=unit.options[unit.selectedIndex],mul=Number(opt&&opt.dataset.mul||1),base=Number(m.lastPurchasePrice||m.defaultPurchasePrice||0);if(base>0)price.value=String(Math.round(base*mul*100)/100);const src=String(m.lastPurchasePriceSource||'');let refLabel=base>0?`Referensi aman ${rp(base)}/${m.receiveUnit}`:'';if(src.startsWith('REINTERPRETED_'))refLabel+=` · transaksi lama ${rp(m.lastPurchasePriceRaw||0)}/${m.receiveUnit} ditahan & dibaca ulang sesuai kemasan`;else if(m.lastPurchasePriceRejected)refLabel+=` · harga transaksi lama ${rp(m.lastPurchasePriceRaw||0)}/${m.receiveUnit} ditahan karena tidak wajar`;hint.innerHTML=`<b>Canonical:</b> 1 ${esc(unit.value)} = ${num(mul*Number(m.factor||1))} ${esc(m.baseUnit)}${refLabel?' · '+esc(refLabel):''}`;};unit.onchange=applyPrice;applyPrice();};
       code.onchange=refresh;el.querySelector('.line-remove').onclick=()=>el.remove();box.appendChild(el);
     };
     add();$('#ghAddPurchase').onclick=add;$('#ghCancel').onclick=closeSheet;
@@ -766,7 +766,7 @@
       reloadingForUpdate = true;
       window.location.reload();
     });
-    window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=0.4.4', { updateViaCache: 'none' }).then(reg => reg.update()).catch(() => {}));
+    window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=0.4.6', { updateViaCache: 'none' }).then(reg => reg.update()).catch(() => {}));
   }
 
   // Scroll tetap native/normal. Pull-to-refresh dicegah lewat CSS overscroll-behavior,
