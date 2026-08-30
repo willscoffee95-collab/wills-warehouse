@@ -31,8 +31,8 @@
     token: localStorage.getItem(TOKEN_KEY) || '',
     data: null,
     bridgeReady: false,
-    fullLoaded: false,
-    fullPromise: null
+    moduleReady: Object.create(null),
+    modulePromises: Object.create(null)
   };
   let activePage = 'home';
   let stockFilter = 'Semua';
@@ -45,7 +45,7 @@
   let ignoreNextPop = false;
   let lastBackAt = 0;
 
-  // v1.2.8.2 — Pusat Harga Bahan + HPP moving-average foundation.
+  // v1.2.8.3 — Lazy module loading + faster navigation; business logic unchanged.
   const ROLE_LABELS = Object.freeze({
     OWNER:'Owner', ADMIN:'Admin Legacy', ADMIN_1:'Admin 1 Finance', ADMIN_2:'Admin 2 Staff Gudang',
     STAFF_GUDANG:'Staff Gudang Legacy', STAFF_LOGISTIK:'Staff Logistik', FINANCE:'Finance'
@@ -193,7 +193,8 @@
 
   function liveHistory() {
     if (!state.data) return [];
-    return (state.data.history || []).map(x => {
+    const source = state.data.history || ((state.data.dashboard||{}).recent) || [];
+    return source.map(x => {
       const meta = TX_META[x.type] || [String(x.type || 'Transaksi').replaceAll('_',' '), 'clock'];
       const amount = Number(x.total || 0) ? rp(x.total) : (x.invoiceNo || '');
       const st = String(x.status || '');
@@ -317,9 +318,12 @@
     if (!pages[page] || !state.data) return;
     const previous = activePage;
     const pushHistory = options.pushHistory !== false;
-    if(page!=='home' && !state.fullLoaded){
-      beginBusy('Memuat data…');
-      try{await ensureFullData();}catch(e){toast(e.message);return;}finally{endBusy();}
+    if(page==='history'){
+      beginBusy('Memuat riwayat…');
+      try{await ensureModule('history');}catch(e){toast(e.message);return;}finally{endBusy();}
+    } else if(page==='stock' && !(state.data.stock&&state.data.materials)){
+      beginBusy('Memuat stok…');
+      try{await ensureModule('stock');}catch(e){toast(e.message);return;}finally{endBusy();}
     }
     activePage = page;
     $('#content').innerHTML = pages[page]();
@@ -356,6 +360,30 @@
     purchase:'Belanja Bahan', packing:'Batch Packing', delivery:'Bahan yang Harus Dikirim Sekarang / Surat Jalan', draftPrint:'Draft Siap Kirim / Cetak Thermal', outletPayment:'Pembayaran Outlet', expense:'Pengeluaran Operasional', supplierPayment:'Bayar Supplier', adjustment:'Opname / Koreksi', packingWage:'Bayar Upah Packing', internalPrice:'Harga Internal Outlet', materials:'Master Bahan Wills', users:'Pengguna & Peran', audit:'Audit Sistem', recovery:'Antrean Pemulihan', opening:'Saldo Awal', hppCorrection:'Koreksi HPP Historis', centralPrice:'Pusat Harga Bahan'
   };
 
+  const ACTION_DATA_MODULE = Object.freeze({
+    purchase:'purchase', packing:'packing', delivery:'delivery', draftPrint:'delivery',
+    outletPayment:'receivables', expense:'expense', supplierPayment:'payables', adjustment:'stock',
+    packingWage:'packingwage', users:'users', opening:'opening', materials:'stock', hppCorrection:'stock'
+  });
+  async function ensureModule(name, force=false){
+    name=String(name||'').toLowerCase(); if(!name)return state.data;
+    if(!force && state.moduleReady[name])return state.data;
+    if(!force && state.modulePromises[name])return state.modulePromises[name];
+    const p=bridge.call('getAppModule',state.token,name).then(data=>{
+      Object.assign(state.data,data||{}); state.moduleReady[name]=true; delete state.modulePromises[name];
+      updateNotificationBadge(); return state.data;
+    }).catch(err=>{delete state.modulePromises[name];throw err});
+    state.modulePromises[name]=p; return p;
+  }
+  function invalidateDataModules(){state.moduleReady=Object.create(null);state.modulePromises=Object.create(null);}
+  async function refreshBootstrapLight(){
+    const data=await bridge.call('getAppBootstrap',state.token);
+    state.data={...(state.data||{}),...data}; state.moduleReady.stock=true;
+    updateNotificationBadge();
+    if(activePage==='home'||activePage==='stock'){const c=$('#content');if(c){c.innerHTML=pages[activePage]();bindPage();}}
+    return state.data;
+  }
+
   async function openFeatureOneTap(action, trigger) {
     if (!actionNames[action]) return toast('Fitur tidak dikenali.');
     if (!actionAllowed(action)) return toast('Menu ini tidak termasuk hak akses ' + roleName(currentRole()) + '.');
@@ -368,7 +396,8 @@
     }
     beginBusy('Membuka ' + actionNames[action] + '…');
     try {
-      await ensureFullData();
+      const moduleName=ACTION_DATA_MODULE[action]||'';
+      if(moduleName)await ensureModule(moduleName);
       openDirectSheet(action);
     } catch (err) {
       toast(err && err.message ? err.message : 'Fitur belum dapat dibuka.');
@@ -395,8 +424,8 @@
     $('#sheetClose').onclick=closeSheet; $('#sheetBackdrop').onclick=e=>{if(e.target.id==='sheetBackdrop')closeSheet()};
   }
   function idemKey(action){const k='ww_gh_idem_'+action;let x;try{x=JSON.parse(localStorage.getItem(k)||'null')}catch(_){x=null}if(x&&Date.now()-x.ts<86400000)return x.id;const id=action+':'+Date.now()+':'+Math.random().toString(36).slice(2);localStorage.setItem(k,JSON.stringify({id,ts:Date.now()}));return id}
-  async function writeDirect(action,method,payload){const idem=idemKey(action);beginBusy('Menyimpan…');try{const r=await bridge.call(method,state.token,payload||{},idem);if(r&&r.ok===false)throw new Error(r.message||'Transaksi gagal');localStorage.removeItem('ww_gh_idem_'+action);toast('Berhasil disimpan'+(r&&r.txnId?' · '+r.txnId:''));closeSheet();await reloadFull();return r}catch(e){toast(e.message);throw e}finally{endBusy()}}
-  async function reloadDeliveryModule(){const m=await bridge.call('getAppModule',state.token,'delivery');Object.assign(state.data,m||{});return m;}
+  async function writeDirect(action,method,payload){const idem=idemKey(action);beginBusy('Menyimpan…');try{const r=await bridge.call(method,state.token,payload||{},idem);if(r&&r.ok===false)throw new Error(r.message||'Transaksi gagal');localStorage.removeItem('ww_gh_idem_'+action);toast('Berhasil disimpan'+(r&&r.txnId?' · '+r.txnId:''));closeSheet();invalidateDataModules();refreshBootstrapLight().catch(err=>console.warn('[Wills Warehouse] refresh ringan:',err.message));return r}catch(e){toast(e.message);throw e}finally{endBusy()}}
+  async function reloadDeliveryModule(){const m=await bridge.call('getAppModule',state.token,'delivery');Object.assign(state.data,m||{});state.moduleReady.delivery=true;return m;}
   async function writeDeliveryDirect(action,method,payload,sjId){const idem=idemKey(action);beginBusy('Memproses Surat Jalan…');try{const r=await bridge.call(method,state.token,payload||{},idem);if(r&&r.ok===false)throw new Error(r.message||'Perintah gagal');localStorage.removeItem('ww_gh_idem_'+action);await reloadDeliveryModule();toast('Berhasil disimpan'+(r&&r.txnId?' · '+r.txnId:''));directDeliveryDetail(sjId);return r}catch(e){toast(e.message);throw e}finally{endBusy()}}
   async function callDirect(method,...args){return bridge.call(method,state.token,...args)}
   const matByCode=()=>Object.fromEntries(((state.data||{}).materials||[]).map(m=>[m.code,m]));
@@ -530,9 +559,9 @@
     const mats=d.materials||[],outs=d.outlets||[],today=d.asOf||new Date().toISOString().slice(0,10);
     sheetHtml('Pusat Harga Bahan',`<div class="role-guide"><b>Satu sumber harga, tetap fleksibel</b><span><strong>Default Pusat</strong> berlaku ke seluruh outlet. Gunakan <strong>Override Outlet</strong> hanya jika harga outlet memang sengaja berbeda.</span><span>HPP modal tetap mengikuti moving average dari Belanja Bahan dan tidak berubah hanya karena Harga Internal diubah. SJ lama tetap memakai snapshot harga lama.</span></div><form id="ghCentralPrice"><label class="field"><span>Bahan</span><select name="code" required><option value="">Pilih bahan</option>${mats.map(x=>`<option value="${esc(x.code)}">${esc(x.name)} · ${esc(x.receiveUnit)}</option>`).join('')}</select></label><label class="field"><span>Aksi Harga</span><select name="action" id="ghCentralAction"><option value="SET_DEFAULT">Tetapkan Default Pusat</option><option value="SET_OVERRIDE">Override Outlet Tertentu</option><option value="RESET_OVERRIDE">Kembalikan Outlet ke Default</option></select></label><label class="field is-hidden" id="ghCentralOutletField"><span>Outlet</span><select name="outletCode"><option value="">Pilih outlet</option>${outs.map(o=>`<option value="${esc(o.code)}">${esc(o.name)}</option>`).join('')}</select></label><label class="field" id="ghCentralPriceField"><span>Harga / Unit Terima</span><input name="price" type="number" min="0" step="1" placeholder="Contoh 12500"></label><label class="field"><span>Mulai Berlaku</span><input name="effectiveDate" type="date" value="${esc(today)}" required></label><label class="field"><span>Catatan</span><textarea name="note" placeholder="Contoh: kenaikan harga SKM supplier per 30 Agustus"></textarea></label><div id="ghCentralInfo" class="demo-box">Pilih bahan untuk melihat Harga Beli Terakhir, HPP Berjalan, Default Pusat, dan override.</div><div class="actions"><button class="btn btn-primary" type="submit">Simpan Aturan Harga</button><button class="btn btn-soft" type="button" id="ghCentralSync">Sinkron ke Outlet Sekarang</button></div></form><h4>Status Harga</h4><div id="ghCentralList" class="direct-list"></div>`);
     const f=$('#ghCentralPrice'),action=$('#ghCentralAction'),outletField=$('#ghCentralOutletField'),priceField=$('#ghCentralPriceField'),info=$('#ghCentralInfo'),list=$('#ghCentralList');
-    const renderList=()=>{list.innerHTML=mats.map(x=>`<div class="direct-card"><b>${esc(x.name)}</b><small>Harga beli terakhir ${x.lastPurchasePrice>0?rp(x.lastPurchasePrice):'-'} · HPP ${x.hppReceive>0?rp(x.hppReceive):'-'} / ${esc(x.receiveUnit)} · Default ${x.defaultPrice>0?rp(x.defaultPrice):'belum diset'}</small><small>${(x.overrides||[]).length?'Override: '+x.overrides.map(o=>`${esc(o.outletName)} ${rp(o.price)}`).join(' · '):'Semua outlet mengikuti default / legacy'}</small></div>`).join('')||'<div class="empty">Belum ada bahan.</div>'};renderList();
+    const renderList=()=>{list.innerHTML=mats.map(x=>`<div class="direct-card"><b>${esc(x.name)}</b><small>Harga beli terakhir ${x.lastPurchaseDisplayPrice>0?rp(x.lastPurchaseDisplayPrice)+' / '+esc(x.lastPurchaseDisplayUnit||x.receiveUnit):'-'}${x.lastPurchaseDisplayPrice>0&&x.lastPurchaseEquivalentPrice>0&&x.lastPurchaseDisplayUnit!==x.receiveUnit?' · setara '+rp(x.lastPurchaseEquivalentPrice)+' / '+esc(x.receiveUnit):''} · HPP ${x.hppReceive>0?rp(x.hppReceive):'-'} / ${esc(x.receiveUnit)} · Default ${x.defaultPrice>0?rp(x.defaultPrice):'belum diset'}</small><small>${(x.overrides||[]).length?'Override: '+x.overrides.map(o=>`${esc(o.outletName)} ${rp(o.price)}`).join(' · '):'Semua outlet mengikuti default / legacy'}</small></div>`).join('')||'<div class="empty">Belum ada bahan.</div>'};renderList();
     const toggle=()=>{const ov=action.value!=='SET_DEFAULT';outletField.classList.toggle('is-hidden',!ov);priceField.classList.toggle('is-hidden',action.value==='RESET_OVERRIDE');};action.onchange=toggle;toggle();
-    f.code.onchange=()=>{const x=mats.find(m=>m.code===f.code.value);if(!x){info.textContent='Pilih bahan.';return;}info.innerHTML=`<b>${esc(x.name)}</b><br>Harga Beli Terakhir: ${x.lastPurchasePrice>0?rp(x.lastPurchasePrice):'-'} / ${esc(x.receiveUnit)}<br>HPP Berjalan: ${x.hppReceive>0?rp(x.hppReceive):'-'} / ${esc(x.receiveUnit)}<br>Harga Internal Warehouse: ${x.warehouseInternalPrice>0?rp(x.warehouseInternalPrice):'-'}<br>Default Pusat: ${x.defaultPrice>0?rp(x.defaultPrice)+' sejak '+esc(x.defaultEffectiveDate):'belum diset'}${(x.overrides||[]).length?'<br>Override: '+x.overrides.map(o=>`${esc(o.outletName)} ${rp(o.price)} sejak ${esc(o.effectiveDate)}`).join(' · '):''}`;if(action.value==='SET_DEFAULT'&&x.defaultPrice>0)f.price.value=String(x.defaultPrice);};
+    f.code.onchange=()=>{const x=mats.find(m=>m.code===f.code.value);if(!x){info.textContent='Pilih bahan.';return;}info.innerHTML=`<b>${esc(x.name)}</b><br>Harga Beli Terakhir: ${x.lastPurchaseDisplayPrice>0?rp(x.lastPurchaseDisplayPrice)+' / '+esc(x.lastPurchaseDisplayUnit||x.receiveUnit):'-'}${x.lastPurchaseDisplayPrice>0&&x.lastPurchaseEquivalentPrice>0&&x.lastPurchaseDisplayUnit!==x.receiveUnit?'<br>Setara: '+rp(x.lastPurchaseEquivalentPrice)+' / '+esc(x.receiveUnit):''}<br>HPP Berjalan: ${x.hppReceive>0?rp(x.hppReceive):'-'} / ${esc(x.receiveUnit)}<br>Harga Internal Warehouse: ${x.warehouseInternalPrice>0?rp(x.warehouseInternalPrice):'-'}<br>Default Pusat: ${x.defaultPrice>0?rp(x.defaultPrice)+' sejak '+esc(x.defaultEffectiveDate):'belum diset'}${(x.overrides||[]).length?'<br>Override: '+x.overrides.map(o=>`${esc(o.outletName)} ${rp(o.price)} sejak ${esc(o.effectiveDate)}`).join(' · '):''}`;if(action.value==='SET_DEFAULT'&&x.defaultPrice>0)f.price.value=String(x.defaultPrice);};
     f.onsubmit=async e=>{e.preventDefault();const p=Object.fromEntries(new FormData(f).entries());if(p.action!=='RESET_OVERRIDE'&&!(Number(p.price)>0))return toast('Harga harus lebih dari 0.');if(p.action!=='SET_DEFAULT'&&!p.outletCode)return toast('Pilih outlet.');await writeDirect('centralPriceRule','saveCentralMaterialPrice',p);};
     $('#ghCentralSync').onclick=async()=>{try{let r;await withBusy('Menyinkronkan harga ke outlet…',async()=>{r=await callDirect('syncCentralMaterialPricesNow',{})});toast(`Sinkron harga selesai · ${r.changed||0} perubahan${(r.errors||[]).length?' · '+r.errors.length+' gagal':''}`);if((r.errors||[]).length)console.warn(r.errors)}catch(e){toast(e.message)}};
   }
@@ -727,21 +756,17 @@
     if (detail && !state.bridgeReady) console.warn('[Wills Warehouse] Sistem belum siap:', detail);
   }
 
-  async function loadFullData(token=state.token){if(state.fullLoaded&&state.data)return state.data;if(state.fullPromise)return state.fullPromise;state.fullPromise=bridge.call('getAppData',token).then(data=>{state.data={...(state.data||{}),...data};state.fullLoaded=true;state.fullPromise=null;updateNotificationBadge();if(activePage==='home'){const c=$('#content');if(c){c.innerHTML=renderHome();bindPage();}}else setPage(activePage);return state.data}).catch(e=>{state.fullPromise=null;throw e});return state.fullPromise;}
-  async function ensureFullData(){if(!state.fullLoaded)await loadFullData();return state.data;}
-  async function reloadFull(){state.fullLoaded=false;state.fullPromise=null;await loadFullData();setPage(activePage);}
   async function loadAppWithToken(token, silent = false) {
     try {
       const data = await bridge.call('getAppBootstrap', token);
-      state.token = token; state.data = data; state.fullLoaded=false; state.fullPromise=null;
+      state.token = token; state.data = data; state.moduleReady=Object.create(null); state.modulePromises=Object.create(null); state.moduleReady.stock=true;
       localStorage.setItem(TOKEN_KEY, token);
       $('#loginView').classList.add('is-hidden'); $('#mainView').classList.remove('is-hidden');
       $('#profileBtn').textContent = initials(data.user && data.user.name || 'WW');
       updateNotificationBadge(); await setPage('home', { pushHistory: false }); initAppHistory();
-      loadFullData(token).catch(err=>console.warn('[Wills Warehouse] background full load:',err.message));
       if (!silent) toast('Sistem siap digunakan.'); return true;
     } catch (err) {
-      localStorage.removeItem(TOKEN_KEY); state.token=''; state.data=null; state.fullLoaded=false;
+      localStorage.removeItem(TOKEN_KEY); state.token=''; state.data=null; state.moduleReady=Object.create(null); state.modulePromises=Object.create(null);
       if (!silent) toast(err.message); return false;
     }
   }
@@ -811,7 +836,7 @@
       reloadingForUpdate = true;
       window.location.reload();
     });
-    window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=0.5.2', { updateViaCache: 'none' }).then(reg => reg.update()).catch(() => {}));
+    window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=0.5.3', { updateViaCache: 'none' }).then(reg => reg.update()).catch(() => {}));
   }
 
   // Scroll tetap native/normal. Pull-to-refresh dicegah lewat CSS overscroll-behavior,
