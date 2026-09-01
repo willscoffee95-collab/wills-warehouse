@@ -171,7 +171,7 @@
   function statusLabel(status) {
     const map = {
       POSTED:'SELESAI', REVERSED:'DIBALIKKAN', FAILED:'GAGAL', DRAFT:'DRAF',
-      POSTING:'DIPROSES', PENDING:'MENUNGGU', CANCELLED:'DIBATALKAN', CANCELED:'DIBATALKAN'
+      POSTING:'DIPROSES', PENDING:'MENUNGGU', CANCELLED:'DIBATALKAN', CANCELED:'DIBATALKAN', DITERIMA:'DIPROSES OTOMATIS'
     };
     const key = String(status || '').toUpperCase();
     return map[key] || String(status || '').replaceAll('_',' ');
@@ -183,12 +183,12 @@
     if (s === 'DIKIRIM') return 'status-sent';
     if (s === 'DIBATALKAN' || s === 'CANCELLED' || s === 'CANCELED') return 'status-cancelled';
     if (s === 'SELESAI') return 'status-done';
-    if (s === 'DITERIMA') return 'status-received';
+    if (s === 'DITERIMA') return 'warn';
     if (s === 'SELISIH') return 'bad';
     return 'brand';
   }
   function deliveryStatusBadge(status) {
-    return `<span class="badge ${deliveryStatusClass(status)}">${esc(String(status || '-').toUpperCase())}</span>`;
+    return `<span class="badge ${deliveryStatusClass(status)}">${esc(statusLabel(status).toUpperCase())}</span>`;
   }
 
   function liveHistory() {
@@ -502,15 +502,14 @@
   function directReverse(txnId){const reason=prompt('Alasan pembatalan / reversal transaksi '+txnId+':');if(!reason)return;writeDirect('reverse_'+txnId,'reverseTransaction',{txnId:txnId,reason:reason}).catch(()=>{});}
   function directDeliveryDetail(id){
     const d=((state.data||{}).deliveries||[]).find(x=>x.sjId===id);if(!d)return toast('SJ tidak ditemukan.');
-    const canPrepare=roleCan('DELIVERY_PREPARE'),canCancel=roleCan('DELIVERY_CANCEL'),canDispatch=roleCan('DELIVERY_DISPATCH'),canComplete=roleCan('DELIVERY_COMPLETE'),canSync=roleCan('DELIVERY_SYNC');
+    const canPrepare=roleCan('DELIVERY_PREPARE'),canCancel=roleCan('DELIVERY_CANCEL'),canDispatch=roleCan('DELIVERY_DISPATCH'),canSync=roleCan('DELIVERY_SYNC');
     const req=findRequestForDelivery(d);
     const requestMeta=req?`<div class="delivery-request-meta"><b>Permintaan outlet</b><span>${esc(req.requestId)}${req.needDate?' · dibutuhkan '+esc(req.needDate):''}</span></div>`:'';
-    sheetHtml(d.noSj,`<p><b>${esc(d.outletName)}</b> · ${deliveryStatusBadge(d.status)}${d.createdBy?' · dibuat '+esc(d.createdBy):''}</p>${requestMeta}<div class="direct-list">${(d.lines||[]).map(l=>{const requested=Number(l.requestedQtyUnit!=null?l.requestedQtyUnit:(l.qtyUnit||0)),approved=Number(l.qtyUnit||0),received=Number(l.receivedBase||0)/Number(l.factor||1),fulfillment=l.fulfillmentStatus||'DIPENUHI',fc=fulfillment==='DIPENUHI'?'ok':fulfillment==='TIDAK TERSEDIA'?'bad':'warn';return `<div class="direct-card"><b>${esc(l.name)}</b><small>Diminta ${num(requested)} · disiapkan ${num(approved)} ${esc(l.sendUnit)}${d.status!=='DRAFT'?' · diterima '+num(received):''}</small>${l.fulfillmentReason?`<small>Alasan: ${esc(l.fulfillmentReason)}</small>`:''}<span class="badge ${fc}">${esc(fulfillment)}</span></div>`}).join('')}</div><div class="actions">${d.status!=='DIBATALKAN'&&actionAllowed('draftPrint')?'<button class="btn btn-thermal" id="ghPrintSj">Cetak Thermal</button>':''}${d.status==='DRAFT'&&canPrepare?'<button class="btn btn-soft" id="ghAdjustSj">Atur Ketersediaan</button>':''}${d.status==='DRAFT'&&canCancel?'<button class="btn btn-line" id="ghCancelSj">Batalkan</button>':''}${d.status==='DRAFT'&&canDispatch?'<button class="btn btn-primary" id="ghSendSj">Konfirmasi Kirim</button>':''}${d.status==='DITERIMA'&&canComplete?'<button class="btn btn-primary" id="ghCompleteSj">Selesaikan & Bentuk Piutang</button>':''}${!['DRAFT','DIBATALKAN'].includes(d.status)&&canSync?'<button class="btn btn-soft" id="ghSyncSj">Sinkron SJ Ini</button>':''}</div>`);
+    sheetHtml(d.noSj,`<p><b>${esc(d.outletName)}</b> · ${deliveryStatusBadge(d.status)}${d.createdBy?' · dibuat '+esc(d.createdBy):''}</p>${requestMeta}<div class="direct-list">${(d.lines||[]).map(l=>{const requested=Number(l.requestedQtyUnit!=null?l.requestedQtyUnit:(l.qtyUnit||0)),approved=Number(l.qtyUnit||0),received=Number(l.receivedBase||0)/Number(l.factor||1),fulfillment=l.fulfillmentStatus||'DIPENUHI',fc=fulfillment==='DIPENUHI'?'ok':fulfillment==='TIDAK TERSEDIA'?'bad':'warn';return `<div class="direct-card"><b>${esc(l.name)}</b><small>Diminta ${num(requested)} · disiapkan ${num(approved)} ${esc(l.sendUnit)}${d.status!=='DRAFT'?' · diterima '+num(received):''}</small>${l.fulfillmentReason?`<small>Alasan: ${esc(l.fulfillmentReason)}</small>`:''}<span class="badge ${fc}">${esc(fulfillment)}</span></div>`}).join('')}</div><div class="actions">${d.status!=='DIBATALKAN'&&actionAllowed('draftPrint')?'<button class="btn btn-thermal" id="ghPrintSj">Cetak Thermal</button>':''}${d.status==='DRAFT'&&canPrepare?'<button class="btn btn-soft" id="ghAdjustSj">Atur Ketersediaan</button>':''}${d.status==='DRAFT'&&canCancel?'<button class="btn btn-line" id="ghCancelSj">Batalkan</button>':''}${d.status==='DRAFT'&&canDispatch?'<button class="btn btn-primary" id="ghSendSj">Konfirmasi Kirim</button>':''}${!['DRAFT','DIBATALKAN'].includes(d.status)&&canSync?'<button class="btn btn-soft" id="ghSyncSj">Sinkron SJ Ini</button>':''}</div>`);
     const p=$('#ghPrintSj');if(p)p.onclick=()=>directPrintDeliveryDraft(id);
     const a=$('#ghAdjustSj');if(a)a.onclick=()=>directFulfillment(id);
     const c=$('#ghCancelSj');if(c)c.onclick=()=>writeDeliveryDirect('cancel_'+id,'cancelDeliveryDraft',{sjId:id,reason:'Dibatalkan dari GitHub PWA'},id);
     const k=$('#ghSendSj');if(k)k.onclick=()=>confirm('Hanya qty yang sudah disiapkan/disetujui yang akan mengurangi stok. Barang benar-benar siap dikirim?')&&writeDeliveryDirect('dispatch_'+id,'dispatchDelivery',{sjId:id},id);
-    const f=$('#ghCompleteSj');if(f)f.onclick=()=>confirm('Selesaikan SJ dan bentuk piutang outlet?')&&writeDirect('complete_'+id,'completeDelivery',{sjId:id});
     const y=$('#ghSyncSj');if(y)y.onclick=async()=>{try{let r;await withBusy('Sinkron SJ…',async()=>{r=await callDirect('syncOutletReceiptForDelivery',{sjId:id});if(!r.ok)throw new Error(r.error||'Sinkron gagal.');await reloadDeliveryModule();});toast('Penerimaan SJ diperbarui · '+r.elapsedMs+' ms');directDeliveryDetail(id)}catch(e){toast(e.message)}};
   }
 
