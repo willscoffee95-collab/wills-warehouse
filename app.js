@@ -63,7 +63,7 @@
     purchase:'PURCHASE', packing:'PACKING', delivery:'DELIVERY_PREPARE', draftPrint:'DELIVERY_PREPARE',
     outletPayment:'OUTLET_PAYMENT', expense:'EXPENSE', supplierPayment:'SUPPLIER_PAYMENT', adjustment:'OWNER_ONLY',
     packingWage:'PACKING_WAGE_PAYMENT', internalPrice:'INTERNAL_PRICE', centralPrice:'CENTRAL_PRICE', users:'OWNER_ONLY', audit:'AUDIT_OPERATIONAL',
-    recovery:'AUDIT_OPERATIONAL', opening:'OWNER_ONLY', materials:'ANY', hppCorrection:'OWNER_ONLY'
+    recovery:'AUDIT_OPERATIONAL', opening:'OWNER_ONLY', rebaseline:'OWNER_ONLY', materials:'ANY', hppCorrection:'OWNER_ONLY'
   });
   function roleName(role){return ROLE_LABELS[String(role||'').toUpperCase()]||String(role||'');}
   function currentRole(){return String((((state.data||{}).user||{}).role)||'').toUpperCase();}
@@ -300,6 +300,7 @@
       ['audit','Audit Sistem','Pemeriksaan integritas dan keamanan transaksi','audit'],
       ['warning','Antrean Pemulihan','Pantau transaksi yang perlu dipulihkan','recovery'],
       ['wallet','Saldo Awal','Saldo awal Bank / Kas Gudang','opening'],
+      ['audit','Mulai Data Baru','Re-Baseline Bank, Kas Gudang & stok fisik Warehouse','rebaseline'],
       ['audit','Koreksi HPP Historis','Perbaiki cost lama tanpa mengubah qty stok','hppCorrection']
     ];
     const modules=visibleModuleRows(all);
@@ -357,13 +358,13 @@
   }
 
   const actionNames = {
-    purchase:'Belanja Bahan', packing:'Batch Packing', delivery:'Bahan yang Harus Dikirim Sekarang / Surat Jalan', draftPrint:'Draft Siap Kirim / Cetak Thermal', outletPayment:'Pembayaran Outlet', expense:'Pengeluaran Operasional', supplierPayment:'Bayar Supplier', adjustment:'Opname / Koreksi', packingWage:'Bayar Upah Packing', internalPrice:'Harga Internal Outlet', materials:'Master Bahan Wills', users:'Pengguna & Peran', audit:'Audit Sistem', recovery:'Antrean Pemulihan', opening:'Saldo Awal', hppCorrection:'Koreksi HPP Historis', centralPrice:'Pusat Harga Bahan'
+    purchase:'Belanja Bahan', packing:'Batch Packing', delivery:'Bahan yang Harus Dikirim Sekarang / Surat Jalan', draftPrint:'Draft Siap Kirim / Cetak Thermal', outletPayment:'Pembayaran Outlet', expense:'Pengeluaran Operasional', supplierPayment:'Bayar Supplier', adjustment:'Opname / Koreksi', packingWage:'Bayar Upah Packing', internalPrice:'Harga Internal Outlet', materials:'Master Bahan Wills', users:'Pengguna & Peran', audit:'Audit Sistem', recovery:'Antrean Pemulihan', opening:'Saldo Awal', rebaseline:'Mulai Data Baru', hppCorrection:'Koreksi HPP Historis', centralPrice:'Pusat Harga Bahan'
   };
 
   const ACTION_DATA_MODULE = Object.freeze({
     purchase:'purchase', packing:'packing', delivery:'delivery', draftPrint:'delivery',
     outletPayment:'receivables', expense:'expense', supplierPayment:'payables', adjustment:'stock',
-    packingWage:'packingwage', users:'users', opening:'opening', materials:'stock', hppCorrection:'stock'
+    packingWage:'packingwage', users:'users', opening:'opening', rebaseline:'rebaseline', materials:'stock', hppCorrection:'stock'
   });
   async function ensureModule(name, force=false){
     name=String(name||'').toLowerCase(); if(!name)return state.data;
@@ -434,7 +435,7 @@
     if(action==='purchase')return directPurchase(); if(action==='packing')return directPacking(); if(action==='delivery')return directDelivery(); if(action==='draftPrint')return directDraftPrintList();
     if(action==='outletPayment')return directOutletPayment(); if(action==='expense')return directExpense(); if(action==='supplierPayment')return directSupplierPayment();
     if(action==='adjustment')return directAdjustment(); if(action==='packingWage')return directPackingWage(); if(action==='centralPrice')return directCentralPrice();if(action==='internalPrice')return directInternalPrice();
-    if(action==='users')return directUsers(); if(action==='audit')return directAudit(); if(action==='recovery')return directRecovery(); if(action==='opening')return directOpening();
+    if(action==='users')return directUsers(); if(action==='audit')return directAudit(); if(action==='recovery')return directRecovery(); if(action==='opening')return directOpening(); if(action==='rebaseline')return directRebaseline();
     if(action==='materials')return directMaterials(); if(action==='hppCorrection')return directHistoricalHppCorrection();
     toast('Modul belum tersedia.');
   }
@@ -584,6 +585,22 @@
     sheetHtml('Saldo Awal',`<div class="role-guide"><b>Owner Control</b><span>Saldo awal Bank dan Kas boleh diperbaiki kapan pun oleh Owner. Sistem tidak mengedit ledger lama; setiap perubahan dibuat sebagai transaksi koreksi delta dengan audit trail.</span><span>Admin 1 Finance, Admin 2 Staff Gudang, Finance, dan Staff Logistik tidak memiliki akses ini.</span></div><div class="stats-mini"><div class="demo-box"><b>Bank</b><br>Saldo awal tercatat ${rp(bankRecorded)}<br>Saldo sistem sekarang ${rp(bankCurrent)}</div><div class="demo-box"><b>Kas Gudang</b><br>Saldo awal tercatat ${rp(cashRecorded)}<br>Saldo sistem sekarang ${rp(cashCurrent)}</div></div><form id="ghOpenBank"><label class="field"><span>Nama rekening</span><input name="accountName" value="Bank Warehouse" required></label><label class="field"><span>Target Saldo Awal Bank</span><input name="amount" type="number" min="0" value="${bankRecorded}" required></label><label class="field"><span>Alasan / catatan perubahan</span><textarea name="note" placeholder="Contoh: koreksi saldo awal setelah rekonsiliasi"></textarea></label><button class="btn btn-primary">Simpan Saldo Awal Bank</button></form><form id="ghOpenCash"><label class="field"><span>Referensi</span><input name="reference" value="Kas Gudang"></label><label class="field"><span>Target Saldo Awal Kas</span><input name="amount" type="number" min="0" value="${cashRecorded}" required></label><label class="field"><span>Alasan / catatan perubahan</span><textarea name="note" placeholder="Contoh: koreksi uang fisik awal"></textarea></label><button class="btn btn-primary">Simpan Saldo Awal Kas</button></form>`);
     const b=$('#ghOpenBank');if(b)b.onsubmit=async e=>{e.preventDefault();await writeDirect('setOpenBank','setOpeningBankBalance',Object.fromEntries(new FormData(e.target).entries()))};
     const csh=$('#ghOpenCash');if(csh)csh.onsubmit=async e=>{e.preventDefault();await writeDirect('setOpenCash','setOpeningCashBalance',Object.fromEntries(new FormData(e.target).entries()))};
+  }
+
+  function directRebaseline(){
+    const r=(state.data||{}).rebaseline||{},mats=r.materials||[],ob=r.obligations||{},last=r.lastRebaseline||null;
+    const today=new Date().toISOString().slice(0,10);
+    sheetHtml('Mulai Data Baru',`<div class="role-guide"><b>Warehouse Re-Baseline · Owner Only</b><span>Fitur ini TIDAK menghapus histori. Sistem membuat transaksi delta ter-audit sampai Bank, Kas Gudang, qty stok, dan nilai stok sama dengan angka baru yang kamu input.</span><span>Data Kasir outlet, piutang, hutang supplier, Surat Jalan/transit, user, master bahan dan histori lama tetap dipertahankan.</span></div>
+      ${last?`<div class="demo-box"><b>Baseline terakhir</b><br>${esc(last.effectiveDate||'')} · ${esc(last.id||'')} · ${esc(last.status||'')}</div>`:''}
+      <div class="stats-mini"><div class="demo-box"><b>Bank sekarang</b><br>${rp(r.currentBankBalance||0)}</div><div class="demo-box"><b>Kas Gudang sekarang</b><br>${rp(r.currentCashBalance||0)}</div></div>
+      <div class="demo-box"><b>Yang tetap dipertahankan</b><br>Piutang ${num(ob.receivablesCount||0)} · Hutang ${num(ob.payablesCount||0)} · SJ aktif ${num(ob.activeDeliveryCount||0)} · Transit ${num(ob.transitLines||0)} baris</div>
+      <form id="ghRebaseline"><div class="form-2"><label class="field"><span>Bank Warehouse Baru</span><input name="bankBalance" type="number" min="0" step="0.01" value="${Number(r.currentBankBalance||0)}" required></label><label class="field"><span>Kas Gudang Baru</span><input name="cashBalance" type="number" min="0" step="0.01" value="${Number(r.currentCashBalance||0)}" required></label></div><label class="field"><span>Tanggal mulai data baru</span><input name="effectiveDate" type="date" value="${today}" required></label><label class="field"><span>Catatan / alasan</span><textarea name="note" required placeholder="Contoh: Re-Baseline Warehouse setelah stok opname fisik 2 September 2026"></textarea></label>
+      <div class="section-head"><h3>Stok Fisik Warehouse</h3><span>Semua wajib diisi · isi 0 bila kosong</span></div><div id="ghRebaseLines" class="direct-list">${mats.map(m=>`<div class="direct-card rebase-line" data-code="${esc(m.code)}" data-factor="${Number(m.factor||1)}"><b>${esc(m.code)} · ${esc(m.name)}</b><small>Sistem ${num(m.currentQtyUnit||0)} ${esc(m.receiveUnit)} · HPP referensi ${Number(m.referenceHppReceive||0)>0?rp(m.referenceHppReceive):'BELUM ADA'} / ${esc(m.receiveUnit)} · ${esc(m.referenceMethod||'')}</small><div class="form-2"><label class="field"><span>Qty fisik (${esc(m.receiveUnit)})</span><input class="rebase-qty" type="number" min="0" step="0.000001" inputmode="decimal" placeholder="Wajib isi, 0 jika kosong" required></label><label class="field"><span>HPP / ${esc(m.receiveUnit)}</span><input class="rebase-cost" type="number" min="0" step="0.000001" inputmode="decimal" value="${Number(m.referenceHppReceive||0)>0?Number(m.referenceHppReceive):''}" placeholder="Wajib jika qty > 0"></label></div></div>`).join('')}</div>
+      <div class="actions"><button class="btn btn-line" type="button" id="ghRebaseCancel">Tutup</button><button class="btn btn-primary" type="button" id="ghRebasePreview">Preview Re-Baseline</button></div><div id="ghRebasePreviewOut"></div></form>`);
+    const form=$('#ghRebaseline'),out=$('#ghRebasePreviewOut');$('#ghRebaseCancel').onclick=closeSheet;
+    const payload=()=>{const fd=new FormData(form),items=[...form.querySelectorAll('.rebase-line')].map(x=>({code:x.dataset.code,qtyUnit:x.querySelector('.rebase-qty').value,unitCostReceive:x.querySelector('.rebase-cost').value}));return{bankBalance:fd.get('bankBalance'),cashBalance:fd.get('cashBalance'),effectiveDate:fd.get('effectiveDate'),note:fd.get('note'),items};};
+    let lastPreview=null;
+    $('#ghRebasePreview').onclick=async()=>{try{let p;await withBusy('Membuat preview Re-Baseline…',async()=>{p=await callDirect('previewWarehouseRebaselineV12915',payload())});lastPreview=p;out.innerHTML=`<div class="demo-box"><b>PREVIEW — belum ada data berubah</b><br>Bank ${rp(p.bank.before)} → ${rp(p.bank.target)}<br>Kas ${rp(p.cash.before)} → ${rp(p.cash.target)}<br>Nilai stok ${rp(p.stock.valueBefore)} → ${rp(p.stock.valueTarget)}<br>${num(p.stock.changed)} dari ${num(p.stock.materials)} bahan berubah.${(p.warnings||[]).length?'<br><br>'+p.warnings.map(x=>'• '+esc(x)).join('<br>'):''}</div><label class="field"><span>Ketik konfirmasi: ${esc(p.confirmPhrase)}</span><input id="ghRebaseConfirm" autocomplete="off" placeholder="${esc(p.confirmPhrase)}"></label><button class="btn btn-primary" type="button" id="ghRebaseCommit">TERAPKAN MULAI DATA BARU</button>`;$('#ghRebaseCommit').onclick=async()=>{const phrase=String($('#ghRebaseConfirm').value||'').trim().toUpperCase();if(phrase!==String(p.confirmPhrase||'').toUpperCase())return toast('Kalimat konfirmasi belum sesuai.');if(!window.confirm('Terapkan Re-Baseline Warehouse sekarang? Histori tidak dihapus, tetapi saldo Bank/Kas dan stok Warehouse akan disesuaikan ke angka preview.'))return;const body=payload();body.previewHash=p.previewHash;body.confirmPhrase=phrase;await writeDirect('warehouseRebaseline','postWarehouseRebaselineV12915',body);};}catch(e){toast(e.message)}};
   }
   function parsePositiveDecimal_(value,label='Nilai') {
     const raw=String(value==null?'':value).trim().replace(/\s+/g,'').replace(',','.');

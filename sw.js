@@ -1,6 +1,6 @@
-const CACHE = 'wills-warehouse-shell-v0.5.6-auto-complete-receipt';
+const CACHE = 'wills-warehouse-shell-v0.5.7-rebaseline';
 const ASSETS = [
-  './','./index.html','./app.css?v=0.5.2','./config.js?v=0.5.2','./bridge.js?v=0.5.2','./app.js?v=0.5.6','./manifest.webmanifest',
+  './','./index.html','./app.css?v=0.5.2','./config.js?v=0.5.2','./bridge.js?v=0.5.2','./app.js?v=0.5.7','./manifest.webmanifest',
   './logo.png','./icon-192.png','./icon-512.png','./maskable-512.png','./apple-touch-icon.png','./favicon-64.png'
 ];
 
