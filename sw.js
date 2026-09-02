@@ -1,6 +1,6 @@
-const CACHE = 'wills-warehouse-shell-v0.5.7-rebaseline';
+const CACHE = 'wills-warehouse-shell-v0.6.0-finance-stock-report';
 const ASSETS = [
-  './','./index.html','./app.css?v=0.5.2','./config.js?v=0.5.2','./bridge.js?v=0.5.2','./app.js?v=0.5.7','./manifest.webmanifest',
+  './','./index.html','./app.css?v=0.6.0','./config.js?v=0.6.0','./bridge.js?v=0.6.0','./app.js?v=0.6.0','./manifest.webmanifest',
   './logo.png','./icon-192.png','./icon-512.png','./maskable-512.png','./apple-touch-icon.png','./favicon-64.png'
 ];
 
