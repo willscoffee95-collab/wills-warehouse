@@ -36,6 +36,9 @@
   };
   let activePage = 'home';
   let stockFilter = 'Semua';
+  let historyCategoryFilter = 'Semua';
+  let historyDateFilter = 'ALL';
+  let historyExactDate = '';
   let featureOpening = false;
   let busyDepth = 0;
   let toastShowing = false;
@@ -52,18 +55,18 @@
   });
   const ROLE_PERMISSIONS = Object.freeze({
     OWNER:['*'],
-    ADMIN:['PURCHASE','PACKING','EXPENSE','SUPPLIER_MASTER','INTERNAL_PRICE','REQUEST_SYNC','DELIVERY_CREATE','DELIVERY_CANCEL','DELIVERY_PREPARE','DELIVERY_DISPATCH','DELIVERY_SYNC','DELIVERY_COMPLETE','OUTLET_PAYMENT','AUDIT_OPERATIONAL','FINANCE_REPORT'],
-    ADMIN_1:['PURCHASE','PACKING','EXPENSE','SUPPLIER_MASTER','INTERNAL_PRICE','CENTRAL_PRICE','OUTLET_PAYMENT','SUPPLIER_PAYMENT','PACKING_WAGE_PAYMENT','AUDIT_OPERATIONAL','FINANCE_REPORT'],
-    ADMIN_2:['REQUEST_SYNC','DELIVERY_CREATE','DELIVERY_CANCEL','DELIVERY_PREPARE','DELIVERY_DISPATCH','DELIVERY_SYNC','DELIVERY_COMPLETE','AUDIT_OPERATIONAL'],
-    STAFF_GUDANG:['PACKING','DELIVERY_PREPARE','DELIVERY_DISPATCH','DELIVERY_SYNC'],
-    STAFF_LOGISTIK:['PACKING','DELIVERY_PREPARE','DELIVERY_DISPATCH','DELIVERY_SYNC'],
-    FINANCE:['EXPENSE','OUTLET_PAYMENT','SUPPLIER_PAYMENT','PACKING_WAGE_PAYMENT','DELIVERY_SYNC','DELIVERY_COMPLETE','FINANCE_REPORT']
+    ADMIN:['PURCHASE','PACKING','EXPENSE','SUPPLIER_MASTER','INTERNAL_PRICE','REQUEST_SYNC','DELIVERY_CREATE','DELIVERY_CANCEL','DELIVERY_PREPARE','DELIVERY_DISPATCH','DELIVERY_SYNC','DELIVERY_COMPLETE','OUTLET_PAYMENT','AUDIT_OPERATIONAL','FINANCE_REPORT','DISPATCH_REPORT'],
+    ADMIN_1:['PURCHASE','PACKING','EXPENSE','SUPPLIER_MASTER','INTERNAL_PRICE','CENTRAL_PRICE','OUTLET_PAYMENT','SUPPLIER_PAYMENT','PACKING_WAGE_PAYMENT','AUDIT_OPERATIONAL','FINANCE_REPORT','DISPATCH_REPORT'],
+    ADMIN_2:['REQUEST_SYNC','DELIVERY_CREATE','DELIVERY_CANCEL','DELIVERY_PREPARE','DELIVERY_DISPATCH','DELIVERY_SYNC','DELIVERY_COMPLETE','AUDIT_OPERATIONAL','DISPATCH_REPORT'],
+    STAFF_GUDANG:['PACKING','DELIVERY_PREPARE','DELIVERY_DISPATCH','DELIVERY_SYNC','DISPATCH_REPORT'],
+    STAFF_LOGISTIK:['PACKING','DELIVERY_PREPARE','DELIVERY_DISPATCH','DELIVERY_SYNC','DISPATCH_REPORT'],
+    FINANCE:['EXPENSE','OUTLET_PAYMENT','SUPPLIER_PAYMENT','PACKING_WAGE_PAYMENT','DELIVERY_SYNC','DELIVERY_COMPLETE','FINANCE_REPORT','DISPATCH_REPORT']
   });
   const ACTION_PERMISSION = Object.freeze({
     purchase:'PURCHASE', packing:'PACKING', delivery:'DELIVERY_PREPARE', draftPrint:'DELIVERY_PREPARE',
     outletPayment:'OUTLET_PAYMENT', expense:'EXPENSE', supplierPayment:'SUPPLIER_PAYMENT', adjustment:'OWNER_ONLY',
     packingWage:'PACKING_WAGE_PAYMENT', internalPrice:'INTERNAL_PRICE', centralPrice:'CENTRAL_PRICE', users:'OWNER_ONLY', audit:'AUDIT_OPERATIONAL',
-    recovery:'AUDIT_OPERATIONAL', financeActual:'FINANCE_REPORT', stockReport:'FINANCE_REPORT', materials:'ANY', hppCorrection:'OWNER_ONLY'
+    recovery:'AUDIT_OPERATIONAL', financeActual:'FINANCE_REPORT', stockReport:'FINANCE_REPORT', dispatchRecap:'DISPATCH_REPORT', materials:'ANY', hppCorrection:'OWNER_ONLY'
   });
   function roleName(role){return ROLE_LABELS[String(role||'').toUpperCase()]||String(role||'');}
   function currentRole(){return String((((state.data||{}).user||{}).role)||'').toUpperCase();}
@@ -154,6 +157,9 @@
     OPERATIONAL_EXPENSE: ['Pengeluaran Operasional','expense'],
     SUPPLIER_PAYMENT: ['Bayar Supplier','wallet'],
     PACKING_WAGE_PAYMENT: ['Bayar Upah Packing','money'],
+    FINANCE_POSITION_ADJUSTMENT: ['Penyesuaian Posisi Dana','money'],
+    DELIVERY_FULFILLMENT_ADJUSTMENT: ['Penyesuaian Pemenuhan Surat Jalan','truck'],
+    HPP_HISTORICAL_CORRECTION: ['Koreksi HPP Historis','audit'],
     STOCK_ADJUSTMENT: ['Opname / Koreksi','audit'],
     OPENING_STOCK: ['Saldo Awal Stok','box'],
     OPENING_BANK: ['Saldo Awal Bank','wallet'],
@@ -191,24 +197,38 @@
     return `<span class="badge ${deliveryStatusClass(status)}">${esc(statusLabel(status).toUpperCase())}</span>`;
   }
 
+  const HISTORY_CATEGORIES = Object.freeze({
+    PURCHASE:'Pembelian', SUPPLIER_PAYMENT:'Keuangan', OPERATIONAL_EXPENSE:'Keuangan', OUTLET_PAYMENT:'Keuangan', OUTLET_RECEIVABLE:'Keuangan', PACKING_WAGE_PAYMENT:'Keuangan', FINANCE_POSITION_ADJUSTMENT:'Keuangan',
+    DISTRIBUTION_DISPATCH:'Pengiriman', DELIVERY_FULFILLMENT_ADJUSTMENT:'Pengiriman', PACKING_BATCH:'Produksi / Packing', HPP_HISTORICAL_CORRECTION:'Stok / Koreksi', STOCK_ADJUSTMENT:'Stok / Koreksi', OPENING_STOCK:'Stok / Koreksi', OPENING_BANK:'Keuangan', OPENING_BANK_ADJUSTMENT:'Keuangan', OPENING_CASH:'Keuangan', OPENING_CASH_ADJUSTMENT:'Keuangan', REVERSAL:'Stok / Koreksi',
+    INTERNAL_PRICE_UPDATE:'Master / Sistem', INTERNAL_PRICE_BULK_SYNC:'Master / Sistem', MASTER_SUPPLIER:'Master / Sistem', SOURCE_MASTER_CONFIG:'Master / Sistem', SOURCE_MASTER_SYNC:'Master / Sistem'
+  });
+  function historyCategory(type){return HISTORY_CATEGORIES[String(type||'').toUpperCase()]||'Lainnya';}
+  function parseLocalDateTime(v){const x=String(v||'').trim();if(!x)return null;const d=new Date(x.replace(' ','T'));return isNaN(d.getTime())?null:d;}
+  function historyDateLabel(x){const d=parseLocalDateTime(x.time);return d?new Intl.DateTimeFormat('id-ID',{day:'2-digit',month:'short',year:'numeric'}).format(d).replaceAll('.',''):(x.date||'-');}
+  function historyTimeLabel(x){const d=parseLocalDateTime(x.time);return d?new Intl.DateTimeFormat('id-ID',{hour:'2-digit',minute:'2-digit',hour12:false}).format(d).replace('.',':'):'';}
+  function historyMatchesDate(x){
+    if(historyExactDate)return String(x.date||'')===historyExactDate;
+    if(historyDateFilter==='ALL')return true;
+    const d=parseLocalDateTime(x.time);if(!d)return false;const now=new Date(),start=new Date(now.getFullYear(),now.getMonth(),now.getDate());
+    if(historyDateFilter==='TODAY')return d>=start;
+    if(historyDateFilter==='YESTERDAY'){const a=new Date(start);a.setDate(a.getDate()-1);return d>=a&&d<start;}
+    if(historyDateFilter==='7D'){const a=new Date(start);a.setDate(a.getDate()-6);return d>=a;}
+    if(historyDateFilter==='MONTH')return d.getFullYear()===now.getFullYear()&&d.getMonth()===now.getMonth();
+    return true;
+  }
   function liveHistory() {
     if (!state.data) return [];
     const source = state.data.history || ((state.data.dashboard||{}).recent) || [];
     return source.map(x => {
       const meta = TX_META[x.type] || [String(x.type || 'Transaksi').replaceAll('_',' '), 'clock'];
       const amount = Number(x.total || 0) ? rp(x.total) : (x.invoiceNo || '');
-      const st = String(x.status || '');
-      return {
-        txnId: x.txnId,
-        title: meta[0],
-        meta: [x.txnId, x.user, x.invoiceNo].filter(Boolean).join(' · '),
-        amount,
-        badge: statusLabel(st),
-        cls: st === 'POSTED' ? 'ok' : st === 'REVERSED' ? 'warn' : st === 'FAILED' ? 'bad' : 'brand',
-        icon: meta[1]
-      };
+      const st = String(x.status || ''),category=historyCategory(x.type),dateLabel=historyDateLabel(x),timeLabel=historyTimeLabel(x);
+      return {txnId:x.txnId,type:x.type||'',time:x.time||'',date:x.date||'',dateLabel,timeLabel,category,title:meta[0],meta:[dateLabel+(timeLabel?' · '+timeLabel+' WIB':''),category,x.supplier||'',x.invoiceNo?('Ref '+x.invoiceNo):'',x.user?('oleh '+x.user):''].filter(Boolean).join(' · '),detailId:x.txnId?('ID '+x.txnId):'',amount,badge:statusLabel(st),cls:st==='POSTED'?'ok':st==='REVERSED'?'warn':st==='FAILED'?'bad':'brand',icon:meta[1]};
     });
   }
+  function filteredHistoryRows(){return liveHistory().filter(x=>(historyCategoryFilter==='Semua'||x.category===historyCategoryFilter)&&historyMatchesDate(x));}
+  function historyRowsHtml(rows){if(!rows.length)return '<div class="empty">Transaksi tidak ditemukan pada filter ini.</div>';let last='',html='';rows.forEach(x=>{if(x.dateLabel!==last){last=x.dateLabel;html+=`<div class="history-date-group"><b>${esc(x.dateLabel)}</b><span>${esc(x.date||'')}</span></div>`;}html+=historyCard(x);});return html;}
+
 
   function renderHome() {
     const d = state.data || {};
@@ -283,12 +303,17 @@
   function moduleCard(icon,title,desc,action){return `<button class="module-card" data-action="${action}"><span class="module-icon">${icons[icon]}</span><span class="copy"><b>${esc(title)}</b><small>${esc(desc)}</small></span><span class="chev">›</span></button>`}
 
   function renderHistory() {
-    const rows = liveHistory();
-    return `${pageHead('Riwayat', 'Catatan transaksi terbaru dari sistem gudang.')}
-      <div class="search-wrap">${icons.search}<input id="historySearch" class="search" placeholder="Cari transaksi..."></div>
-      <div id="historyRows" class="list">${rows.map(historyCard).join('') || '<div class="empty">Belum ada transaksi.</div>'}</div>`;
+    const rows = filteredHistoryRows(),cats=['Semua','Pembelian','Pengiriman','Produksi / Packing','Keuangan','Stok / Koreksi','Master / Sistem','Lainnya'];
+    return `${pageHead('Riwayat', 'Cek transaksi berdasarkan tanggal dan kategori. Kode transaksi tetap tersedia sebagai referensi kecil.')}
+      <div class="history-filter-box">
+        <div class="search-wrap">${icons.search}<input id="historySearch" class="search" placeholder="Cari transaksi, outlet, supplier, atau ID..."></div>
+        <div class="chips">${cats.map(x=>`<button class="chip ${historyCategoryFilter===x?'is-active':''}" data-history-category="${esc(x)}">${esc(x)}</button>`).join('')}</div>
+        <div class="form-2 history-date-controls"><label class="field"><span>Periode cepat</span><select id="historyDatePreset"><option value="ALL" ${historyDateFilter==='ALL'?'selected':''}>Semua tanggal</option><option value="TODAY" ${historyDateFilter==='TODAY'?'selected':''}>Hari ini</option><option value="YESTERDAY" ${historyDateFilter==='YESTERDAY'?'selected':''}>Kemarin</option><option value="7D" ${historyDateFilter==='7D'?'selected':''}>7 hari terakhir</option><option value="MONTH" ${historyDateFilter==='MONTH'?'selected':''}>Bulan ini</option></select></label><label class="field"><span>Pilih tanggal tertentu</span><input id="historyExactDate" type="date" value="${esc(historyExactDate)}"></label></div>
+      </div>
+      <div id="historyRows" class="list history-list">${historyRowsHtml(rows)}</div>`;
   }
-  function historyCard(x){const canRev=((state.data||{}).user||{}).role==='OWNER'&&x.badge==='SELESAI';return `<div class="list-card"><span class="list-icon">${icons[x.icon]||icons.clock}</span><div class="list-main"><b>${esc(x.title)}</b><small>${esc(x.meta)}</small></div><div class="list-side"><strong>${esc(x.amount)}</strong><small><span class="badge ${x.cls}">${esc(x.badge)}</span></small>${canRev?`<button class="history-reverse" data-reverse-txn="${esc(x.txnId)}">Batalkan</button>`:''}</div></div>`}
+  function historyCard(x){const canRev=((state.data||{}).user||{}).role==='OWNER'&&x.badge==='SELESAI';return `<div class="list-card history-card"><span class="list-icon">${icons[x.icon]||icons.clock}</span><div class="list-main"><div class="history-card-top"><b>${esc(x.title)}</b><span class="history-time">${esc(x.timeLabel?x.timeLabel+' WIB':'')}</span></div><small>${esc(x.meta)}</small>${x.detailId?`<small class="history-id">${esc(x.detailId)}</small>`:''}</div><div class="list-side"><strong>${esc(x.amount)}</strong><small><span class="badge ${x.cls}">${esc(x.badge)}</span></small>${canRev?`<button class="history-reverse" data-reverse-txn="${esc(x.txnId)}">Batalkan</button>`:''}</div></div>`}
+
 
   function renderControl() {
     const d = state.data || {};
@@ -301,6 +326,7 @@
       ['warning','Antrean Pemulihan','Pantau transaksi yang perlu dipulihkan','recovery'],
       ['money','Posisi Dana Warehouse','Atur saldo Bank & Kas yang benar sekarang','financeActual'],
       ['clipboard','Laporan Stok Warehouse','Mingguan / bulanan · pembelian & distribusi outlet','stockReport'],
+      ['truck','Rekap Pengiriman Outlet','Per tanggal · per outlet · per bahan yang benar-benar dikirim','dispatchRecap'],
       ['audit','Koreksi HPP Historis','Perbaiki cost lama tanpa mengubah qty stok','hppCorrection']
     ];
     const modules=visibleModuleRows(all);
@@ -349,22 +375,26 @@
       $('#stockRows').innerHTML = stockRows(rows);
     });
     $$('[data-reverse-txn]').forEach(btn=>btn.addEventListener('click',()=>directReverse(btn.dataset.reverseTxn)));
+    $$('[data-history-category]').forEach(btn=>btn.addEventListener('click',()=>{historyCategoryFilter=btn.dataset.historyCategory||'Semua';setPage('history',{pushHistory:false});}));
+    const historyDatePreset=$('#historyDatePreset');if(historyDatePreset)historyDatePreset.addEventListener('change',()=>{historyDateFilter=historyDatePreset.value||'ALL';historyExactDate='';setPage('history',{pushHistory:false});});
+    const historyExact=$('#historyExactDate');if(historyExact)historyExact.addEventListener('change',()=>{historyExactDate=historyExact.value||'';if(historyExactDate)historyDateFilter='ALL';setPage('history',{pushHistory:false});});
     const historySearch = $('#historySearch');
     if (historySearch) historySearch.addEventListener('input', () => {
       const q = historySearch.value.trim().toLowerCase();
-      const rows = liveHistory().filter(x => `${x.title} ${x.meta} ${x.badge}`.toLowerCase().includes(q));
-      $('#historyRows').innerHTML = rows.map(historyCard).join('') || '<div class="empty">Transaksi tidak ditemukan.</div>';
+      const rows = filteredHistoryRows().filter(x => `${x.title} ${x.meta} ${x.detailId} ${x.badge} ${x.category}`.toLowerCase().includes(q));
+      $('#historyRows').innerHTML = historyRowsHtml(rows);
+      $$('[data-reverse-txn]').forEach(btn=>btn.addEventListener('click',()=>directReverse(btn.dataset.reverseTxn)));
     });
   }
 
   const actionNames = {
-    purchase:'Belanja Bahan', packing:'Batch Packing', delivery:'Bahan yang Harus Dikirim Sekarang / Surat Jalan', draftPrint:'Draft Siap Kirim / Cetak Thermal', outletPayment:'Pembayaran Outlet', expense:'Pengeluaran Operasional', supplierPayment:'Bayar Supplier', adjustment:'Opname / Koreksi', packingWage:'Bayar Upah Packing', internalPrice:'Harga Internal Outlet', materials:'Master Bahan Wills', users:'Pengguna & Peran', audit:'Audit Sistem', recovery:'Antrean Pemulihan', financeActual:'Posisi Dana Warehouse', stockReport:'Laporan Stok Warehouse', hppCorrection:'Koreksi HPP Historis', centralPrice:'Pusat Harga Bahan'
+    purchase:'Belanja Bahan', packing:'Batch Packing', delivery:'Bahan yang Harus Dikirim Sekarang / Surat Jalan', draftPrint:'Draft Siap Kirim / Cetak Thermal', outletPayment:'Pembayaran Outlet', expense:'Pengeluaran Operasional', supplierPayment:'Bayar Supplier', adjustment:'Opname / Koreksi', packingWage:'Bayar Upah Packing', internalPrice:'Harga Internal Outlet', materials:'Master Bahan Wills', users:'Pengguna & Peran', audit:'Audit Sistem', recovery:'Antrean Pemulihan', financeActual:'Posisi Dana Warehouse', stockReport:'Laporan Stok Warehouse', dispatchRecap:'Rekap Pengiriman Outlet', hppCorrection:'Koreksi HPP Historis', centralPrice:'Pusat Harga Bahan'
   };
 
   const ACTION_DATA_MODULE = Object.freeze({
     purchase:'purchase', packing:'packing', delivery:'delivery', draftPrint:'delivery',
     outletPayment:'receivables', expense:'expense', supplierPayment:'payables', adjustment:'stock',
-    packingWage:'packingwage', users:'users', materials:'stock', hppCorrection:'stock'
+    packingWage:'packingwage', users:'users', materials:'stock', dispatchRecap:'dispatchreport', hppCorrection:'stock'
   });
   async function ensureModule(name, force=false){
     name=String(name||'').toLowerCase(); if(!name)return state.data;
@@ -436,7 +466,7 @@
     if(action==='outletPayment')return directOutletPayment(); if(action==='expense')return directExpense(); if(action==='supplierPayment')return directSupplierPayment();
     if(action==='adjustment')return directAdjustment(); if(action==='packingWage')return directPackingWage(); if(action==='centralPrice')return directCentralPrice();if(action==='internalPrice')return directInternalPrice();
     if(action==='users')return directUsers(); if(action==='audit')return directAudit(); if(action==='recovery')return directRecovery();
-    if(action==='financeActual')return directFinanceActualV1300(); if(action==='stockReport')return directStockReportV1300();
+    if(action==='financeActual')return directFinanceActualV1300(); if(action==='stockReport')return directStockReportV1300(); if(action==='dispatchRecap')return directDispatchRecapV1320();
     if(action==='materials')return directMaterials(); if(action==='hppCorrection')return directHistoricalHppCorrection();
     toast('Modul belum tersedia.');
   }
@@ -594,6 +624,13 @@
   function printStockReportV1300(r){
     if(!r)return toast('Buat laporan lebih dulu.');const w=window.open('','_blank','width=980,height=760');if(!w)return toast('Popup print diblokir browser.');const rows=r.rows||[];const tr=rows.map(x=>`<tr><td>${esc(x.code)}</td><td>${esc(x.name)}</td><td>${num(x.openingQtyUnit)} ${esc(x.receiveUnit)}</td><td>${num(x.purchaseQtyUnit)} ${esc(x.receiveUnit)}</td><td>${num(x.outletQtyUnit)} ${esc(x.receiveUnit)}</td><td>${num(x.closingQtyUnit)} ${esc(x.receiveUnit)}</td><td>${rp(x.purchaseValue)}</td><td>${rp(x.outletHppValue)}</td><td>${(x.outlets||[]).map(o=>`${esc(o.outletName)} ${num(o.qtyUnit)}`).join(', ')}</td></tr>`).join('');w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Laporan Stok Warehouse</title><style>@page{size:A4 landscape;margin:10mm}body{font:12px Arial;color:#111}h1{margin:0 0 4px}p{margin:3px 0 12px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #bbb;padding:6px;text-align:left;vertical-align:top}th{background:#eee}.summary{margin:12px 0;padding:10px;border:1px solid #bbb}</style></head><body><h1>Wills Warehouse — Laporan Stok</h1><p>${esc(r.period.startDate)} s/d ${esc(r.period.endDate)} · ${r.period.mode==='WEEK'?'Mingguan':'Bulanan'}</p><div class="summary">Nilai stok awal ${rp(r.summary.openingStockValue)} · Pembelian ${rp(r.summary.purchaseValue)} · Keluar outlet/HPP ${rp(r.summary.outboundHppValue)} · Nilai stok akhir ${rp(r.summary.closingStockValue)}</div><table><thead><tr><th>Kode</th><th>Bahan</th><th>Stok Awal</th><th>Dibeli</th><th>Keluar Outlet</th><th>Stok Akhir</th><th>Nilai Beli</th><th>Nilai Keluar HPP</th><th>Breakdown Outlet</th></tr></thead><tbody>${tr}</tbody></table></body></html>`);w.document.close();w.focus();setTimeout(()=>w.print(),150);
   }
+  function directDispatchRecapV1320(){
+    const outlets=(state.data||{}).outlets||[];
+    sheetHtml('Rekap Pengiriman Outlet',`<div class="role-guide"><b>Pengecekan kiriman berdasarkan tanggal</b><span>Data berasal dari event DISTRIBUTION_DISPATCH pada Ledger Stok canonical dan dipetakan ke Surat Jalan.</span><span>Hanya barang yang benar-benar sudah dikirim (dispatch POSTED) yang dihitung. Dispatch yang sudah direversal tidak masuk rekap.</span></div><form id="ghDispatchRecap"><div class="form-2"><label class="field"><span>Periode</span><select name="mode" id="ghDispatchMode"><option value="DAY">Harian</option><option value="WEEK">Mingguan</option><option value="MONTH">Bulanan</option><option value="RANGE">Rentang Tanggal</option></select></label><label class="field"><span>Tanggal acuan</span><input type="date" name="anchorDate" value="${todayIsoV1300()}" required></label></div><div class="form-2" id="ghDispatchRange" hidden><label class="field"><span>Dari tanggal</span><input type="date" name="fromDate" value="${todayIsoV1300()}"></label><label class="field"><span>Sampai tanggal</span><input type="date" name="toDate" value="${todayIsoV1300()}"></label></div><label class="field"><span>Outlet</span><select name="outletCode"><option value="">Semua Outlet</option>${outlets.filter(x=>x.active==='YA').map(x=>`<option value="${esc(x.code)}">${esc(x.name)}</option>`).join('')}</select></label><button class="btn btn-primary">Tampilkan Rekap</button></form><div id="ghDispatchRecapResult"></div>`);
+    const mode=$('#ghDispatchMode'),range=$('#ghDispatchRange');mode.onchange=()=>{range.hidden=mode.value!=='RANGE';};
+    $('#ghDispatchRecap').onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.target),box=$('#ghDispatchRecapResult'),payload={mode:fd.get('mode'),anchorDate:fd.get('anchorDate'),fromDate:fd.get('fromDate'),toDate:fd.get('toDate'),outletCode:fd.get('outletCode')};let r;await withBusy('Membaca rekap pengiriman…',async()=>{r=await callDirect('getWarehouseOutletDispatchRecapV1320',payload)});const groups=r.groups||[];box.innerHTML=`<div class="demo-box"><b>${esc(r.period.startDate)} s/d ${esc(r.period.endDate)}</b><br>${num(r.summary.sjCount,0)} Surat Jalan · ${num(r.summary.outletCount,0)} outlet · ${num(r.summary.itemLines,0)} baris bahan${r.skippedReversedDispatchCount?'<br>'+num(r.skippedReversedDispatchCount,0)+' dispatch reversal tidak dihitung.':''}${r.unmappedDispatchCount?'<br><b>Perhatian:</b> '+num(r.unmappedDispatchCount,0)+' dispatch belum terpetakan ke Surat Jalan.':''}</div>${groups.length?groups.map(g=>`<section class="dispatch-recap-group"><div class="dispatch-recap-head"><div><b>${esc(formatIdDateV1320(g.date))}</b><small>${esc(g.outletName)} · ${num(g.sjCount,0)} SJ</small></div><span class="badge status-sent">DIKIRIM</span></div><div class="direct-list">${(g.items||[]).map(x=>`<div class="direct-card dispatch-item"><b>${esc(x.name)}</b><small>${esc(x.code)} · ${num(x.qtyBase)} ${esc(x.baseUnit)}</small><strong>${num(x.qtyUnit)} ${esc(x.receiveUnit)}</strong></div>`).join('')}</div></section>`).join(''):'<div class="empty">Tidak ada bahan yang dikirim pada periode/filter tersebut.</div>'}`;};
+  }
+  function formatIdDateV1320(v){const d=new Date(String(v||'')+'T12:00:00');return isNaN(d.getTime())?String(v||''):new Intl.DateTimeFormat('id-ID',{weekday:'long',day:'2-digit',month:'long',year:'numeric'}).format(d);}
   function directHistoricalHppCorrection(){
     if(currentRole()!=='OWNER')return toast('Koreksi HPP historis hanya untuk Owner.');
     const mats=((state.data||{}).materials||[]).filter(x=>x.active==='YA');
