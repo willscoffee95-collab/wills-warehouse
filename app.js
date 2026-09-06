@@ -44,11 +44,12 @@
   let toastShowing = false;
   const toastQueue = [];
   let appHistoryReady = false;
-  let sheetHistoryActive = false;
-  let ignoreNextPop = false;
+  let sheetHistoryDepth = 0;
+  const sheetViewStack = [];
+  let pendingAfterSheetBack = null;
   let lastBackAt = 0;
 
-  // v1.2.9.0 — Lazy loading retained; adds Warehouse → Kasir HPP feed and snapshot integration.
+  // v1.3.5 — canonical PWA retains Warehouse/HPP/SJ invariants; adds actual outlet receipt dates to SJ detail/thermal while preserving layered Android Back navigation.
   const ROLE_LABELS = Object.freeze({
     OWNER:'Owner', ADMIN:'Admin Legacy', ADMIN_1:'Admin 1 Finance', ADMIN_2:'Admin 2 Staff Gudang',
     STAFF_GUDANG:'Staff Gudang Legacy', STAFF_LOGISTIK:'Staff Logistik', FINANCE:'Finance'
@@ -204,6 +205,9 @@
   });
   function historyCategory(type){return HISTORY_CATEGORIES[String(type||'').toUpperCase()]||'Lainnya';}
   function parseLocalDateTime(v){const x=String(v||'').trim();if(!x)return null;const d=new Date(x.replace(' ','T'));return isNaN(d.getTime())?null:d;}
+  function parseDisplayDate(v){const x=String(v||'').trim();if(!x)return null;const iso=x.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T].*)?$/);if(iso){const d=new Date(Number(iso[1]),Number(iso[2])-1,Number(iso[3]),12,0,0);return isNaN(d.getTime())?null:d;}return parseLocalDateTime(x);}
+  function displayDateShort(v){const d=parseDisplayDate(v);return d?new Intl.DateTimeFormat('id-ID',{day:'2-digit',month:'short',year:'numeric'}).format(d).replaceAll('.',''):String(v||'-');}
+  function displayDateTimeShort(v){const d=parseLocalDateTime(v);if(!d)return displayDateShort(v);const date=new Intl.DateTimeFormat('id-ID',{day:'2-digit',month:'short',year:'numeric'}).format(d).replaceAll('.','');const time=new Intl.DateTimeFormat('id-ID',{hour:'2-digit',minute:'2-digit',hour12:false}).format(d).replace('.',':');return date+' · '+time+' WIB';}
   function historyDateLabel(x){const d=parseLocalDateTime(x.time);return d?new Intl.DateTimeFormat('id-ID',{day:'2-digit',month:'short',year:'numeric'}).format(d).replaceAll('.',''):(x.date||'-');}
   function historyTimeLabel(x){const d=parseLocalDateTime(x.time);return d?new Intl.DateTimeFormat('id-ID',{hour:'2-digit',minute:'2-digit',hour12:false}).format(d).replace('.',':'):'';}
   function historyMatchesDate(x){
@@ -443,21 +447,41 @@
     }
   }
 
+  function currentSheetNode(){return $('#sheetRoot')&&$('#sheetRoot').firstElementChild;}
+  function currentSheetKey(){const n=currentSheetNode();return n?String(n.dataset.sheetKey||''):'';}
   function pushSheetHistory() {
-    if (!appHistoryReady || sheetHistoryActive) return;
-    history.pushState({ willsWarehouse: true, page: activePage, sheet: true }, document.title);
-    sheetHistoryActive = true;
+    if (!appHistoryReady) return;
+    sheetHistoryDepth += 1;
+    history.pushState({ willsWarehouse: true, page: activePage, sheet: true, sheetDepth: sheetHistoryDepth }, document.title);
+    lastBackAt = 0;
   }
-  function sheetHtml(title, body) {
-    const root=$('#sheetRoot');
-    root.innerHTML=`<div class="sheet-backdrop" id="sheetBackdrop"><div class="sheet" role="dialog" aria-modal="true" aria-label="${esc(title)}"><div class="grabber"></div><div class="sheet-head"><h3>${esc(title)}</h3><button class="sheet-close" id="sheetClose">×</button></div>${body}</div></div>`;
-    pushSheetHistory();
+  function resetSheetNavigation(){
+    const root=$('#sheetRoot');if(root)root.innerHTML='';
+    sheetViewStack.splice(0,sheetViewStack.length);sheetHistoryDepth=0;pendingAfterSheetBack=null;
+  }
+  function restorePreviousSheetLayer(event){
+    const root=$('#sheetRoot');if(!root)return;
+    root.innerHTML='';
+    if(sheetViewStack.length){
+      root.appendChild(sheetViewStack.pop());
+      const depth=Number(event&&event.state&&event.state.sheetDepth||0);
+      sheetHistoryDepth=depth>0?depth:Math.max(1,sheetViewStack.length+1);
+    }else sheetHistoryDepth=0;
+    const after=pendingAfterSheetBack;pendingAfterSheetBack=null;
+    if(after)queueMicrotask(()=>{try{after();}catch(e){console.warn('[Wills Warehouse] after back:',e.message);}});
+  }
+  function sheetHtml(title, body, options = {}) {
+    const root=$('#sheetRoot'),key=String(options.key||title||'sheet'),current=root.firstElementChild;
+    const replaceCurrent=options.replaceCurrent===true||(current&&String(current.dataset.sheetKey||'')===key);
+    if(current&&!replaceCurrent){sheetViewStack.push(current);root.removeChild(current);}else if(current)root.innerHTML='';
+    root.insertAdjacentHTML('beforeend',`<div class="sheet-backdrop" id="sheetBackdrop" data-sheet-key="${esc(key)}"><div class="sheet" role="dialog" aria-modal="true" aria-label="${esc(title)}"><div class="grabber"></div><div class="sheet-head"><h3>${esc(title)}</h3><button class="sheet-close" id="sheetClose">×</button></div>${body}</div></div>`);
+    if(!replaceCurrent)pushSheetHistory();
     $('#sheetClose').onclick=closeSheet; $('#sheetBackdrop').onclick=e=>{if(e.target.id==='sheetBackdrop')closeSheet()};
   }
   function idemKey(action){const k='ww_gh_idem_'+action;let x;try{x=JSON.parse(localStorage.getItem(k)||'null')}catch(_){x=null}if(x&&Date.now()-x.ts<86400000)return x.id;const id=action+':'+Date.now()+':'+Math.random().toString(36).slice(2);localStorage.setItem(k,JSON.stringify({id,ts:Date.now()}));return id}
   async function writeDirect(action,method,payload){const idem=idemKey(action);beginBusy('Menyimpan…');try{const r=await bridge.call(method,state.token,payload||{},idem);if(r&&r.ok===false)throw new Error(r.message||'Transaksi gagal');localStorage.removeItem('ww_gh_idem_'+action);toast('Berhasil disimpan'+(r&&r.txnId?' · '+r.txnId:''));closeSheet();invalidateDataModules();refreshBootstrapLight().catch(err=>console.warn('[Wills Warehouse] refresh ringan:',err.message));return r}catch(e){toast(e.message);throw e}finally{endBusy()}}
   async function reloadDeliveryModule(){const m=await bridge.call('getAppModule',state.token,'delivery');Object.assign(state.data,m||{});state.moduleReady.delivery=true;return m;}
-  async function writeDeliveryDirect(action,method,payload,sjId){const idem=idemKey(action);beginBusy('Memproses Surat Jalan…');try{const r=await bridge.call(method,state.token,payload||{},idem);if(r&&r.ok===false)throw new Error(r.message||'Perintah gagal');localStorage.removeItem('ww_gh_idem_'+action);await reloadDeliveryModule();toast('Berhasil disimpan'+(r&&r.txnId?' · '+r.txnId:''));directDeliveryDetail(sjId);return r}catch(e){toast(e.message);throw e}finally{endBusy()}}
+  async function writeDeliveryDirect(action,method,payload,sjId){const idem=idemKey(action),fromKey=currentSheetKey();beginBusy('Memproses Surat Jalan…');try{const r=await bridge.call(method,state.token,payload||{},idem);if(r&&r.ok===false)throw new Error(r.message||'Perintah gagal');localStorage.removeItem('ww_gh_idem_'+action);await reloadDeliveryModule();toast('Berhasil disimpan'+(r&&r.txnId?' · '+r.txnId:''),'success');if(method==='dispatchDelivery')bridge.call('syncOutletDeliveryFeedNowV1350',state.token,{sjId:sjId}).catch(err=>console.warn('[Wills Warehouse] feed SJ outlet:',err.message));if(fromKey==='delivery-fulfillment:'+sjId&&sheetHistoryDepth>1){pendingAfterSheetBack=()=>directDeliveryDetail(sjId);closeSheet();}else directDeliveryDetail(sjId);return r}catch(e){toast(e.message,'error');throw e}finally{endBusy()}}
   async function callDirect(method,...args){return bridge.call(method,state.token,...args)}
   const matByCode=()=>Object.fromEntries(((state.data||{}).materials||[]).map(m=>[m.code,m]));
   const matOpts=(purch=false)=>((state.data||{}).materials||[]).filter(m=>m.active==='YA'&&(!purch||m.purchasable!==false)).map(m=>`<option value="${esc(m.code)}">${esc(m.name)} · ${esc(m.receiveUnit||'')}</option>`).join('');
@@ -516,7 +540,7 @@
     if(roleCan('REQUEST_SYNC'))tools.push('<button class="btn btn-soft" id="ghSyncReq">Perbarui Permintaan</button>');
     if(roleCan('DELIVERY_SYNC'))tools.push('<button class="btn btn-primary" id="ghSyncRec">Sinkron Penerimaan</button>');
     if(canAny('AUDIT_OPERATIONAL','DELIVERY_SYNC'))tools.push('<button class="btn btn-line" id="ghDiag">Diagnostik</button>');
-    sheetHtml('Bahan yang Harus Dikirim Sekarang',`${tools.length?`<div class="direct-toolbar">${tools.join('')}</div>`:''}<h4>Permintaan Aktif</h4><div class="direct-list">${req.map(x=>`<div class="direct-card"><b>${esc(x.outletName)} · ${esc(x.needDate||'')}</b><small>${esc(x.requestId)} · ${num(x.itemCount||0)} bahan${x.linkedNoSj?' · '+esc(x.linkedNoSj):''}</small><span class="badge warn">${esc(x.warehouseStatus||'')}</span></div>`).join('')||'<div class="empty">Tidak ada permintaan aktif.</div>'}</div><h4>Surat Jalan</h4><div class="direct-list">${rows.slice(0,30).map(x=>`<button class="direct-card direct-click" data-sjid="${esc(x.sjId)}"><b>${esc(x.noSj)} · ${esc(x.outletName)}</b><small>${(x.lines||[]).length} item${x.status==='DRAFT'?' · siap checklist thermal':''}${x.lastError?' · '+esc(x.lastError):''}</small>${deliveryStatusBadge(x.status)}</button>`).join('')||'<div class="empty">Belum ada SJ.</div>'}</div>`);
+    sheetHtml('Bahan yang Harus Dikirim Sekarang',`${tools.length?`<div class="direct-toolbar">${tools.join('')}</div>`:''}<h4>Permintaan Aktif</h4><div class="direct-list">${req.map(x=>{const reqDate=displayDateShort(x.requestDate||x.createdAt),needDate=displayDateShort(x.needDate);return `<div class="direct-card"><b>${esc(x.outletName)} · Dibutuhkan ${esc(needDate)}</b><small>Permintaan ${esc(reqDate)} · ${num(x.itemCount||0)} bahan${x.linkedNoSj?' · SJ '+esc(x.linkedNoSj):''}</small><span class="badge warn">${esc(x.warehouseStatus||'')}</span></div>`;}).join('')||'<div class="empty">Tidak ada permintaan aktif.</div>'}</div><h4>Surat Jalan</h4><div class="direct-list">${rows.slice(0,30).map(x=>`<button class="direct-card direct-click" data-sjid="${esc(x.sjId)}"><b>${esc(x.noSj)} · ${esc(x.outletName)}</b><small>${displayDateShort(x.shipDate||x.createdAt)} · ${(x.lines||[]).length} item${x.status==='DRAFT'?' · siap checklist thermal':''}${x.lastError?' · '+esc(x.lastError):''}</small>${deliveryStatusBadge(x.status)}</button>`).join('')||'<div class="empty">Belum ada SJ.</div>'}</div>`,{key:'delivery-list'});
     const newSj=$('#ghNewSj');if(newSj)newSj.onclick=directNewSj;
     const syncReq=$('#ghSyncReq');if(syncReq)syncReq.onclick=async()=>{try{await withBusy('Memperbarui permintaan…',async()=>{await callDirect('syncOutletMaterialRequestsNowV1250');await reloadDeliveryModule();});toast('Permintaan diperbarui.');directDelivery()}catch(e){toast(e.message)}};
     const syncRec=$('#ghSyncRec');if(syncRec)syncRec.onclick=async()=>{try{let r;await withBusy('Sinkron penerimaan…',async()=>{r=await callDirect('syncOutletReceipts');await reloadDeliveryModule();});toast('Penerimaan disinkronkan'+(r&&r.elapsedMs?' · '+r.elapsedMs+' ms':''));directDelivery()}catch(e){toast(e.message)}};
@@ -535,9 +559,12 @@
   function directDeliveryDetail(id){
     const d=((state.data||{}).deliveries||[]).find(x=>x.sjId===id);if(!d)return toast('SJ tidak ditemukan.');
     const canPrepare=roleCan('DELIVERY_PREPARE'),canCancel=roleCan('DELIVERY_CANCEL'),canDispatch=roleCan('DELIVERY_DISPATCH'),canSync=roleCan('DELIVERY_SYNC');
-    const req=findRequestForDelivery(d);
-    const requestMeta=req?`<div class="delivery-request-meta"><b>Permintaan outlet</b><span>${esc(req.requestId)}${req.needDate?' · dibutuhkan '+esc(req.needDate):''}</span></div>`:'';
-    sheetHtml(d.noSj,`<p><b>${esc(d.outletName)}</b> · ${deliveryStatusBadge(d.status)}${d.createdBy?' · dibuat '+esc(d.createdBy):''}</p>${requestMeta}<div class="direct-list">${(d.lines||[]).map(l=>{const requested=Number(l.requestedQtyUnit!=null?l.requestedQtyUnit:(l.qtyUnit||0)),approved=Number(l.qtyUnit||0),received=Number(l.receivedBase||0)/Number(l.factor||1),fulfillment=l.fulfillmentStatus||'DIPENUHI',fc=fulfillment==='DIPENUHI'?'ok':fulfillment==='TIDAK TERSEDIA'?'bad':'warn';return `<div class="direct-card"><b>${esc(l.name)}</b><small>Diminta ${num(requested)} · disiapkan ${num(approved)} ${esc(l.sendUnit)}${d.status!=='DRAFT'?' · diterima '+num(received):''}</small>${l.fulfillmentReason?`<small>Alasan: ${esc(l.fulfillmentReason)}</small>`:''}<span class="badge ${fc}">${esc(fulfillment)}</span></div>`}).join('')}</div><div class="actions">${d.status!=='DIBATALKAN'&&actionAllowed('draftPrint')?'<button class="btn btn-thermal" id="ghPrintSj">Cetak Thermal</button>':''}${d.status==='DRAFT'&&canPrepare?'<button class="btn btn-soft" id="ghAdjustSj">Atur Ketersediaan</button>':''}${d.status==='DRAFT'&&canCancel?'<button class="btn btn-line" id="ghCancelSj">Batalkan</button>':''}${d.status==='DRAFT'&&canDispatch?'<button class="btn btn-primary" id="ghSendSj">Konfirmasi Kirim</button>':''}${!['DRAFT','DIBATALKAN'].includes(d.status)&&canSync?'<button class="btn btn-soft" id="ghSyncSj">Sinkron SJ Ini</button>':''}</div>`);
+    const req=findRequestForDelivery(d),sjDate=displayDateTimeShort(d.dispatchedAt||d.shipDate||d.createdAt),receiptFirst=String(d.outletReceiptFirstDate||''),receiptLast=String(d.outletReceiptLastDate||''),receiptCount=Number(d.outletReceiptCount||0);
+    const requestMeta=req?`<div class="delivery-request-meta"><b>Permintaan Outlet · ${esc(displayDateShort(req.requestDate||req.createdAt))}</b><span>${req.needDate?'Dibutuhkan '+esc(displayDateShort(req.needDate)):''}${req.itemCount?' · '+num(req.itemCount,0)+' bahan':''}</span></div>`:'';
+    const dateMeta=`<div class="delivery-date-meta"><b>Tanggal Surat Jalan</b><span>${esc(sjDate)}</span></div>`;
+    const receiptLabel=!receiptLast?(receiptCount>0?'Sudah diterima · tanggal belum tercatat':'Belum diterima'):receiptFirst&&receiptFirst!==receiptLast?`${displayDateShort(receiptFirst)} – ${displayDateShort(receiptLast)}`:displayDateShort(receiptLast);
+    const receiptMeta=`<div class="delivery-date-meta"><b>Tanggal Diterima Outlet</b><span>${esc(receiptLabel)}</span></div>`;
+    sheetHtml(d.noSj,`<p><b>${esc(d.outletName)}</b> · ${deliveryStatusBadge(d.status)}${d.createdBy?' · dibuat '+esc(d.createdBy):''}</p>${dateMeta}${requestMeta}${receiptMeta}<div class="direct-list">${(d.lines||[]).map(l=>{const requested=Number(l.requestedQtyUnit!=null?l.requestedQtyUnit:(l.qtyUnit||0)),approved=Number(l.qtyUnit||0),received=Number(l.receivedBase||0)/Number(l.factor||1),fulfillment=l.fulfillmentStatus||'DIPENUHI',fc=fulfillment==='DIPENUHI'?'ok':fulfillment==='TIDAK TERSEDIA'?'bad':'warn';return `<div class="direct-card"><b>${esc(l.name)}</b><small>Diminta ${num(requested)} · disiapkan ${num(approved)} ${esc(l.sendUnit)}${d.status!=='DRAFT'?' · diterima '+num(received):''}</small>${l.fulfillmentReason?`<small>Alasan: ${esc(l.fulfillmentReason)}</small>`:''}<span class="badge ${fc}">${esc(fulfillment)}</span></div>`}).join('')}</div><div class="actions">${d.status!=='DIBATALKAN'&&actionAllowed('draftPrint')?'<button class="btn btn-thermal" id="ghPrintSj">Cetak Thermal</button>':''}${d.status==='DRAFT'&&canPrepare?'<button class="btn btn-soft" id="ghAdjustSj">Atur Ketersediaan</button>':''}${d.status==='DRAFT'&&canCancel?'<button class="btn btn-line" id="ghCancelSj">Batalkan</button>':''}${d.status==='DRAFT'&&canDispatch?'<button class="btn btn-primary" id="ghSendSj">Konfirmasi Kirim</button>':''}${!['DRAFT','DIBATALKAN'].includes(d.status)&&canSync?'<button class="btn btn-soft" id="ghSyncSj">Sinkron SJ Ini</button>':''}</div>`,{key:'delivery-detail:'+id});
     const p=$('#ghPrintSj');if(p)p.onclick=()=>directPrintDeliveryDraft(id);
     const a=$('#ghAdjustSj');if(a)a.onclick=()=>directFulfillment(id);
     const c=$('#ghCancelSj');if(c)c.onclick=()=>writeDeliveryDirect('cancel_'+id,'cancelDeliveryDraft',{sjId:id,reason:'Dibatalkan dari GitHub PWA'},id);
@@ -553,21 +580,23 @@
     words.forEach(w=>{if(!line)line=w;else if((line+' '+w).length<=width)line+=' '+w;else{out.push(line);line=w;}});if(line)out.push(line);return out.length?out:[''];
   }
   function centerThermal(text,width){const t=String(text||'').slice(0,width),left=Math.max(0,Math.floor((width-t.length)/2));return ' '.repeat(left)+t;}
+  function deliveryDisplayNote(d,req){return req?String(req.note||'').trim():String((d&&d.note)||'').trim();}
   function deliveryThermalText(d,width){
     width=Number(width)===48?48:32;const hr='-'.repeat(width),out=[],req=findRequestForDelivery(d),user=(state.data||{}).user||{};
     out.push(centerThermal('WILLS COFFEE',width));out.push(centerThermal(d.status==='DRAFT'?'DRAFT SIAP KIRIM':'CHECKLIST SURAT JALAN',width));out.push(hr);
     wrapThermal('No SJ: '+d.noSj,width).forEach(x=>out.push(x));wrapThermal('Outlet: '+d.outletName,width).forEach(x=>out.push(x));
-    if(req&&req.needDate)wrapThermal('Dibutuhkan: '+req.needDate,width).forEach(x=>out.push(x));if(req&&req.requestId)wrapThermal('Request: '+req.requestId,width).forEach(x=>out.push(x));
+    if(req)wrapThermal('Permintaan: '+displayDateShort(req.requestDate||req.createdAt),width).forEach(x=>out.push(x));if(req&&req.needDate)wrapThermal('Dibutuhkan: '+displayDateShort(req.needDate),width).forEach(x=>out.push(x));
+    {const rf=String(d.outletReceiptFirstDate||''),rl=String(d.outletReceiptLastDate||''),rc=Number(d.outletReceiptCount||0),label=!rl?(rc>0?'Sudah diterima - tanggal belum tercatat':'Belum diterima'):rf&&rf!==rl?displayDateShort(rf)+' - '+displayDateShort(rl):displayDateShort(rl);wrapThermal('Diterima Outlet: '+label,width).forEach(x=>out.push(x));}
     wrapThermal('Dicetak: '+new Intl.DateTimeFormat('id-ID',{dateStyle:'short',timeStyle:'short'}).format(new Date()),width).forEach(x=>out.push(x));wrapThermal('Petugas: '+(user.name||'-')+' / '+roleName(user.role),width).forEach(x=>out.push(x));out.push(hr);
     (d.lines||[]).forEach((l,i)=>{const requested=Number(l.requestedQtyUnit!=null?l.requestedQtyUnit:(l.qtyUnit||0)),approved=Number(l.qtyUnit||0),status=String(l.fulfillmentStatus||'DIPENUHI');wrapThermal('[ ] '+(i+1)+'. '+l.name,width).forEach(x=>out.push(x));wrapThermal('    Diminta: '+num(requested)+' '+(l.sendUnit||''),width).forEach(x=>out.push(x));wrapThermal('    Disiapkan: '+num(approved)+' '+(l.sendUnit||''),width).forEach(x=>out.push(x));if(status!=='DIPENUHI')wrapThermal('    Status: '+status,width).forEach(x=>out.push(x));if(l.fulfillmentReason)wrapThermal('    Alasan: '+l.fulfillmentReason,width).forEach(x=>out.push(x));out.push('');});
-    out.push(hr);out.push('CHECK GUDANG');out.push('[ ] Jumlah sesuai draft');out.push('[ ] Kondisi bahan baik');out.push('[ ] Sudah dimuat/dibawa');out.push('');out.push('CHECK BARISTA OUTLET');out.push('[ ] Nama bahan sesuai');out.push('[ ] Jumlah diterima sesuai');out.push('[ ] Kondisi bahan baik');out.push('');wrapThermal('Nama Barista: __________________',width).forEach(x=>out.push(x));wrapThermal('Paraf: _________________________',width).forEach(x=>out.push(x));out.push(hr);wrapThermal('Setelah dicek, foto checklist ini dan kirim ke grup.',width).forEach(x=>out.push(x));if(d.note){out.push(hr);wrapThermal('Catatan: '+d.note,width).forEach(x=>out.push(x));}out.push('');out.push('');return out.join('\n');
+    out.push(hr);out.push('CHECK GUDANG');out.push('[ ] Jumlah sesuai draft');out.push('[ ] Kondisi bahan baik');out.push('[ ] Sudah dimuat/dibawa');out.push('');out.push('CHECK BARISTA OUTLET');out.push('[ ] Nama bahan sesuai');out.push('[ ] Jumlah diterima sesuai');out.push('[ ] Kondisi bahan baik');out.push('');wrapThermal('Nama Barista: __________________',width).forEach(x=>out.push(x));wrapThermal('Paraf: _________________________',width).forEach(x=>out.push(x));out.push(hr);wrapThermal('Setelah dicek, foto checklist ini dan kirim ke grup.',width).forEach(x=>out.push(x));{const note=deliveryDisplayNote(d,req);if(note){out.push(hr);wrapThermal('Catatan: '+note,width).forEach(x=>out.push(x));}}out.push('');out.push('');return out.join('\n');
   }
   function directPrintDeliveryDraft(id){
     const d=((state.data||{}).deliveries||[]).find(x=>x.sjId===id);if(!d)return toast('SJ tidak ditemukan.');
     let saved=Number(localStorage.getItem('ww_thermal_width')||32);if(saved!==48)saved=32;const initial=deliveryThermalText(d,saved);
-    sheetHtml('Cetak Thermal Bluetooth',`<p>Format checklist dibuat untuk printer thermal. Pilih lebar printer lalu tekan <b>Cetak Bluetooth (RawBT)</b>.</p><label class="field thermal-width"><span>Lebar Printer</span><select id="thermalWidth"><option value="32" ${saved===32?'selected':''}>58 mm · 32 karakter</option><option value="48" ${saved===48?'selected':''}>80 mm · 48 karakter</option></select></label><pre class="thermal-preview" id="thermalPreview">${esc(initial)}</pre><div class="actions"><button class="btn btn-line" id="thermalBack" type="button">Kembali</button><button class="btn btn-soft" id="thermalBrowser" type="button">Print Sistem</button><button class="btn btn-thermal" id="thermalRawbt" type="button">Cetak Bluetooth (RawBT)</button></div><div class="thermal-note">Checklist fisik diberikan ke barista untuk dicentang. Setelah pengecekan, kertas dapat difoto dan dikirim ke grup sebagai bukti.</div>`);
+    sheetHtml('Cetak Thermal Bluetooth',`<p>Format checklist dibuat untuk printer thermal. Pilih lebar printer lalu tekan <b>Cetak Bluetooth (RawBT)</b>.</p><label class="field thermal-width"><span>Lebar Printer</span><select id="thermalWidth"><option value="32" ${saved===32?'selected':''}>58 mm · 32 karakter</option><option value="48" ${saved===48?'selected':''}>80 mm · 48 karakter</option></select></label><pre class="thermal-preview" id="thermalPreview">${esc(initial)}</pre><div class="actions"><button class="btn btn-line" id="thermalBack" type="button">Kembali</button><button class="btn btn-soft" id="thermalBrowser" type="button">Print Sistem</button><button class="btn btn-thermal" id="thermalRawbt" type="button">Cetak Bluetooth (RawBT)</button></div><div class="thermal-note">Checklist fisik diberikan ke barista untuk dicentang. Setelah pengecekan, kertas dapat difoto dan dikirim ke grup sebagai bukti.</div>`,{key:'delivery-thermal:'+id});
     const sel=$('#thermalWidth'),preview=$('#thermalPreview');const update=()=>{const w=Number(sel.value)===48?48:32;localStorage.setItem('ww_thermal_width',String(w));preview.textContent=deliveryThermalText(d,w);return preview.textContent};
-    sel.onchange=update;$('#thermalBack').onclick=()=>directDeliveryDetail(id);$('#thermalRawbt').onclick=()=>printRawBt(update());$('#thermalBrowser').onclick=()=>printThermalBrowser(update(),Number(sel.value));
+    sel.onchange=update;$('#thermalBack').onclick=closeSheet;$('#thermalRawbt').onclick=()=>printRawBt(update());$('#thermalBrowser').onclick=()=>printThermalBrowser(update(),Number(sel.value));
   }
   function printRawBt(text){
     try{const a=document.createElement('a');a.href='rawbt:'+encodeURIComponent(String(text||''));a.style.display='none';document.body.appendChild(a);a.click();a.remove();toast('Membuka RawBT. Pilih printer Bluetooth yang sudah tersambung.');}catch(e){toast('RawBT tidak dapat dibuka: '+e.message);}
@@ -576,7 +605,7 @@
     const w=window.open('','_blank','width=420,height=720');if(!w)return toast('Popup print diblokir browser.');const mm=Number(width)===48?'80mm':'58mm';w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>Draft Siap Kirim</title><style>@page{size:'+mm+' auto;margin:3mm}body{margin:0;font:12px/1.35 monospace;color:#000}pre{white-space:pre-wrap;margin:0}</style></head><body><pre>'+esc(text)+'</pre></body></html>');w.document.close();w.focus();setTimeout(()=>w.print(),120);
   }
 
-  function directFulfillment(id){const d=((state.data||{}).deliveries||[]).find(x=>x.sjId===id);if(!d||d.status!=='DRAFT')return toast('SJ bukan DRAFT.');sheetHtml('Atur Ketersediaan',`<p>Permintaan asli outlet tidak diubah. Isi 0 jika tidak tersedia; alasan wajib jika qty dikurangi.</p><form id="ghFulfillment"><div class="direct-list">${(d.lines||[]).map(l=>{const req=Number(l.requestedQtyUnit!=null?l.requestedQtyUnit:(l.qtyUnit||0));return `<div class="direct-card" data-ful-line="${l.lineNo}"><b>${esc(l.name)}</b><small>Diminta ${num(req)} ${esc(l.sendUnit)}</small><label class="field"><span>Qty disetujui</span><input class="approved" type="number" min="0" max="${req}" step="0.000001" value="${Number(l.qtyUnit||0)}" required></label><label class="field"><span>Alasan jika kurang / kosong</span><textarea class="reason">${esc(l.fulfillmentReason||'')}</textarea></label></div>`}).join('')}</div><div class="actions"><button class="btn btn-line" type="button" id="ghBackSj">Kembali</button><button class="btn btn-primary">Simpan</button></div></form>`);$('#ghBackSj').onclick=()=>directDeliveryDetail(id);$('#ghFulfillment').onsubmit=async e=>{e.preventDefault();const items=$$('[data-ful-line]').map(x=>({lineNo:Number(x.dataset.fulLine),approvedQtyUnit:x.querySelector('.approved').value,reason:x.querySelector('.reason').value}));await writeDeliveryDirect('fulfillment_'+id,'adjustDeliveryDraftFulfillment',{sjId:id,items},id)};}
+  function directFulfillment(id){const d=((state.data||{}).deliveries||[]).find(x=>x.sjId===id);if(!d||d.status!=='DRAFT')return toast('SJ bukan DRAFT.');sheetHtml('Atur Ketersediaan',`<p>Permintaan asli outlet tidak diubah. Isi 0 jika tidak tersedia; alasan wajib jika qty dikurangi.</p><form id="ghFulfillment"><div class="direct-list">${(d.lines||[]).map(l=>{const req=Number(l.requestedQtyUnit!=null?l.requestedQtyUnit:(l.qtyUnit||0));return `<div class="direct-card" data-ful-line="${l.lineNo}"><b>${esc(l.name)}</b><small>Diminta ${num(req)} ${esc(l.sendUnit)}</small><label class="field"><span>Qty disetujui</span><input class="approved" type="number" min="0" max="${req}" step="0.000001" value="${Number(l.qtyUnit||0)}" required></label><label class="field"><span>Alasan jika kurang / kosong</span><textarea class="reason">${esc(l.fulfillmentReason||'')}</textarea></label></div>`}).join('')}</div><div class="actions"><button class="btn btn-line" type="button" id="ghBackSj">Kembali</button><button class="btn btn-primary">Simpan</button></div></form>`,{key:'delivery-fulfillment:'+id});$('#ghBackSj').onclick=closeSheet;$('#ghFulfillment').onsubmit=async e=>{e.preventDefault();const items=$$('[data-ful-line]').map(x=>({lineNo:Number(x.dataset.fulLine),approvedQtyUnit:x.querySelector('.approved').value,reason:x.querySelector('.reason').value}));await writeDeliveryDirect('fulfillment_'+id,'adjustDeliveryDraftFulfillment',{sjId:id,items},id)};}
   function showDiagnostic(r){sheetHtml('Diagnostik Sinkron Penerimaan',`<p>Audit ini hanya membaca data outlet dan Surat Jalan.</p><div class="direct-list">${((r||{}).diagnostics||[]).map(x=>`<div class="direct-card"><b>${esc(x.noSj)} · ${esc(x.outletName||x.outletCode||'')}</b><small>${x.matched}/${x.receiptCount} receipt cocok · alias ${x.aliasMatched||0}</small><span class="badge ${x.ok?'ok':'bad'}">${x.ok?'COCOK':'PERLU CEK'}</span>${x.issues&&x.issues.length?`<div class="direct-issues">${x.issues.map(i=>esc((i.code||i.name)+' · '+i.reason+(i.expectedUnit?' · '+i.baseUnit+'→'+i.expectedUnit:''))).join('<br>')}</div>`:''}</div>`).join('')||'<div class="empty">Belum ada receipt yang cocok dengan SJ aktif.</div>'}</div>`)}
   // v1.2.9.1.1 — Fix HTML number step Pembayaran Outlet: Rupiah bulat/desimal 2 digit valid, max tetap sisa piutang per SJ.
   function directOutletPayment(){const rows=((state.data||{}).receivables||[]).filter(x=>x.outstanding>0);sheetHtml('Pembayaran Outlet',`<form id="ghAr"><label class="field"><span>Masuk ke</span><select name="destination"><option value="CASH">Kas Gudang</option><option value="BANK">Bank</option></select></label><label class="field"><span>Referensi</span><input name="reference"></label><div class="direct-list">${rows.map(x=>`<label class="direct-card"><b>${esc(x.outletName)} · ${esc(x.noSj)}</b><small>Sisa ${rp(x.outstanding)}</small><input type="checkbox" class="arck" data-id="${esc(x.sjId)}" data-outlet="${esc(x.outletCode)}"><input class="aramt" data-id="${esc(x.sjId)}" type="number" value="${x.outstanding}" min="0.01" max="${x.outstanding}" step="0.01"></label>`).join('')||'<div class="empty">Tidak ada piutang.</div>'}</div><label class="field"><span>Catatan</span><textarea name="note"></textarea></label><div class="actions"><button class="btn btn-line" type="button" id="ghCancel">Tutup</button><button class="btn btn-primary">Posting Pembayaran</button></div></form>`);$('#ghCancel').onclick=closeSheet;$('#ghAr').onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.target),cks=$$('.arck:checked');const outs=[...new Set(cks.map(x=>x.dataset.outlet))];if(!cks.length)return toast('Pilih piutang.');if(outs.length>1)return toast('Satu pembayaran hanya untuk satu outlet.');await writeDirect('outletPayment','postOutletPayment',{destination:fd.get('destination'),reference:fd.get('reference'),note:fd.get('note'),allocations:cks.map(x=>({sjId:x.dataset.id,amount:$(`.aramt[data-id="${CSS.escape(x.dataset.id)}"]`).value}))})};}
@@ -644,54 +673,44 @@
     sheetHtml('Master Bahan Wills',`<div class="role-guide"><b>HPP Bahan Otomatis</b><span>Harga modal berjalan dihitung dengan metode moving average dari Ledger Stok. Saat Belanja Bahan diposting dengan harga baru, HPP berjalan ikut berubah otomatis.</span><span>Harga Internal Outlet tetap terpisah dari HPP modal agar margin dan histori tidak tercampur.</span></div><div class="direct-list">${mats.map(x=>{const st=stock[x.code]||{},hppBase=Number(st.avgCost||0),hppReceive=hppBase*Number(x.factor||1);return `<div class="direct-card"><b>${esc(x.name)}</b><small>${esc(x.code)} · 1 ${esc(x.receiveUnit)} = ${num(x.factor)} ${esc(x.baseUnit)}</small><small>HPP berjalan: ${hppReceive>0?rp(hppReceive)+' / '+esc(x.receiveUnit):'belum tersedia'}${Number(x.internalPrice||0)>0?' · Harga internal '+rp(x.internalPrice):''}</small></div>`}).join('')}</div>`)
   }
   function closeSheet(options = {}){
-    $('#sheetRoot').innerHTML = '';
-    const fromBack = options.fromBack === true;
-    if (sheetHistoryActive) {
-      sheetHistoryActive = false;
-      if (!fromBack && appHistoryReady) {
-        ignoreNextPop = true;
-        history.back();
-      }
-    }
+    const root=$('#sheetRoot');if(!root||!root.children.length)return;
+    if(options.immediate===true||!appHistoryReady||sheetHistoryDepth<=0){restorePreviousSheetLayer(null);return;}
+    history.back();
   }
 
+  let busyShowTimer = null;
   function beginBusy(label = 'Memuat…') {
     busyDepth += 1;
-    const root = $('#busyRoot');
-    const text = $('#busyText');
-    if (text) text.textContent = label;
-    if (root) root.classList.remove('is-hidden');
-    document.documentElement.classList.add('app-busy');
+    const text = $('#busyText'); if (text) text.textContent = label;
+    clearTimeout(busyShowTimer);
+    busyShowTimer=setTimeout(()=>{
+      if(busyDepth<=0)return;
+      const root=$('#busyRoot');if(root)root.classList.remove('is-hidden');
+      document.documentElement.classList.add('app-busy');
+    },180);
   }
   function endBusy() {
     busyDepth = Math.max(0, busyDepth - 1);
     if (busyDepth > 0) return;
-    const root = $('#busyRoot');
-    if (root) root.classList.add('is-hidden');
+    clearTimeout(busyShowTimer);busyShowTimer=null;
+    const root = $('#busyRoot'); if (root) root.classList.add('is-hidden');
     document.documentElement.classList.remove('app-busy');
   }
-  async function withBusy(label, fn) {
-    beginBusy(label);
-    try { return await fn(); } finally { endBusy(); }
-  }
+  async function withBusy(label, fn) { beginBusy(label); try { return await fn(); } finally { endBusy(); } }
 
-  function toast(message, duration = 3600) {
-    const text = String(message == null ? '' : message).trim();
-    if (!text) return;
-    toastQueue.push({ message: text, duration: Math.max(3000, Number(duration || 3600)) });
-    showNextToast();
+  function toast(message, typeOrDuration = 'info', durationOverride = 0) {
+    const text=String(message==null?'':message).trim();if(!text)return;
+    let type='info',duration=0;
+    if(typeof typeOrDuration==='number')duration=Number(typeOrDuration||0);else type=String(typeOrDuration||'info').toLowerCase();
+    if(!['success','warning','error','info'].includes(type))type=/gagal|error|tidak dapat|waktu habis|timeout/i.test(text)?'error':(/selisih|peringatan|menunggu/i.test(text)?'warning':(/berhasil|tersimpan|siap digunakan/i.test(text)?'success':'info'));
+    if(!duration)duration=Number(durationOverride||({success:6000,warning:9000,error:12000,info:6000}[type]));
+    toastQueue.push({message:text,duration:Math.max(4500,duration),type});showNextToast();
   }
   function showNextToast() {
-    if (toastShowing || !toastQueue.length) return;
-    toastShowing = true;
-    const item = toastQueue.shift();
-    const root = $('#toastRoot');
-    root.innerHTML = `<div class="toast">${esc(item.message)}</div>`;
-    setTimeout(() => {
-      root.innerHTML = '';
-      toastShowing = false;
-      setTimeout(showNextToast, 120);
-    }, item.duration);
+    if(toastShowing||!toastQueue.length)return;toastShowing=true;const item=toastQueue.shift(),root=$('#toastRoot');
+    root.innerHTML=`<div class="toast ${esc(item.type)}"><span>${esc(item.message)}</span><button type="button" class="toast-close" aria-label="Tutup">×</button></div>`;
+    const finish=()=>{clearTimeout(window.__wwToastTimer);root.innerHTML='';toastShowing=false;setTimeout(showNextToast,120);};
+    const btn=root.querySelector('.toast-close');if(btn)btn.onclick=finish;window.__wwToastTimer=setTimeout(finish,item.duration);
   }
 
   function initAppHistory() {
@@ -699,15 +718,14 @@
     history.replaceState({ willsWarehouse: true, page: 'home', base: true }, document.title);
     history.pushState({ willsWarehouse: true, page: 'home', guard: true }, document.title);
     appHistoryReady = true;
+    sheetHistoryDepth = 0; sheetViewStack.splice(0,sheetViewStack.length); pendingAfterSheetBack = null;
     lastBackAt = 0;
   }
 
   window.addEventListener('popstate', event => {
     if (!appHistoryReady || $('#mainView').classList.contains('is-hidden')) return;
-    if (ignoreNextPop) { ignoreNextPop = false; return; }
     if ($('#sheetRoot').children.length) {
-      sheetHistoryActive = false;
-      closeSheet({ fromBack: true });
+      restorePreviousSheetLayer(event);
       return;
     }
     const target = event.state && event.state.willsWarehouse ? event.state.page : 'home';
@@ -760,7 +778,6 @@
   }
 
   function openNotifications() {
-    const root = $('#sheetRoot');
     const alerts = stockAlerts();
     const dash = state.data && state.data.dashboard || {};
     const stockHtml = alerts.length ? alerts.map(x => {
@@ -775,10 +792,7 @@
     const req=((state.data||{}).incomingRequests||[]).filter(x=>!['SELESAI','DIBATALKAN'].includes(String(x.warehouseStatus||'')));
     if(req.length) other.push(`<div class="notice-row"><span class="notice-icon">${icons.truck}</span><div class="notice-copy"><b>Bahan yang Harus Dikirim Sekarang</b><small>${req.slice(0,4).map(x=>esc(x.outletName)+' · '+num(x.itemCount||0)+' bahan').join('<br>')}${req.length>4?'<br>+'+(req.length-4)+' permintaan lainnya':''}</small></div><div class="notice-side"><strong>${req.length}</strong><span class="badge warn">SIAPKAN</span></div></div>`);
 
-    root.innerHTML = `<div class="sheet-backdrop" id="sheetBackdrop"><div class="sheet" role="dialog" aria-modal="true" aria-label="Pemberitahuan"><div class="grabber"></div><div class="sheet-head"><h3>Pemberitahuan</h3><button class="sheet-close" id="sheetClose">×</button></div><div class="notice-section"><div class="notice-heading"><b>Bahan yang perlu dibelanja</b><span>${alerts.length} bahan</span></div><div class="notice-list">${stockHtml}</div></div>${other.length ? `<div class="notice-section"><div class="notice-heading"><b>Perlu perhatian</b><span>${other.length} pemberitahuan</span></div><div class="notice-list">${other.join('')}</div></div>` : ''}<div class="notice-summary">Daftar belanja mengikuti status stok <b>Kritis</b> dan <b>Menipis</b> dari sistem gudang. Nama bahan dan jumlah stok ditampilkan langsung agar Admin bisa menindaklanjuti tanpa menebak itemnya.</div></div></div>`;
-    pushSheetHistory();
-    $('#sheetClose').onclick = closeSheet;
-    $('#sheetBackdrop').onclick = e => { if (e.target.id === 'sheetBackdrop') closeSheet(); };
+    sheetHtml('Pemberitahuan',`<div class="notice-section"><div class="notice-heading"><b>Bahan yang perlu dibelanja</b><span>${alerts.length} bahan</span></div><div class="notice-list">${stockHtml}</div></div>${other.length ? `<div class="notice-section"><div class="notice-heading"><b>Perlu perhatian</b><span>${other.length} pemberitahuan</span></div><div class="notice-list">${other.join('')}</div></div>` : ''}<div class="notice-summary">Daftar belanja mengikuti status stok <b>Kritis</b> dan <b>Menipis</b> dari sistem gudang. Nama bahan dan jumlah stok ditampilkan langsung agar Admin bisa menindaklanjuti tanpa menebak itemnya.</div>`,{key:'notifications'});
   }
 
   function setAuthStatus(isReady, detail = '') {
@@ -803,7 +817,9 @@
       $('#loginView').classList.add('is-hidden'); $('#mainView').classList.remove('is-hidden');
       $('#profileBtn').textContent = initials(data.user && data.user.name || 'WW');
       updateNotificationBadge(); await setPage('home', { pushHistory: false }); initAppHistory();
-      if (!silent) toast('Sistem siap digunakan.'); return true;
+      // Prefetch modul operasional tanpa menahan layar utama.
+      setTimeout(()=>{['delivery','purchase'].forEach(name=>ensureModule(name).catch(()=>{}));},120);
+      if (!silent) toast('Sistem siap digunakan.','success'); return true;
     } catch (err) {
       localStorage.removeItem(TOKEN_KEY); state.token=''; state.data=null; state.moduleReady=Object.create(null); state.modulePromises=Object.create(null);
       if (!silent) toast(err.message); return false;
@@ -853,15 +869,13 @@
   $('#notifyBtn').addEventListener('click', openNotifications);
   $('#profileBtn').addEventListener('click', () => {
     const d = state.data || {};
-    const root = $('#sheetRoot');
-    root.innerHTML = `<div class="sheet-backdrop" id="sheetBackdrop"><div class="sheet"><div class="grabber"></div><div class="sheet-head"><h3>Profil</h3><button class="sheet-close" id="sheetClose">×</button></div><p><b>${esc(d.user && d.user.name || '')}</b><br>${esc(roleName(d.user && d.user.role || ''))} · @${esc(d.user && d.user.username || '')}</p><div class="actions"><button class="btn btn-line" id="sheetCancel">Tutup</button><button class="btn btn-primary" id="logoutBtn">Logout</button></div></div></div>`;
-    pushSheetHistory();
-    $('#sheetClose').onclick = closeSheet; $('#sheetCancel').onclick = closeSheet;
+    sheetHtml('Profil',`<p><b>${esc(d.user && d.user.name || '')}</b><br>${esc(roleName(d.user && d.user.role || ''))} · @${esc(d.user && d.user.username || '')}</p><div class="actions"><button class="btn btn-line" id="sheetCancel">Tutup</button><button class="btn btn-primary" id="logoutBtn">Logout</button></div>`,{key:'profile'});
+    $('#sheetCancel').onclick = closeSheet;
     $('#logoutBtn').onclick = async () => {
       beginBusy('Logout…');
       try { try { if (state.token) await bridge.call('logoutWarehouse', state.token); } catch (_) {}
-        localStorage.removeItem(TOKEN_KEY); state.token=''; state.data=null; updateNotificationBadge(); closeSheet();
-        appHistoryReady=false; sheetHistoryActive=false; history.replaceState({willsLogin:true}, document.title);
+        localStorage.removeItem(TOKEN_KEY); state.token=''; state.data=null; updateNotificationBadge(); resetSheetNavigation();
+        appHistoryReady=false; history.replaceState({willsLogin:true}, document.title);
         $('#mainView').classList.add('is-hidden'); $('#loginView').classList.remove('is-hidden');
         toast('Logout berhasil.');
       } finally { endBusy(); }
@@ -875,7 +889,7 @@
       reloadingForUpdate = true;
       window.location.reload();
     });
-    window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=0.5.4', { updateViaCache: 'none' }).then(reg => reg.update()).catch(() => {}));
+    window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=0.6.5', { updateViaCache: 'none' }).then(reg => reg.update()).catch(() => {}));
   }
 
   // Scroll tetap native/normal. Pull-to-refresh dicegah lewat CSS overscroll-behavior,
