@@ -1,6 +1,6 @@
-const CACHE = 'wills-warehouse-shell-v0.6.5-guided-receipt-dynamic-outlet-fast-ux';
+const CACHE = 'wills-warehouse-shell-v0.6.6-dispatch-status-feed-confirm';
 const ASSETS = [
-  './','./index.html','./app.css?v=0.6.5','./config.js?v=0.6.5','./bridge.js?v=0.6.5','./app.js?v=0.6.5','./manifest.webmanifest',
+  './','./index.html','./app.css?v=0.6.6','./config.js?v=0.6.6','./bridge.js?v=0.6.6','./app.js?v=0.6.6','./manifest.webmanifest',
   './logo.png','./icon-192.png','./icon-512.png','./maskable-512.png','./apple-touch-icon.png','./favicon-64.png'
 ];
 

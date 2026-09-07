@@ -481,7 +481,24 @@
   function idemKey(action){const k='ww_gh_idem_'+action;let x;try{x=JSON.parse(localStorage.getItem(k)||'null')}catch(_){x=null}if(x&&Date.now()-x.ts<86400000)return x.id;const id=action+':'+Date.now()+':'+Math.random().toString(36).slice(2);localStorage.setItem(k,JSON.stringify({id,ts:Date.now()}));return id}
   async function writeDirect(action,method,payload){const idem=idemKey(action);beginBusy('Menyimpan…');try{const r=await bridge.call(method,state.token,payload||{},idem);if(r&&r.ok===false)throw new Error(r.message||'Transaksi gagal');localStorage.removeItem('ww_gh_idem_'+action);toast('Berhasil disimpan'+(r&&r.txnId?' · '+r.txnId:''));closeSheet();invalidateDataModules();refreshBootstrapLight().catch(err=>console.warn('[Wills Warehouse] refresh ringan:',err.message));return r}catch(e){toast(e.message);throw e}finally{endBusy()}}
   async function reloadDeliveryModule(){const m=await bridge.call('getAppModule',state.token,'delivery');Object.assign(state.data,m||{});state.moduleReady.delivery=true;return m;}
-  async function writeDeliveryDirect(action,method,payload,sjId){const idem=idemKey(action),fromKey=currentSheetKey();beginBusy('Memproses Surat Jalan…');try{const r=await bridge.call(method,state.token,payload||{},idem);if(r&&r.ok===false)throw new Error(r.message||'Perintah gagal');localStorage.removeItem('ww_gh_idem_'+action);await reloadDeliveryModule();toast('Berhasil disimpan'+(r&&r.txnId?' · '+r.txnId:''),'success');if(method==='dispatchDelivery')bridge.call('syncOutletDeliveryFeedNowV1350',state.token,{sjId:sjId}).catch(err=>console.warn('[Wills Warehouse] feed SJ outlet:',err.message));if(fromKey==='delivery-fulfillment:'+sjId&&sheetHistoryDepth>1){pendingAfterSheetBack=()=>directDeliveryDetail(sjId);closeSheet();}else directDeliveryDetail(sjId);return r}catch(e){toast(e.message,'error');throw e}finally{endBusy()}}
+  function upsertFreshDeliveryV1354(d){if(!d||!d.sjId)return;state.data=state.data||{};const list=Array.isArray(state.data.deliveries)?state.data.deliveries:[];const i=list.findIndex(x=>String(x.sjId)===String(d.sjId));if(i>=0)list[i]=d;else list.unshift(d);state.data.deliveries=list;}
+  async function writeDeliveryDirect(action,method,payload,sjId){
+    const idem=idemKey(action),fromKey=currentSheetKey();beginBusy(method==='dispatchDelivery'?'Mengirim Surat Jalan…':'Memproses Surat Jalan…');
+    try{
+      const r=await bridge.call(method,state.token,payload||{},idem);if(r&&r.ok===false)throw new Error(r.message||'Perintah gagal');localStorage.removeItem('ww_gh_idem_'+action);
+      let fresh=r&&r.deliveryV1354||null;
+      if(method==='dispatchDelivery'&&!fresh){try{fresh=await bridge.call('getDeliveryDetailFreshV1354',state.token,sjId)}catch(e){console.warn('[Wills Warehouse] fresh SJ:',e.message)}}
+      try{await reloadDeliveryModule()}catch(e){console.warn('[Wills Warehouse] reload delivery:',e.message)}
+      if(fresh)upsertFreshDeliveryV1354(fresh);
+      if(method==='dispatchDelivery'){
+        if(fresh&&String(fresh.status||'').toUpperCase()==='DRAFT')throw new Error('Backend sudah memproses dispatch tetapi tampilan fresh masih DRAFT. Jangan klik Kirim lagi; cek Audit/Recovery.');
+        const fs=r&&r.feedSyncV1354||r&&r.feedSyncV1353||null, label=(fresh&&fresh.noSj)||sjId||'SJ';
+        if(fs&&fs.ok)toast(label+' • DIKIRIM • feed outlet diperbarui','success');
+        else toast(label+' sudah DIKIRIM, tetapi feed outlet belum terkirim'+(fs&&fs.error?' • '+fs.error:'')+'. Jangan kirim ulang; gunakan Sinkron SJ / worker.','warning');
+      }else toast('Berhasil disimpan'+(r&&r.txnId?' · '+r.txnId:''),'success');
+      if(fromKey==='delivery-fulfillment:'+sjId&&sheetHistoryDepth>1){pendingAfterSheetBack=()=>directDeliveryDetail(sjId);closeSheet();}else directDeliveryDetail(sjId);return r;
+    }catch(e){toast(e.message,'error');throw e}finally{endBusy()}
+  }
   async function callDirect(method,...args){return bridge.call(method,state.token,...args)}
   const matByCode=()=>Object.fromEntries(((state.data||{}).materials||[]).map(m=>[m.code,m]));
   const matOpts=(purch=false)=>((state.data||{}).materials||[]).filter(m=>m.active==='YA'&&(!purch||m.purchasable!==false)).map(m=>`<option value="${esc(m.code)}">${esc(m.name)} · ${esc(m.receiveUnit||'')}</option>`).join('');
