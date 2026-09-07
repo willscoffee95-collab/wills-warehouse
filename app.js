@@ -6,6 +6,8 @@
   const config = window.WILLS_CONFIG || { MODE: 'live' };
   const bridge = window.WILLS_BRIDGE;
   const TOKEN_KEY = 'ww_github_token_v1';
+  const BOOT_SNAPSHOT_KEY = 'ww_github_bootstrap_v1360';
+  const BOOT_SNAPSHOT_MAX_AGE = 21600000; // 6 jam; stale snapshot hanya untuk render cepat, server tetap revalidate.
 
   const icons = {
     box: '<svg viewBox="0 0 24 24"><path d="m21 8-9 5-9-5 9-5z"/><path d="M3 8v8l9 5 9-5V8M12 13v8"/></svg>',
@@ -34,6 +36,31 @@
     moduleReady: Object.create(null),
     modulePromises: Object.create(null)
   };
+  function tokenSigV1360(token){return String(token||'').slice(-16);}
+  function readBootstrapSnapshotV1360(token){
+    try{const x=JSON.parse(localStorage.getItem(BOOT_SNAPSHOT_KEY)||'null');if(!x||x.sig!==tokenSigV1360(token)||!x.data)return null;if(Date.now()-Number(x.at||0)>BOOT_SNAPSHOT_MAX_AGE)return null;return x.data;}catch(e){return null;}
+  }
+  function writeBootstrapSnapshotV1360(token,data){
+    if(!token||!data||!data.user)return;try{localStorage.setItem(BOOT_SNAPSHOT_KEY,JSON.stringify({at:Date.now(),sig:tokenSigV1360(token),data:data}));}catch(e){}
+  }
+  function clearBootstrapSnapshotV1360(){try{localStorage.removeItem(BOOT_SNAPSHOT_KEY);}catch(e){}}
+  function normalizeShellDataV1360(shell,existing){
+    const base=existing&&typeof existing==='object'?existing:{};
+    return {...base,...shell,dashboard:base.dashboard||{},materials:base.materials||[],stock:base.stock||[],incomingRequests:base.incomingRequests||[],deliveries:base.deliveries||[],history:base.history||[],controls:base.controls||{}};
+  }
+  function applyAppDataV1360(token,data,fromCache){
+    state.token=token;state.data=normalizeShellDataV1360(data,state.data);localStorage.setItem(TOKEN_KEY,token);
+    $('#loginView').classList.add('is-hidden');$('#mainView').classList.remove('is-hidden');
+    $('#profileBtn').textContent=initials((state.data.user&&state.data.user.name)||'WW');
+    updateNotificationBadge();setPage('home',{pushHistory:false});if(!appHistoryReady)initAppHistory();
+    if(fromCache){const c=$('#content');if(c)c.dataset.fastSnapshot='1';}
+  }
+  function isSessionErrorV1360(err){const m=String(err&&err.message||err||'').toLowerCase();return m.includes('sesi')||m.includes('login kembali')||m.includes('user tidak aktif');}
+  function invalidateSessionV1360(message){
+    localStorage.removeItem(TOKEN_KEY);clearBootstrapSnapshotV1360();state.token='';state.data=null;state.moduleReady=Object.create(null);state.modulePromises=Object.create(null);resetSheetNavigation();appHistoryReady=false;
+    $('#mainView').classList.add('is-hidden');$('#loginView').classList.remove('is-hidden');if(message)toast(message,'warning');
+  }
+
   let activePage = 'home';
   let stockFilter = 'Semua';
   let historyCategoryFilter = 'Semua';
@@ -413,13 +440,14 @@
   function invalidateDataModules(){state.moduleReady=Object.create(null);state.modulePromises=Object.create(null);}
   async function refreshBootstrapLight(){
     const data=await bridge.call('getAppBootstrap',state.token);
-    state.data={...(state.data||{}),...data}; state.moduleReady.stock=true;
+    state.data={...(state.data||{}),...data}; state.moduleReady.stock=true; writeBootstrapSnapshotV1360(state.token,state.data);
     updateNotificationBadge();
     if(activePage==='home'||activePage==='stock'){const c=$('#content');if(c){c.innerHTML=pages[activePage]();bindPage();}}
     return state.data;
   }
 
   async function openFeatureOneTap(action, trigger) {
+    if (!state.bridgeReady) return toast('Sedang menyambungkan data terbaru…','warning');
     if (!actionNames[action]) return toast('Fitur tidak dikenali.');
     if (!actionAllowed(action)) return toast('Menu ini tidak termasuk hak akses ' + roleName(currentRole()) + '.');
     if (featureOpening || busyDepth > 0) return;
@@ -827,19 +855,28 @@
   }
 
   async function loadAppWithToken(token, silent = false) {
+    const cached=readBootstrapSnapshotV1360(token);
+    if(cached){
+      applyAppDataV1360(token,cached,true);
+      // Jangan menahan layar. Validasi sesi + data fresh berjalan di background.
+      bridge.call('getAppSessionShellV1360',token).then(shell=>{
+        state.data=normalizeShellDataV1360(shell,state.data);$('#profileBtn').textContent=initials((state.data.user&&state.data.user.name)||'WW');
+        return refreshBootstrapLight();
+      }).then(()=>{setTimeout(()=>{['delivery','purchase'].forEach(name=>ensureModule(name).catch(()=>{}));},60);}).catch(err=>{
+        if(isSessionErrorV1360(err))invalidateSessionV1360('Sesi berakhir. Silakan login kembali.');
+        else console.warn('[Wills Warehouse] background refresh:',err&&err.message||err);
+      });
+      if(!silent)toast('Sistem siap. Data terbaru disinkronkan di belakang.','success');return true;
+    }
     try {
-      const data = await bridge.call('getAppBootstrap', token);
-      state.token = token; state.data = data; state.moduleReady=Object.create(null); state.modulePromises=Object.create(null); state.moduleReady.stock=true;
-      localStorage.setItem(TOKEN_KEY, token);
-      $('#loginView').classList.add('is-hidden'); $('#mainView').classList.remove('is-hidden');
-      $('#profileBtn').textContent = initials(data.user && data.user.name || 'WW');
-      updateNotificationBadge(); await setPage('home', { pushHistory: false }); initAppHistory();
-      // Prefetch modul operasional tanpa menahan layar utama.
-      setTimeout(()=>{['delivery','purchase'].forEach(name=>ensureModule(name).catch(()=>{}));},120);
-      if (!silent) toast('Sistem siap digunakan.','success'); return true;
+      // First-load / cache kosong: validasi shell ringan dulu, tampilkan app, lalu bootstrap berat di background.
+      const shell=await bridge.call('getAppSessionShellV1360',token);
+      state.moduleReady=Object.create(null);state.modulePromises=Object.create(null);applyAppDataV1360(token,shell,false);
+      refreshBootstrapLight().then(()=>{setTimeout(()=>{['delivery','purchase'].forEach(name=>ensureModule(name).catch(()=>{}));},60);}).catch(err=>console.warn('[Wills Warehouse] bootstrap fresh:',err&&err.message||err));
+      if(!silent)toast('Sistem siap digunakan.','success');return true;
     } catch (err) {
-      localStorage.removeItem(TOKEN_KEY); state.token=''; state.data=null; state.moduleReady=Object.create(null); state.modulePromises=Object.create(null);
-      if (!silent) toast(err.message); return false;
+      if(isSessionErrorV1360(err))invalidateSessionV1360('Sesi berakhir. Silakan login kembali.');
+      else if(!silent)toast(err.message);return false;
     }
   }
 
@@ -848,17 +885,23 @@
   }
 
   async function boot() {
+    const existing=localStorage.getItem(TOKEN_KEY)||'';
+    const cached=existing?readBootstrapSnapshotV1360(existing):null;
+    // Render snapshot bahkan sebelum iframe bridge selesai handshake.
+    if(existing&&cached)applyAppDataV1360(existing,cached,true);
     try {
-      // v1.2.7.2: lampu siap tetap cepat; UX loading sekarang memakai busy guard.
-      // Begitu bridge siap menerima login, indikator langsung hijau; public state dimuat paralel.
-      await bridge.init();
-      setAuthStatus(true);
+      await bridge.init();setAuthStatus(true);
       bridge.call('getPublicState').then(pub=>{state.publicState=pub;}).catch(err=>console.warn('[Wills Warehouse] public state:',err.message));
-      const existing = localStorage.getItem(TOKEN_KEY) || '';
-      if (existing && await loadAppWithToken(existing, true)) return;
+      if(existing){
+        if(cached){
+          bridge.call('getAppSessionShellV1360',existing).then(shell=>{state.data=normalizeShellDataV1360(shell,state.data);return refreshBootstrapLight();}).catch(err=>{if(isSessionErrorV1360(err))invalidateSessionV1360('Sesi berakhir. Silakan login kembali.');});
+          setTimeout(()=>{['delivery','purchase'].forEach(name=>ensureModule(name).catch(()=>{}));},120);return;
+        }
+        if(await loadAppWithToken(existing,true))return;
+      }
     } catch (err) {
-      setAuthStatus(false, err.message);
-      toast('Sistem belum siap. Coba beberapa saat lagi.');
+      setAuthStatus(false,err.message);
+      if(!cached)toast('Sistem belum siap. Coba beberapa saat lagi.');
     }
   }
 
@@ -872,7 +915,8 @@
     beginBusy('Menghubungkan…');
     try {
       const r = await bridge.call('loginWarehouse', { username, pin });
-      await loadAppWithToken(r.token);
+      state.moduleReady=Object.create(null);state.modulePromises=Object.create(null);applyAppDataV1360(r.token,{user:r.user,warehouseName:r.warehouseName,version:r.version},false);
+      refreshBootstrapLight().then(()=>{setTimeout(()=>{['delivery','purchase'].forEach(name=>ensureModule(name).catch(()=>{}));},60);}).catch(err=>console.warn('[Wills Warehouse] login background bootstrap:',err&&err.message||err));
       $('#loginPin').value = '';
     } catch (err) {
       toast(err.message);
@@ -891,7 +935,7 @@
     $('#logoutBtn').onclick = async () => {
       beginBusy('Logout…');
       try { try { if (state.token) await bridge.call('logoutWarehouse', state.token); } catch (_) {}
-        localStorage.removeItem(TOKEN_KEY); state.token=''; state.data=null; updateNotificationBadge(); resetSheetNavigation();
+        localStorage.removeItem(TOKEN_KEY); clearBootstrapSnapshotV1360(); state.token=''; state.data=null; updateNotificationBadge(); resetSheetNavigation();
         appHistoryReady=false; history.replaceState({willsLogin:true}, document.title);
         $('#mainView').classList.add('is-hidden'); $('#loginView').classList.remove('is-hidden');
         toast('Logout berhasil.');
@@ -906,7 +950,7 @@
       reloadingForUpdate = true;
       window.location.reload();
     });
-    window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=0.6.5', { updateViaCache: 'none' }).then(reg => reg.update()).catch(() => {}));
+    window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=0.6.7', { updateViaCache: 'none' }).then(reg => reg.update()).catch(() => {}));
   }
 
   // Scroll tetap native/normal. Pull-to-refresh dicegah lewat CSS overscroll-behavior,
