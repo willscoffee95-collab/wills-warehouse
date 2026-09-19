@@ -1,6 +1,7 @@
-const CACHE = 'wills-warehouse-shell-v0.6.7-fast-session-stale-while-revalidate';
+const CACHE = 'wills-warehouse-shell-v0.6.8-feature-v1370';
 const ASSETS = [
-  './','./index.html','./app.css?v=0.6.6','./config.js?v=0.6.6','./bridge.js?v=0.6.6','./app.js?v=0.6.6','./manifest.webmanifest',
+  './','./index.html','./app.css?v=0.6.6','./config.js?v=0.6.6','./bridge.js?v=0.6.6','./app.js?v=0.6.6',
+  './feature-v1370.js?v=1.3.7.0','./manifest.webmanifest',
   './logo.png','./icon-192.png','./icon-512.png','./maskable-512.png','./apple-touch-icon.png','./favicon-64.png'
 ];
 
@@ -20,10 +21,24 @@ self.addEventListener('fetch', event => {
   if (url.origin !== self.location.origin) return;
   const req = event.request;
   const isNavigation = req.mode === 'navigate';
-  const isCoreAsset = /\/(app\.js|bridge\.js|config\.js|app\.css)(\?|$)/.test(url.pathname + url.search);
+  const isCoreAsset = /\/(app\.js|bridge\.js|config\.js|app\.css|feature-v1370\.js)(\?|$)/.test(url.pathname + url.search);
   if (isNavigation || isCoreAsset) {
-    event.respondWith(fetch(req).then(response => { const copy=response.clone(); caches.open(CACHE).then(cache=>cache.put(req,copy)); return response; }).catch(()=>caches.match(req).then(c=>c||caches.match('./index.html'))));
+    event.respondWith(
+      fetch(req)
+        .then(response => {
+          const copy = response.clone();
+          caches.open(CACHE).then(cache => cache.put(req, copy));
+          return response;
+        })
+        .catch(() => caches.match(req).then(c => c || caches.match('./index.html')))
+    );
     return;
   }
-  event.respondWith(caches.match(req).then(cached => cached || fetch(req).then(response => { const copy=response.clone(); caches.open(CACHE).then(cache=>cache.put(req,copy)); return response; })));
+  event.respondWith(
+    caches.match(req).then(cached => cached || fetch(req).then(response => {
+      const copy = response.clone();
+      caches.open(CACHE).then(cache => cache.put(req, copy));
+      return response;
+    }))
+  );
 });
