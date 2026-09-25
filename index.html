@@ -15,8 +15,8 @@
   <link rel="stylesheet" href="app.css?v=0.6.6">
   <title>Wills Warehouse</title>
 
-  <!-- v1.5.0.3 — additive print override; does not alter stock/payment ledgers -->
-  <style id="ww-print-v1503-style">
+  <!-- v1.5.0.4 — additive print override; does not alter stock/payment ledgers -->
+  <style id="ww-print-v1504-style">
     .wwp1503-backdrop{
       position:fixed;inset:0;z-index:99999;background:rgba(17,17,17,.48);
       display:flex;align-items:flex-end;justify-content:center;padding:0;
@@ -44,6 +44,52 @@
     .wwp1503-loading{padding:30px 12px;text-align:center;font-size:13px;color:#666}
     .wwp1503-error{padding:14px;background:#fff0f0;border-radius:12px;color:#9f0e13;font-size:12px;line-height:1.5}
     @media(max-width:420px){.wwp1503-sheet{border-radius:18px 18px 0 0}.wwp1503-actions{grid-template-columns:1fr}}
+
+    .wwp1504-archive-btn{
+      display:flex;align-items:center;gap:12px;text-align:left;width:100%;
+    }
+    .wwp1504-archive-icon{
+      width:42px;height:42px;border-radius:13px;background:#fff0f0;color:#c5141a;
+      display:grid;place-items:center;font-size:21px;flex:0 0 auto;
+    }
+    .wwp1504-archive-copy{display:grid;gap:3px}
+    .wwp1504-archive-copy b{font-size:14px}
+    .wwp1504-archive-copy small{font-size:11px;color:#777}
+    .wwp1504-filters{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:10px}
+    .wwp1504-filters .wide{grid-column:1/-1}
+    .wwp1504-input{
+      width:100%;box-sizing:border-box;padding:11px;border:1px solid #ddd;
+      border-radius:11px;background:#fff;font:inherit;
+    }
+    .wwp1504-results{display:grid;gap:8px;margin-top:10px}
+    .wwp1504-row{
+      border:1px solid #ece8e4;border-radius:14px;padding:11px;background:#fff;
+      display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;
+    }
+    .wwp1504-row-copy{display:grid;gap:4px;min-width:0}
+    .wwp1504-row-copy b{font-size:13px}
+    .wwp1504-row-copy small{font-size:11px;color:#666;line-height:1.4}
+    .wwp1504-badges{display:flex;gap:5px;flex-wrap:wrap;margin-top:2px}
+    .wwp1504-badge{
+      display:inline-flex;padding:3px 7px;border-radius:999px;background:#f2efec;
+      font-size:9px;font-weight:800;letter-spacing:.02em;
+    }
+    .wwp1504-badge.pay{background:#fff0f0;color:#b71117}
+    .wwp1504-badge.paid{background:#eaf8ef;color:#16723a}
+    .wwp1504-print-one{
+      border:0;border-radius:11px;background:#d41414;color:#fff;font-weight:800;
+      padding:10px 11px;white-space:nowrap;
+    }
+    .wwp1504-summary{
+      padding:9px 10px;border-radius:11px;background:#f7f5f2;font-size:11px;
+      color:#555;margin-top:8px;
+    }
+    @media(max-width:480px){
+      .wwp1504-filters{grid-template-columns:1fr}
+      .wwp1504-filters .wide{grid-column:auto}
+      .wwp1504-row{grid-template-columns:1fr}
+      .wwp1504-print-one{width:100%}
+    }
   </style>
 </head>
 <body>
@@ -139,15 +185,15 @@
   <script src="feature-v1370.js?v=1.3.7.0"></script>
 
   <!--
-    WILLS WAREHOUSE v1.5.0.3
+    WILLS WAREHOUSE v1.5.0.4
     Drop-in print override for current GitHub PWA.
     Read-only: only calls getDeliveryPrintDataV1500.
   -->
-  <script id="ww-print-v1503">
+  <script id="ww-print-v1504">
   (() => {
     'use strict';
 
-    const VERSION = '1.5.0.3';
+    const VERSION = '1.5.0.4';
     const TOKEN_KEY = 'ww_github_token_v1';
 
     function money(v){
@@ -700,6 +746,305 @@
             (err&&err.message||err)
           );
         });
+      },
+      true
+    );
+
+
+    function isoTodayLocal(){
+      const d=new Date();
+      const p=n=>String(n).padStart(2,'0');
+      return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate());
+    }
+
+    function firstDayCurrentMonth(){
+      const d=new Date();
+      const p=n=>String(n).padStart(2,'0');
+      return d.getFullYear()+'-'+p(d.getMonth()+1)+'-01';
+    }
+
+    function escapeHtmlV1504(value){
+      return String(value==null?'':value).replace(
+        /[&<>"']/g,
+        c=>({
+          '&':'&amp;',
+          '<':'&lt;',
+          '>':'&gt;',
+          '"':'&quot;',
+          "'":'&#39;'
+        }[c])
+      );
+    }
+
+    function archiveOverlay(){
+      const overlay=document.createElement('div');
+      overlay.className='wwp1503-backdrop';
+      overlay.id='wwp1504Archive';
+
+      overlay.innerHTML=
+        '<div class="wwp1503-sheet">'+
+          '<div class="wwp1503-head">'+
+            '<h3>Cetak Ulang Surat Jalan</h3>'+
+            '<button class="wwp1503-close" type="button" aria-label="Tutup">×</button>'+
+          '</div>'+
+          '<div class="wwp1503-note">'+
+            '<b>Histori SJ lengkap</b><br>'+
+            'Filter tanggal, outlet, atau No. SJ. Cetak ulang tidak mengubah transaksi apa pun.'+
+          '</div>'+
+          '<div class="wwp1504-filters">'+
+            '<label class="wwp1503-field">'+
+              '<span>Dari tanggal</span>'+
+              '<input class="wwp1504-input" id="wwp1504From" type="date" value="'+firstDayCurrentMonth()+'">'+
+            '</label>'+
+            '<label class="wwp1503-field">'+
+              '<span>Sampai tanggal</span>'+
+              '<input class="wwp1504-input" id="wwp1504To" type="date" value="'+isoTodayLocal()+'">'+
+            '</label>'+
+            '<label class="wwp1503-field">'+
+              '<span>Outlet</span>'+
+              '<select class="wwp1504-input" id="wwp1504Outlet">'+
+                '<option value="">Semua outlet</option>'+
+              '</select>'+
+            '</label>'+
+            '<label class="wwp1503-field">'+
+              '<span>Cari No. SJ</span>'+
+              '<input class="wwp1504-input" id="wwp1504Query" type="search" placeholder="Contoh: SJ-20260901">'+
+            '</label>'+
+            '<div class="wide">'+
+              '<button class="wwp1503-btn red" id="wwp1504Load" type="button" style="width:100%">Tampilkan Surat Jalan</button>'+
+            '</div>'+
+          '</div>'+
+          '<div class="wwp1504-summary" id="wwp1504Summary">Memuat histori Surat Jalan…</div>'+
+          '<div class="wwp1504-results" id="wwp1504Results"></div>'+
+        '</div>';
+
+      document.body.appendChild(overlay);
+
+      const close=()=>{
+        if(overlay.parentNode) overlay.parentNode.removeChild(overlay);
+      };
+
+      overlay.querySelector('.wwp1503-close').addEventListener('click',close);
+      overlay.addEventListener('click',e=>{
+        if(e.target===overlay) close();
+      });
+
+      return overlay;
+    }
+
+    async function loadArchiveRowsV1504(overlay,keepOutletOptions){
+      const token=String(localStorage.getItem(TOKEN_KEY)||'');
+      if(!token) throw new Error('Sesi Warehouse tidak ditemukan. Login kembali.');
+
+      const from=overlay.querySelector('#wwp1504From').value;
+      const to=overlay.querySelector('#wwp1504To').value;
+      const outlet=overlay.querySelector('#wwp1504Outlet').value;
+      const query=overlay.querySelector('#wwp1504Query').value.trim();
+
+      const summary=overlay.querySelector('#wwp1504Summary');
+      const results=overlay.querySelector('#wwp1504Results');
+
+      summary.textContent='Membaca histori Surat Jalan…';
+      results.innerHTML=
+        '<div class="wwp1503-loading">Memuat histori…</div>';
+
+      const data=await window.WILLS_BRIDGE.call(
+        'getDeliveryPrintArchiveV1504',
+        token,
+        {
+          fromDate:from,
+          toDate:to,
+          outletCode:outlet,
+          query:query
+        }
+      );
+
+      if(!data || data.ok===false){
+        throw new Error(
+          (data&&data.message)||
+          'Histori Surat Jalan tidak tersedia.'
+        );
+      }
+
+      const outletSelect=overlay.querySelector('#wwp1504Outlet');
+
+      if(!keepOutletOptions){
+        const selected=outletSelect.value;
+        outletSelect.innerHTML=
+          '<option value="">Semua outlet</option>'+
+          (data.outlets||[]).map(x=>
+            '<option value="'+escapeHtmlV1504(x.outletCode)+'">'+
+              escapeHtmlV1504(x.outletName)+
+            '</option>'
+          ).join('');
+        outletSelect.value=selected;
+      }
+
+      summary.textContent=
+        'Ditemukan '+Number(data.totalMatched||0)+
+        ' SJ · ditampilkan '+Number(data.returned||0)+
+        (data.truncated?' · hasil dibatasi sistem':'');
+
+      const rows=data.rows||[];
+
+      if(!rows.length){
+        results.innerHTML=
+          '<div class="wwp1503-note">Tidak ada Surat Jalan pada filter ini.</div>';
+        return;
+      }
+
+      results.innerHTML=rows.map(row=>{
+        const payment=String(row.paymentStatus||'BELUM LUNAS').toUpperCase();
+        const payClass=payment==='LUNAS'?'paid':'pay';
+
+        const amount=
+          row.totalTagihan!=null && Number(row.totalTagihan)>0
+            ? ' · Tagihan '+money(row.totalTagihan)
+            : '';
+
+        const outstanding=
+          row.outstanding!=null && Number(row.outstanding)>0
+            ? ' · Sisa '+money(row.outstanding)
+            : '';
+
+        return (
+          '<div class="wwp1504-row">'+
+            '<div class="wwp1504-row-copy">'+
+              '<b>'+escapeHtmlV1504(row.noSj||'-')+
+                ' · '+escapeHtmlV1504(row.outletName||'-')+
+              '</b>'+
+              '<small>'+
+                escapeHtmlV1504(row.documentDate||'-')+
+                amount+
+                outstanding+
+              '</small>'+
+              '<div class="wwp1504-badges">'+
+                '<span class="wwp1504-badge">'+
+                  escapeHtmlV1504(row.deliveryStatus||'-')+
+                '</span>'+
+                '<span class="wwp1504-badge '+payClass+'">'+
+                  escapeHtmlV1504(payment)+
+                '</span>'+
+              '</div>'+
+            '</div>'+
+            '<button class="wwp1504-print-one" type="button" data-wwp1504-sjid="'+
+              escapeHtmlV1504(row.sjId)+
+            '">Cetak Ulang</button>'+
+          '</div>'
+        );
+      }).join('');
+
+      results.querySelectorAll('[data-wwp1504-sjid]').forEach(btn=>{
+        btn.addEventListener('click',()=>{
+          openPrint(btn.dataset.wwp1504Sjid).catch(err=>{
+            alert(
+              'Cetak ulang SJ gagal: '+
+              (err&&err.message||err)
+            );
+          });
+        });
+      });
+    }
+
+    async function openArchiveV1504(){
+      if(!window.WILLS_BRIDGE){
+        alert('Bridge Warehouse belum tersedia.');
+        return;
+      }
+
+      const overlay=archiveOverlay();
+
+      overlay.querySelector('#wwp1504Load').addEventListener(
+        'click',
+        ()=>{
+          loadArchiveRowsV1504(overlay,true).catch(err=>{
+            overlay.querySelector('#wwp1504Summary').textContent=
+              'Gagal memuat histori.';
+            overlay.querySelector('#wwp1504Results').innerHTML=
+              '<div class="wwp1503-error">'+
+                escapeHtmlV1504(err&&err.message||err)+
+              '</div>';
+          });
+        }
+      );
+
+      overlay.querySelector('#wwp1504Query').addEventListener(
+        'keydown',
+        e=>{
+          if(e.key==='Enter'){
+            e.preventDefault();
+            overlay.querySelector('#wwp1504Load').click();
+          }
+        }
+      );
+
+      try{
+        await loadArchiveRowsV1504(overlay,false);
+      }catch(err){
+        overlay.querySelector('#wwp1504Summary').textContent=
+          'Gagal memuat histori.';
+        overlay.querySelector('#wwp1504Results').innerHTML=
+          '<div class="wwp1503-error">'+
+            escapeHtmlV1504(err&&err.message||err)+
+          '</div>';
+      }
+    }
+
+    function makeReprintCardV1504(){
+      const button=document.createElement('button');
+      button.className='module-card wwp1504-archive-btn';
+      button.type='button';
+      button.dataset.wwReprint='1';
+      button.innerHTML=
+        '<span class="wwp1504-archive-icon">↻</span>'+
+        '<span class="wwp1504-archive-copy">'+
+          '<b>Cetak Ulang Surat Jalan</b>'+
+          '<small>Histori dari tanggal 1 · filter outlet & No. SJ</small>'+
+        '</span>'+
+        '<span class="chev">›</span>';
+      return button;
+    }
+
+    function injectReprintCardV1504(){
+      const content=document.getElementById('content');
+      if(!content) return;
+
+      const grid=content.querySelector('.module-grid');
+      if(!grid) return;
+
+      if(grid.querySelector('[data-ww-reprint]')) return;
+
+      grid.appendChild(makeReprintCardV1504());
+    }
+
+    const contentObserverV1504=new MutationObserver(()=>{
+      injectReprintCardV1504();
+    });
+
+    const contentRootV1504=document.getElementById('content');
+    if(contentRootV1504){
+      contentObserverV1504.observe(
+        contentRootV1504,
+        {childList:true,subtree:true}
+      );
+    }
+
+    setTimeout(injectReprintCardV1504,300);
+
+    document.addEventListener(
+      'click',
+      event=>{
+        const target=event.target && event.target.closest
+          ? event.target.closest('[data-ww-reprint]')
+          : null;
+
+        if(!target) return;
+
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+
+        openArchiveV1504();
       },
       true
     );
