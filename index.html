@@ -15,7 +15,7 @@
   <link rel="stylesheet" href="app.css?v=0.6.6">
   <title>Wills Warehouse</title>
 
-  <!-- v1.5.0.4 — additive print override; does not alter stock/payment ledgers -->
+  <!-- v1.5.0.5 — SJ reprint UI placement fix; read-only -->
   <style id="ww-print-v1504-style">
     .wwp1503-backdrop{
       position:fixed;inset:0;z-index:99999;background:rgba(17,17,17,.48);
@@ -185,7 +185,7 @@
   <script src="feature-v1370.js?v=1.3.7.0"></script>
 
   <!--
-    WILLS WAREHOUSE v1.5.0.4
+    WILLS WAREHOUSE v1.5.0.5
     Drop-in print override for current GitHub PWA.
     Read-only: only calls getDeliveryPrintDataV1500.
   -->
@@ -193,7 +193,7 @@
   (() => {
     'use strict';
 
-    const VERSION = '1.5.0.4';
+    const VERSION = '1.5.0.5';
     const TOKEN_KEY = 'ww_github_token_v1';
 
     function money(v){
@@ -999,20 +999,47 @@
         '<span class="wwp1504-archive-icon">↻</span>'+
         '<span class="wwp1504-archive-copy">'+
           '<b>Cetak Ulang Surat Jalan</b>'+
-          '<small>Histori dari tanggal 1 · filter outlet & No. SJ</small>'+
+          '<small>Histori dari tanggal 1 · filter outlet & No. SJ · v1.5.0.5</small>'+
         '</span>'+
         '<span class="chev">›</span>';
       return button;
+    }
+
+    function isTransactionsPageV1505(){
+      const content=document.getElementById('content');
+      if(!content) return false;
+
+      // Primary check: bottom navigation state.
+      const activeTransactions=document.querySelector(
+        '.nav-item.is-active[data-page="transactions"]'
+      );
+      if(activeTransactions) return true;
+
+      // Fallback: rendered page heading. This avoids accidental injection
+      // into Control, which also contains a .module-grid.
+      const heading=content.querySelector('.page-head h1');
+      return !!(
+        heading &&
+        String(heading.textContent||'').trim().toLowerCase()==='transaksi'
+      );
     }
 
     function injectReprintCardV1504(){
       const content=document.getElementById('content');
       if(!content) return;
 
+      const existing=content.querySelector('[data-ww-reprint]');
+
+      // v1.5.0.5: card is exclusive to Transaksi.
+      if(!isTransactionsPageV1505()){
+        if(existing) existing.remove();
+        return;
+      }
+
       const grid=content.querySelector('.module-grid');
       if(!grid) return;
 
-      if(grid.querySelector('[data-ww-reprint]')) return;
+      if(existing) return;
 
       grid.appendChild(makeReprintCardV1504());
     }
