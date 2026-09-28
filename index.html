@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="id">
 <head>
   <meta charset="utf-8">
@@ -14,6 +14,7 @@
   <link rel="icon" type="image/png" href="favicon-64.png">
   <link rel="stylesheet" href="app.css?v=0.6.6">
   <title>Wills Warehouse</title>
+
 
   <!-- v1.5.0.5 — SJ reprint UI placement fix; read-only -->
   <style id="ww-print-v1504-style">
@@ -44,6 +45,7 @@
     .wwp1503-loading{padding:30px 12px;text-align:center;font-size:13px;color:#666}
     .wwp1503-error{padding:14px;background:#fff0f0;border-radius:12px;color:#9f0e13;font-size:12px;line-height:1.5}
     @media(max-width:420px){.wwp1503-sheet{border-radius:18px 18px 0 0}.wwp1503-actions{grid-template-columns:1fr}}
+
 
     .wwp1504-archive-btn{
       display:flex;align-items:center;gap:12px;text-align:left;width:100%;
@@ -108,9 +110,11 @@
           </div>
         </div>
 
+
         <div class="auth-connection" id="authConnection" data-state="offline" role="status" aria-live="polite" aria-label="Sistem belum siap">
           <span class="connection-light" aria-hidden="true"></span>
         </div>
+
 
         <form id="loginForm" class="auth-form" autocomplete="off">
           <label class="field">
@@ -125,6 +129,7 @@
         </form>
       </div>
     </section>
+
 
     <section id="mainView" class="main-view is-hidden">
       <header class="topbar">
@@ -144,7 +149,9 @@
         </div>
       </header>
 
+
       <main id="content" class="content" tabindex="-1"></main>
+
 
       <nav class="bottom-nav" aria-label="Navigasi utama">
         <button class="nav-item is-active" data-page="home">
@@ -172,6 +179,7 @@
       </nav>
     </section>
 
+
     <div id="sheetRoot"></div>
     <div id="toastRoot" class="toast-root" aria-live="polite"></div>
     <div id="busyRoot" class="busy-root is-hidden" role="status" aria-live="polite" aria-atomic="true">
@@ -179,10 +187,12 @@
     </div>
   </div>
 
+
   <script src="config.js?v=0.6.6"></script>
   <script src="bridge.js?v=0.6.6"></script>
-  <script src="app.js?v=0.6.6"></script>
+  <script src="app.js?v=0.6.9"></script>
   <script src="feature-v1370.js?v=1.3.7.0"></script>
+
 
   <!--
     WILLS WAREHOUSE v1.5.0.5
@@ -193,8 +203,10 @@
   (() => {
     'use strict';
 
+
     const VERSION = '1.5.0.5';
     const TOKEN_KEY = 'ww_github_token_v1';
+
 
     function money(v){
       return 'Rp' + new Intl.NumberFormat('id-ID',{
@@ -202,11 +214,13 @@
       }).format(Number(v||0));
     }
 
+
     function num(v){
       return new Intl.NumberFormat('id-ID',{
         maximumFractionDigits:2
       }).format(Number(v||0));
     }
+
 
     function wrap(text,width){
       const words=String(text||'')
@@ -215,8 +229,10 @@
         .split(' ')
         .filter(Boolean);
 
+
       const out=[];
       let line='';
+
 
       words.forEach(word=>{
         if(!line) line=word;
@@ -227,15 +243,18 @@
         }
       });
 
+
       if(line) out.push(line);
       return out.length?out:[''];
     }
+
 
     function center(text,width){
       const t=String(text||'').slice(0,width);
       const left=Math.max(0,Math.floor((width-t.length)/2));
       return ' '.repeat(left)+t;
     }
+
 
     function sanitizeThermal(value){
       return String(value==null?'':value)
@@ -245,8 +264,10 @@
         .replace(/\r/g,'');
     }
 
+
     function thermalText(pd,width){
       width=Number(width)===48?48:32;
+
 
       const hr='-'.repeat(width);
       const out=[];
@@ -254,17 +275,21 @@
       const bill=pd.billing||{};
       const lines=pd.lines||[];
 
+
       const totalFromLines=lines.reduce(
         (sum,x)=>sum+Number(x.lineTotal||0),
         0
       );
+
 
       const totalTagihan=
         Number(bill.totalTagihan||0)>0
           ? Number(bill.totalTagihan)
           : totalFromLines;
 
+
       const paid=Number(bill.paid||0);
+
 
       const outstanding=Number(
         bill.outstanding!=null
@@ -272,30 +297,38 @@
           : Math.max(0,totalTagihan-paid)
       );
 
+
       const payStatus=String(
         bill.paymentStatus||'BELUM LUNAS'
       ).toUpperCase();
 
+
       const isPaid=payStatus==='LUNAS';
+
 
       out.push(center('WILLS COFFEE',width));
       out.push(center('SURAT JALAN',width));
       out.push(center('PRINT v'+VERSION,width));
       out.push(hr);
 
+
       wrap('No SJ: '+(sj.noSj||'-'),width)
         .forEach(x=>out.push(x));
+
 
       wrap('Outlet: '+(sj.outletName||'-'),width)
         .forEach(x=>out.push(x));
 
+
       wrap('Status Barang: '+(sj.status||'-'),width)
         .forEach(x=>out.push(x));
+
 
       if(sj.shipDate){
         wrap('Tanggal Kirim: '+sj.shipDate,width)
           .forEach(x=>out.push(x));
       }
+
 
       wrap(
         'Dicetak: '+
@@ -306,18 +339,22 @@
         width
       ).forEach(x=>out.push(x));
 
+
       out.push(hr);
       out.push(center('TAGIHAN OUTLET',width));
+
 
       wrap(
         'TOTAL TAGIHAN: '+money(totalTagihan),
         width
       ).forEach(x=>out.push(x));
 
+
       wrap(
         'STATUS PEMBAYARAN: '+payStatus,
         width
       ).forEach(x=>out.push(x));
+
 
       if(paid>0){
         wrap(
@@ -326,6 +363,7 @@
         ).forEach(x=>out.push(x));
       }
 
+
       if(outstanding>0){
         wrap(
           'SISA PIUTANG: '+money(outstanding),
@@ -333,16 +371,20 @@
         ).forEach(x=>out.push(x));
       }
 
+
       out.push(isPaid?'[X] LUNAS':'[ ] LUNAS');
       out.push(isPaid?'[ ] BELUM LUNAS':'[X] BELUM LUNAS');
+
 
       if(payStatus==='BAYAR SEBAGIAN'){
         wrap('KETERANGAN: BAYAR SEBAGIAN',width)
           .forEach(x=>out.push(x));
       }
 
+
       out.push(hr);
       out.push(center('DAFTAR BAHAN',width));
+
 
       lines.forEach((line,i)=>{
         wrap(
@@ -350,31 +392,38 @@
           width
         ).forEach(x=>out.push(x));
 
+
         wrap(
           '    '+num(line.qty)+' '+(line.unit||'')+
           ' x '+money(line.unitPrice),
           width
         ).forEach(x=>out.push(x));
 
+
         wrap(
           '    Jumlah: '+money(line.lineTotal),
           width
         ).forEach(x=>out.push(x));
 
+
         out.push('');
       });
 
+
       out.push(hr);
+
 
       wrap(
         'TOTAL TAGIHAN: '+money(totalTagihan),
         width
       ).forEach(x=>out.push(x));
 
+
       wrap(
         'STATUS: '+payStatus,
         width
       ).forEach(x=>out.push(x));
+
 
       out.push('');
       out.push('VERIFIKASI LUNAS');
@@ -382,16 +431,19 @@
       out.push('TTD : ______________________');
       out.push('Tgl : ______________________');
 
+
       wrap(
         'TTD hanya diisi setelah pembayaran diverifikasi Warehouse/Finance.',
         width
       ).forEach(x=>out.push(x));
+
 
       out.push(hr);
       out.push('CHECK GUDANG');
       out.push('[ ] Jumlah sesuai');
       out.push('[ ] Kondisi bahan baik');
       out.push('[ ] Sudah dimuat/dibawa');
+
 
       out.push('');
       out.push('CHECK BARISTA OUTLET');
@@ -401,12 +453,15 @@
       out.push('Nama: ______________________');
       out.push('Paraf: _____________________');
 
+
       out.push(hr);
+
 
       wrap(
         'Status barang dan pembayaran terpisah. SELESAI tidak otomatis berarti LUNAS.',
         width
       ).forEach(x=>out.push(x));
+
 
       if(sj.note){
         out.push(hr);
@@ -414,21 +469,27 @@
           .forEach(x=>out.push(x));
       }
 
+
       out.push('');
       out.push('');
 
+
       return out.join('\n');
     }
+
 
     function rawBt(text){
       const clean=sanitizeThermal(
         String(text||'')+'\n\n\n'
       );
 
+
       const bytes=new TextEncoder().encode(clean);
+
 
       let binary='';
       const chunk=0x8000;
+
 
       for(let i=0;i<bytes.length;i+=chunk){
         binary+=String.fromCharCode.apply(
@@ -440,11 +501,14 @@
         );
       }
 
+
       const base64=btoa(binary);
+
 
       let frame=document.getElementById(
         'wwRawBtPrintV1503'
       );
+
 
       if(!frame){
         frame=document.createElement('iframe');
@@ -454,11 +518,14 @@
         document.body.appendChild(frame);
       }
 
+
       frame.src='about:blank';
+
 
       setTimeout(()=>{
         frame.src='rawbt:base64,'+base64;
       },20);
+
 
       setTimeout(()=>{
         try{
@@ -468,6 +535,7 @@
       },1400);
     }
 
+
     function browserPrint(text,width){
       const win=window.open(
         '',
@@ -475,17 +543,21 @@
         'width=420,height=720'
       );
 
+
       if(!win){
         alert('Popup print diblokir browser.');
         return;
       }
 
+
       const mm=Number(width)===48?'80mm':'58mm';
+
 
       const safe=String(text||'')
         .replace(/&/g,'&amp;')
         .replace(/</g,'&lt;')
         .replace(/>/g,'&gt;');
+
 
       win.document.write(
         '<!doctype html>'+
@@ -502,38 +574,47 @@
         '</pre></body></html>'
       );
 
+
       win.document.close();
       win.focus();
 
+
       setTimeout(()=>win.print(),120);
     }
+
 
     function currentDeliveryId(button){
       if(button && button.dataset.printSjid){
         return String(button.dataset.printSjid||'');
       }
 
+
       const detail=document.querySelector(
         '#sheetRoot .sheet-backdrop[data-sheet-key^="delivery-detail:"]'
       );
+
 
       if(detail){
         return String(detail.dataset.sheetKey||'')
           .replace(/^delivery-detail:/,'');
       }
 
+
       return '';
     }
+
 
     function closeOverlay(overlay,previous){
       if(overlay && overlay.parentNode){
         overlay.parentNode.removeChild(overlay);
       }
 
+
       if(previous){
         previous.style.display='';
       }
     }
+
 
     function buildOverlay(previous){
       const overlay=document.createElement('div');
@@ -547,12 +628,15 @@
           '<div class="wwp1503-loading">Memuat total tagihan dan status pembayaran…</div>'+
         '</div>';
 
+
       document.body.appendChild(overlay);
+
 
       overlay.querySelector('.wwp1503-close')
         .addEventListener('click',()=>{
           closeOverlay(overlay,previous);
         });
+
 
       overlay.addEventListener('click',e=>{
         if(e.target===overlay){
@@ -560,8 +644,10 @@
         }
       });
 
+
       return overlay;
     }
+
 
     async function openPrint(sjId){
       if(!sjId){
@@ -570,9 +656,11 @@
         );
       }
 
+
       const token=String(
         localStorage.getItem(TOKEN_KEY)||''
       );
+
 
       if(!token){
         throw new Error(
@@ -580,20 +668,25 @@
         );
       }
 
+
       if(!window.WILLS_BRIDGE){
         throw new Error(
           'Bridge Warehouse belum tersedia.'
         );
       }
 
+
       const root=document.getElementById('sheetRoot');
       const previous=root?root.firstElementChild:null;
+
 
       if(previous){
         previous.style.display='none';
       }
 
+
       const overlay=buildOverlay(previous);
+
 
       try{
         const pd=await window.WILLS_BRIDGE.call(
@@ -602,6 +695,7 @@
           sjId
         );
 
+
         if(!pd || pd.ok===false){
           throw new Error(
             (pd&&pd.message)||
@@ -609,17 +703,21 @@
           );
         }
 
+
         let width=Number(
           localStorage.getItem(
             'ww_thermal_width'
           )||32
         );
 
+
         if(width!==48) width=32;
+
 
         const sheet=overlay.querySelector(
           '.wwp1503-sheet'
         );
+
 
         sheet.innerHTML=
           '<div class="wwp1503-head">'+
@@ -643,13 +741,16 @@
             '<button class="wwp1503-btn red" id="wwp1503Rawbt" type="button">Cetak Bluetooth (RawBT)</button>'+
           '</div>';
 
+
         const select=sheet.querySelector(
           '#wwp1503Width'
         );
 
+
         const preview=sheet.querySelector(
           '#wwp1503Preview'
         );
+
 
         const update=()=>{
           const w=
@@ -657,29 +758,36 @@
               ? 48
               : 32;
 
+
           localStorage.setItem(
             'ww_thermal_width',
             String(w)
           );
 
+
           preview.textContent=
             thermalText(pd,w);
 
+
           return preview.textContent;
         };
+
 
         select.addEventListener(
           'change',
           update
         );
 
+
         update();
+
 
         sheet.querySelector(
           '.wwp1503-close'
         ).addEventListener('click',()=>{
           closeOverlay(overlay,previous);
         });
+
 
         sheet.querySelector(
           '#wwp1503System'
@@ -690,16 +798,19 @@
           );
         });
 
+
         sheet.querySelector(
           '#wwp1503Rawbt'
         ).addEventListener('click',()=>{
           rawBt(update());
         });
 
+
       }catch(err){
         const sheet=overlay.querySelector(
           '.wwp1503-sheet'
         );
+
 
         sheet.innerHTML=
           '<div class="wwp1503-head">'+
@@ -711,6 +822,7 @@
             String(err&&err.message||err)+
           '</div>';
 
+
         sheet.querySelector(
           '.wwp1503-close'
         ).addEventListener('click',()=>{
@@ -718,6 +830,7 @@
         });
       }
     }
+
 
     document.addEventListener(
       'click',
@@ -729,16 +842,21 @@
             )
           : null;
 
+
         if(!target) return;
+
 
         const sjId=currentDeliveryId(target);
 
+
         if(!sjId) return;
+
 
         // Stop template print lama sebelum onclick app.js berjalan.
         event.preventDefault();
         event.stopPropagation();
         event.stopImmediatePropagation();
+
 
         openPrint(sjId).catch(err=>{
           alert(
@@ -751,17 +869,21 @@
     );
 
 
+
+
     function isoTodayLocal(){
       const d=new Date();
       const p=n=>String(n).padStart(2,'0');
       return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate());
     }
 
+
     function firstDayCurrentMonth(){
       const d=new Date();
       const p=n=>String(n).padStart(2,'0');
       return d.getFullYear()+'-'+p(d.getMonth()+1)+'-01';
     }
+
 
     function escapeHtmlV1504(value){
       return String(value==null?'':value).replace(
@@ -776,10 +898,12 @@
       );
     }
 
+
     function archiveOverlay(){
       const overlay=document.createElement('div');
       overlay.className='wwp1503-backdrop';
       overlay.id='wwp1504Archive';
+
 
       overlay.innerHTML=
         '<div class="wwp1503-sheet">'+
@@ -818,35 +942,44 @@
           '<div class="wwp1504-results" id="wwp1504Results"></div>'+
         '</div>';
 
+
       document.body.appendChild(overlay);
+
 
       const close=()=>{
         if(overlay.parentNode) overlay.parentNode.removeChild(overlay);
       };
+
 
       overlay.querySelector('.wwp1503-close').addEventListener('click',close);
       overlay.addEventListener('click',e=>{
         if(e.target===overlay) close();
       });
 
+
       return overlay;
     }
+
 
     async function loadArchiveRowsV1504(overlay,keepOutletOptions){
       const token=String(localStorage.getItem(TOKEN_KEY)||'');
       if(!token) throw new Error('Sesi Warehouse tidak ditemukan. Login kembali.');
+
 
       const from=overlay.querySelector('#wwp1504From').value;
       const to=overlay.querySelector('#wwp1504To').value;
       const outlet=overlay.querySelector('#wwp1504Outlet').value;
       const query=overlay.querySelector('#wwp1504Query').value.trim();
 
+
       const summary=overlay.querySelector('#wwp1504Summary');
       const results=overlay.querySelector('#wwp1504Results');
+
 
       summary.textContent='Membaca histori Surat Jalan…';
       results.innerHTML=
         '<div class="wwp1503-loading">Memuat histori…</div>';
+
 
       const data=await window.WILLS_BRIDGE.call(
         'getDeliveryPrintArchiveV1504',
@@ -859,6 +992,7 @@
         }
       );
 
+
       if(!data || data.ok===false){
         throw new Error(
           (data&&data.message)||
@@ -866,7 +1000,9 @@
         );
       }
 
+
       const outletSelect=overlay.querySelector('#wwp1504Outlet');
+
 
       if(!keepOutletOptions){
         const selected=outletSelect.value;
@@ -880,12 +1016,15 @@
         outletSelect.value=selected;
       }
 
+
       summary.textContent=
         'Ditemukan '+Number(data.totalMatched||0)+
         ' SJ · ditampilkan '+Number(data.returned||0)+
         (data.truncated?' · hasil dibatasi sistem':'');
 
+
       const rows=data.rows||[];
+
 
       if(!rows.length){
         results.innerHTML=
@@ -893,19 +1032,23 @@
         return;
       }
 
+
       results.innerHTML=rows.map(row=>{
         const payment=String(row.paymentStatus||'BELUM LUNAS').toUpperCase();
         const payClass=payment==='LUNAS'?'paid':'pay';
+
 
         const amount=
           row.totalTagihan!=null && Number(row.totalTagihan)>0
             ? ' · Tagihan '+money(row.totalTagihan)
             : '';
 
+
         const outstanding=
           row.outstanding!=null && Number(row.outstanding)>0
             ? ' · Sisa '+money(row.outstanding)
             : '';
+
 
         return (
           '<div class="wwp1504-row">'+
@@ -934,6 +1077,7 @@
         );
       }).join('');
 
+
       results.querySelectorAll('[data-wwp1504-sjid]').forEach(btn=>{
         btn.addEventListener('click',()=>{
           openPrint(btn.dataset.wwp1504Sjid).catch(err=>{
@@ -946,13 +1090,16 @@
       });
     }
 
+
     async function openArchiveV1504(){
       if(!window.WILLS_BRIDGE){
         alert('Bridge Warehouse belum tersedia.');
         return;
       }
 
+
       const overlay=archiveOverlay();
+
 
       overlay.querySelector('#wwp1504Load').addEventListener(
         'click',
@@ -968,6 +1115,7 @@
         }
       );
 
+
       overlay.querySelector('#wwp1504Query').addEventListener(
         'keydown',
         e=>{
@@ -977,6 +1125,7 @@
           }
         }
       );
+
 
       try{
         await loadArchiveRowsV1504(overlay,false);
@@ -989,6 +1138,7 @@
           '</div>';
       }
     }
+
 
     function makeReprintCardV1504(){
       const button=document.createElement('button');
@@ -1005,15 +1155,18 @@
       return button;
     }
 
+
     function isTransactionsPageV1505(){
       const content=document.getElementById('content');
       if(!content) return false;
+
 
       // Primary check: bottom navigation state.
       const activeTransactions=document.querySelector(
         '.nav-item.is-active[data-page="transactions"]'
       );
       if(activeTransactions) return true;
+
 
       // Fallback: rendered page heading. This avoids accidental injection
       // into Control, which also contains a .module-grid.
@@ -1024,11 +1177,14 @@
       );
     }
 
+
     function injectReprintCardV1504(){
       const content=document.getElementById('content');
       if(!content) return;
 
+
       const existing=content.querySelector('[data-ww-reprint]');
+
 
       // v1.5.0.5: card is exclusive to Transaksi.
       if(!isTransactionsPageV1505()){
@@ -1036,17 +1192,22 @@
         return;
       }
 
+
       const grid=content.querySelector('.module-grid');
       if(!grid) return;
 
+
       if(existing) return;
+
 
       grid.appendChild(makeReprintCardV1504());
     }
 
+
     const contentObserverV1504=new MutationObserver(()=>{
       injectReprintCardV1504();
     });
+
 
     const contentRootV1504=document.getElementById('content');
     if(contentRootV1504){
@@ -1056,7 +1217,9 @@
       );
     }
 
+
     setTimeout(injectReprintCardV1504,300);
+
 
     document.addEventListener(
       'click',
@@ -1065,16 +1228,20 @@
           ? event.target.closest('[data-ww-reprint]')
           : null;
 
+
         if(!target) return;
+
 
         event.preventDefault();
         event.stopPropagation();
         event.stopImmediatePropagation();
 
+
         openArchiveV1504();
       },
       true
     );
+
 
     console.info(
       '[Wills Warehouse] SJ payment print override active v'+VERSION

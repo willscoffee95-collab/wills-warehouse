@@ -1,5 +1,6 @@
-(() => {
+﻿(() => {
   'use strict';
+
 
   const $ = (q, root = document) => root.querySelector(q);
   const $$ = (q, root = document) => [...root.querySelectorAll(q)];
@@ -8,6 +9,7 @@
   const TOKEN_KEY = 'ww_github_token_v1';
   const BOOT_SNAPSHOT_KEY = 'ww_github_bootstrap_v1360';
   const BOOT_SNAPSHOT_MAX_AGE = 21600000; // 6 jam; stale snapshot hanya untuk render cepat, server tetap revalidate.
+
 
   const icons = {
     box: '<svg viewBox="0 0 24 24"><path d="m21 8-9 5-9-5 9-5z"/><path d="M3 8v8l9 5 9-5V8M12 13v8"/></svg>',
@@ -27,6 +29,7 @@
     clipboard: '<svg viewBox="0 0 24 24"><path d="M9 5h6M9 3h6v4H9z"/><path d="M7 5H5v16h14V5h-2M8 13l2 2 5-5"/></svg>',
     arrow: '<svg viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg>'
   };
+
 
   let state = {
     publicState: null,
@@ -61,6 +64,7 @@
     $('#mainView').classList.add('is-hidden');$('#loginView').classList.remove('is-hidden');if(message)toast(message,'warning');
   }
 
+
   let activePage = 'home';
   let stockFilter = 'Semua';
   let historyCategoryFilter = 'Semua';
@@ -75,6 +79,7 @@
   const sheetViewStack = [];
   let pendingAfterSheetBack = null;
   let lastBackAt = 0;
+
 
   // v1.3.5 — canonical PWA retains Warehouse/HPP/SJ invariants; adds actual outlet receipt dates to SJ detail/thermal while preserving layered Android Back navigation.
   const ROLE_LABELS = Object.freeze({
@@ -114,6 +119,7 @@
   }
   function visibleModuleRows(rows){return rows.filter(x=>actionAllowed(x[3]));}
 
+
   const pages = {
     home: renderHome,
     stock: renderStock,
@@ -121,6 +127,7 @@
     history: renderHistory,
     control: renderControl
   };
+
 
   function esc(v) {
     return String(v == null ? '' : v).replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
@@ -143,11 +150,13 @@
     return `<div class="page-head"><div><h1>${esc(title)}</h1>${subtitle ? `<p>${esc(subtitle)}</p>` : ''}</div>${liveChip ? `<span class="sync-chip">${esc(liveChip)}</span>` : ''}</div>`;
   }
 
+
   function materialMap() {
     const out = {};
     (state.data && state.data.materials || []).forEach(m => { out[m.code] = m; });
     return out;
   }
+
 
   function liveStocks() {
     if (!state.data) return [];
@@ -176,6 +185,7 @@
     });
   }
 
+
   const TX_META = {
     PURCHASE: ['Belanja Bahan','cart'],
     PACKING_BATCH: ['Batch Packing','pack'],
@@ -202,6 +212,7 @@
     SOURCE_MASTER_SYNC: ['Sinkronisasi Bahan Master','box']
   };
 
+
   function statusLabel(status) {
     const map = {
       POSTED:'SELESAI', REVERSED:'DIBALIKKAN', FAILED:'GAGAL', DRAFT:'DRAF',
@@ -210,6 +221,7 @@
     const key = String(status || '').toUpperCase();
     return map[key] || String(status || '').replaceAll('_',' ');
   }
+
 
   function deliveryStatusClass(status) {
     const s = String(status || '').toUpperCase();
@@ -224,6 +236,7 @@
   function deliveryStatusBadge(status) {
     return `<span class="badge ${deliveryStatusClass(status)}">${esc(statusLabel(status).toUpperCase())}</span>`;
   }
+
 
   const HISTORY_CATEGORIES = Object.freeze({
     PURCHASE:'Pembelian', SUPPLIER_PAYMENT:'Keuangan', OPERATIONAL_EXPENSE:'Keuangan', OUTLET_PAYMENT:'Keuangan', OUTLET_RECEIVABLE:'Keuangan', PACKING_WAGE_PAYMENT:'Keuangan', FINANCE_POSITION_ADJUSTMENT:'Keuangan',
@@ -261,6 +274,8 @@
   function historyRowsHtml(rows){if(!rows.length)return '<div class="empty">Transaksi tidak ditemukan pada filter ini.</div>';let last='',html='';rows.forEach(x=>{if(x.dateLabel!==last){last=x.dateLabel;html+=`<div class="history-date-group"><b>${esc(x.dateLabel)}</b><span>${esc(x.date||'')}</span></div>`;}html+=historyCard(x);});return html;}
 
 
+
+
   function renderHome() {
     const d = state.data || {};
     const dash = d.dashboard || {};
@@ -296,12 +311,14 @@
       <section class="section"><div class="section-head"><h3>Aktivitas Terbaru</h3><span>Data terbaru</span></div><div class="list">${history.slice(0,3).map(historyCard).join('') || '<div class="empty">Belum ada transaksi.</div>'}</div></section>`;
   }
 
+
   function kpiCard(label, value, delta, cls='') {
     return `<div class="kpi"><small>${esc(label)}</small><strong>${esc(value)}</strong><span class="delta ${cls}">${esc(delta)}</span></div>`;
   }
   function quickCard(icon, title, desc, action) {
     return `<button class="quick-card" data-action="${action}"><span class="q-icon">${icons[icon]}</span><b>${esc(title)}</b><small>${esc(desc)}</small></button>`;
   }
+
 
   function renderStock() {
     return `${pageHead('Stok Gudang', 'Stok bahan terbaru dari sistem gudang.')}
@@ -310,10 +327,12 @@
       <div id="stockRows" class="list">${stockRows(liveStocks())}</div>`;
   }
 
+
   function stockRows(rows) {
     const filtered = stockFilter === 'Semua' ? rows : rows.filter(x => x.type === stockFilter);
     return filtered.map(x => `<div class="stock-row"><div><b>${esc(x.name)}</b><small>${esc(x.code)} · ${esc(x.type)} · <span class="badge ${x.status==='Aman'?'ok':x.status==='Menipis'?'warn':'bad'}">${esc(x.status)}</span>${x.value==null?'':' · '+rp(x.value)}</small></div><div class="stock-qty"><strong>${num(x.qty)}</strong><span>${esc(x.unit)}</span></div></div>`).join('') || '<div class="empty">Tidak ada bahan pada filter ini.</div>';
   }
+
 
   function renderTransactions() {
     const all = [
@@ -333,6 +352,7 @@
   }
   function moduleCard(icon,title,desc,action){return `<button class="module-card" data-action="${action}"><span class="module-icon">${icons[icon]}</span><span class="copy"><b>${esc(title)}</b><small>${esc(desc)}</small></span><span class="chev">›</span></button>`}
 
+
   function renderHistory() {
     const rows = filteredHistoryRows(),cats=['Semua','Pembelian','Pengiriman','Produksi / Packing','Keuangan','Stok / Koreksi','Master / Sistem','Lainnya'];
     return `${pageHead('Riwayat', 'Cek transaksi berdasarkan tanggal dan kategori. Kode transaksi tetap tersedia sebagai referensi kecil.')}
@@ -344,6 +364,8 @@
       <div id="historyRows" class="list history-list">${historyRowsHtml(rows)}</div>`;
   }
   function historyCard(x){const canRev=((state.data||{}).user||{}).role==='OWNER'&&x.badge==='SELESAI';return `<div class="list-card history-card"><span class="list-icon">${icons[x.icon]||icons.clock}</span><div class="list-main"><div class="history-card-top"><b>${esc(x.title)}</b><span class="history-time">${esc(x.timeLabel?x.timeLabel+' WIB':'')}</span></div><small>${esc(x.meta)}</small>${x.detailId?`<small class="history-id">${esc(x.detailId)}</small>`:''}</div><div class="list-side"><strong>${esc(x.amount)}</strong><small><span class="badge ${x.cls}">${esc(x.badge)}</span></small>${canRev?`<button class="history-reverse" data-reverse-txn="${esc(x.txnId)}">Batalkan</button>`:''}</div></div>`}
+
+
 
 
   function renderControl() {
@@ -372,6 +394,7 @@
       </div></section>`;
   }
 
+
   async function setPage(page, options = {}) {
     if (!pages[page] || !state.data) return;
     const previous = activePage;
@@ -394,6 +417,7 @@
       lastBackAt = 0;
     }
   }
+
 
   function bindPage() {
     $$('[data-action]').forEach(btn => btn.addEventListener('click', () => openFeatureOneTap(btn.dataset.action, btn)));
@@ -418,9 +442,11 @@
     });
   }
 
+
   const actionNames = {
     purchase:'Belanja Bahan', packing:'Batch Packing', delivery:'Bahan yang Harus Dikirim Sekarang / Surat Jalan', draftPrint:'Draft Siap Kirim / Cetak Thermal', outletPayment:'Pembayaran Outlet', expense:'Pengeluaran Operasional', supplierPayment:'Bayar Supplier', adjustment:'Opname / Koreksi', packingWage:'Bayar Upah Packing', internalPrice:'Harga Internal Outlet', materials:'Master Bahan Wills', users:'Pengguna & Peran', audit:'Audit Sistem', recovery:'Antrean Pemulihan', financeActual:'Posisi Dana Warehouse', stockReport:'Laporan Stok Warehouse', dispatchRecap:'Rekap Pengiriman Outlet', hppCorrection:'Koreksi HPP Historis', centralPrice:'Pusat Harga Bahan'
   };
+
 
   const ACTION_DATA_MODULE = Object.freeze({
     purchase:'purchase', packing:'packing', delivery:'delivery', draftPrint:'delivery',
@@ -445,6 +471,7 @@
     if(activePage==='home'||activePage==='stock'){const c=$('#content');if(c){c.innerHTML=pages[activePage]();bindPage();}}
     return state.data;
   }
+
 
   async function openFeatureOneTap(action, trigger) {
     if (!state.bridgeReady) return toast('Sedang menyambungkan data terbaru…','warning');
@@ -474,6 +501,7 @@
       }
     }
   }
+
 
   function currentSheetNode(){return $('#sheetRoot')&&$('#sheetRoot').firstElementChild;}
   function currentSheetKey(){const n=currentSheetNode();return n?String(n.dataset.sheetKey||''):'';}
@@ -593,11 +621,13 @@
     $$('[data-sjid]').forEach(b=>b.onclick=()=>directDeliveryDetail(b.dataset.sjid));
   }
 
+
   function directDraftPrintList(){
     const rows=((state.data||{}).deliveries||[]).filter(x=>String(x.status||'')==='DRAFT');
     sheetHtml('Draft Siap Kirim',`<p>Pilih draft yang sudah disiapkan. Checklist ini dicetak ke thermal Bluetooth dan dibawa bersama barang untuk pengecekan barista.</p><div class="direct-list">${rows.map(x=>`<button class="direct-card direct-click" data-print-sjid="${esc(x.sjId)}"><b>${esc(x.noSj)} · ${esc(x.outletName)}</b><small>${(x.lines||[]).length} bahan · ${esc(x.note||'Tanpa catatan')}</small><span class="badge brand">CETAK</span></button>`).join('')||'<div class="empty">Belum ada Surat Jalan berstatus DRAFT.</div>'}</div>`);
     $$('[data-print-sjid]').forEach(b=>b.onclick=()=>directPrintDeliveryDraft(b.dataset.printSjid));
   }
+
 
   function directNewSj(){const d=state.data||{},outs=(d.outlets||[]).filter(x=>x.active==='YA'),mats=(d.materials||[]).filter(x=>x.active==='YA'&&x.distributable!==false);sheetHtml('Buat Surat Jalan Manual',`<form id="ghSj"><label class="field"><span>Outlet</span><select name="outletCode" required><option value="">Pilih</option>${outs.map(x=>`<option value="${esc(x.code)}">${esc(x.name)}</option>`).join('')}</select></label><div id="ghSjLines"></div><button type="button" class="btn btn-soft" id="ghAddSj">+ Tambah bahan</button><label class="field"><span>Catatan</span><textarea name="note"></textarea></label><div class="actions"><button class="btn btn-line" type="button" id="ghCancel">Tutup</button><button class="btn btn-primary">Buat DRAFT</button></div></form>`);const box=$('#ghSjLines'),opts=mats.map(x=>`<option value="${esc(x.code)}">${esc(x.name)} · ${esc(x.receiveUnit||'')}</option>`).join(''),add=()=>{const el=document.createElement('div');el.className='direct-line';el.innerHTML=`<select class="code"><option value="">Pilih bahan</option>${opts}</select><input class="qty" type="number" min="0.000001" step="0.000001" placeholder="Qty unit"><span></span><button class="line-remove" type="button">×</button>`;el.querySelector('.line-remove').onclick=()=>el.remove();box.appendChild(el)};add();$('#ghAddSj').onclick=add;$('#ghCancel').onclick=closeSheet;$('#ghSj').onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.target),items=[...box.querySelectorAll('.direct-line')].map(x=>({code:x.querySelector('.code').value,qtyUnit:x.querySelector('.qty').value}));await writeDirect('manualSj','createDeliveryDraft',{outletCode:fd.get('outletCode'),note:fd.get('note'),items})};}
   function directReverse(txnId){const reason=prompt('Alasan pembatalan / reversal transaksi '+txnId+':');if(!reason)return;writeDirect('reverse_'+txnId,'reverseTransaction',{txnId:txnId,reason:reason}).catch(()=>{});}
@@ -616,6 +646,7 @@
     const k=$('#ghSendSj');if(k)k.onclick=()=>confirm('Hanya qty yang sudah disiapkan/disetujui yang akan mengurangi stok. Barang benar-benar siap dikirim?')&&writeDeliveryDirect('dispatch_'+id,'dispatchDelivery',{sjId:id},id);
     const y=$('#ghSyncSj');if(y)y.onclick=async()=>{try{let r;await withBusy('Sinkron SJ…',async()=>{r=await callDirect('syncOutletReceiptForDelivery',{sjId:id});if(!r.ok)throw new Error(r.error||'Sinkron gagal.');await reloadDeliveryModule();});toast('Penerimaan SJ diperbarui · '+r.elapsedMs+' ms');directDeliveryDetail(id)}catch(e){toast(e.message)}};
   }
+
 
   function findRequestForDelivery(d){
     return ((state.data||{}).incomingRequests||[]).find(x=>String(x.linkedSjId||'')===String(d.sjId||'')||String(x.linkedNoSj||'')===String(d.noSj||''))||null;
@@ -650,14 +681,66 @@
     const w=window.open('','_blank','width=420,height=720');if(!w)return toast('Popup print diblokir browser.');const mm=Number(width)===48?'80mm':'58mm';w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>Draft Siap Kirim</title><style>@page{size:'+mm+' auto;margin:3mm}body{margin:0;font:12px/1.35 monospace;color:#000}pre{white-space:pre-wrap;margin:0}</style></head><body><pre>'+esc(text)+'</pre></body></html>');w.document.close();w.focus();setTimeout(()=>w.print(),120);
   }
 
+
   function directFulfillment(id){const d=((state.data||{}).deliveries||[]).find(x=>x.sjId===id);if(!d||d.status!=='DRAFT')return toast('SJ bukan DRAFT.');sheetHtml('Atur Ketersediaan',`<p>Permintaan asli outlet tidak diubah. Isi 0 jika tidak tersedia; alasan wajib jika qty dikurangi.</p><form id="ghFulfillment"><div class="direct-list">${(d.lines||[]).map(l=>{const req=Number(l.requestedQtyUnit!=null?l.requestedQtyUnit:(l.qtyUnit||0));return `<div class="direct-card" data-ful-line="${l.lineNo}"><b>${esc(l.name)}</b><small>Diminta ${num(req)} ${esc(l.sendUnit)}</small><label class="field"><span>Qty disetujui</span><input class="approved" type="number" min="0" max="${req}" step="0.000001" value="${Number(l.qtyUnit||0)}" required></label><label class="field"><span>Alasan jika kurang / kosong</span><textarea class="reason">${esc(l.fulfillmentReason||'')}</textarea></label></div>`}).join('')}</div><div class="actions"><button class="btn btn-line" type="button" id="ghBackSj">Kembali</button><button class="btn btn-primary">Simpan</button></div></form>`,{key:'delivery-fulfillment:'+id});$('#ghBackSj').onclick=closeSheet;$('#ghFulfillment').onsubmit=async e=>{e.preventDefault();const items=$$('[data-ful-line]').map(x=>({lineNo:Number(x.dataset.fulLine),approvedQtyUnit:x.querySelector('.approved').value,reason:x.querySelector('.reason').value}));await writeDeliveryDirect('fulfillment_'+id,'adjustDeliveryDraftFulfillment',{sjId:id,items},id)};}
   function showDiagnostic(r){sheetHtml('Diagnostik Sinkron Penerimaan',`<p>Audit ini hanya membaca data outlet dan Surat Jalan.</p><div class="direct-list">${((r||{}).diagnostics||[]).map(x=>`<div class="direct-card"><b>${esc(x.noSj)} · ${esc(x.outletName||x.outletCode||'')}</b><small>${x.matched}/${x.receiptCount} receipt cocok · alias ${x.aliasMatched||0}</small><span class="badge ${x.ok?'ok':'bad'}">${x.ok?'COCOK':'PERLU CEK'}</span>${x.issues&&x.issues.length?`<div class="direct-issues">${x.issues.map(i=>esc((i.code||i.name)+' · '+i.reason+(i.expectedUnit?' · '+i.baseUnit+'→'+i.expectedUnit:''))).join('<br>')}</div>`:''}</div>`).join('')||'<div class="empty">Belum ada receipt yang cocok dengan SJ aktif.</div>'}</div>`)}
   // v1.2.9.1.1 — Fix HTML number step Pembayaran Outlet: Rupiah bulat/desimal 2 digit valid, max tetap sisa piutang per SJ.
-  function directOutletPayment(){const rows=((state.data||{}).receivables||[]).filter(x=>x.outstanding>0);sheetHtml('Pembayaran Outlet',`<form id="ghAr"><label class="field"><span>Masuk ke</span><select name="destination"><option value="CASH">Kas Gudang</option><option value="BANK">Bank</option></select></label><label class="field"><span>Referensi</span><input name="reference"></label><div class="direct-list">${rows.map(x=>`<label class="direct-card"><b>${esc(x.outletName)} · ${esc(x.noSj)}</b><small>Sisa ${rp(x.outstanding)}</small><input type="checkbox" class="arck" data-id="${esc(x.sjId)}" data-outlet="${esc(x.outletCode)}"><input class="aramt" data-id="${esc(x.sjId)}" type="number" value="${x.outstanding}" min="0.01" max="${x.outstanding}" step="0.01"></label>`).join('')||'<div class="empty">Tidak ada piutang.</div>'}</div><label class="field"><span>Catatan</span><textarea name="note"></textarea></label><div class="actions"><button class="btn btn-line" type="button" id="ghCancel">Tutup</button><button class="btn btn-primary">Posting Pembayaran</button></div></form>`);$('#ghCancel').onclick=closeSheet;$('#ghAr').onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.target),cks=$$('.arck:checked');const outs=[...new Set(cks.map(x=>x.dataset.outlet))];if(!cks.length)return toast('Pilih piutang.');if(outs.length>1)return toast('Satu pembayaran hanya untuk satu outlet.');await writeDirect('outletPayment','postOutletPayment',{destination:fd.get('destination'),reference:fd.get('reference'),note:fd.get('note'),allocations:cks.map(x=>({sjId:x.dataset.id,amount:$(`.aramt[data-id="${CSS.escape(x.dataset.id)}"]`).value}))})};}
+  function directOutletPayment(){
+    const rows=((state.data||{}).receivables||[]).filter(x=>x.outstanding>0);
+    sheetHtml('Pembayaran Outlet',`<form id="ghAr"><div class="role-guide"><b>Payment Guard Aktif</b><span>Pembayaran wajib melalui Review → Konfirmasi → Posting. Satu transaksi hanya untuk satu outlet.</span></div><label class="field"><span>Masuk ke</span><select name="destination"><option value="CASH">Kas Gudang</option><option value="BANK">Bank</option></select></label><label class="field"><span>Referensi</span><input name="reference" required placeholder="No transfer / setoran / bukti"></label><div class="direct-list">${rows.map(x=>`<label class="direct-card"><b>${esc(x.outletName)} · ${esc(x.noSj)}</b><small>Sisa ${rp(x.outstanding)}</small><input type="checkbox" class="arck" data-id="${esc(x.sjId)}" data-outlet="${esc(x.outletCode)}"><input class="aramt" data-id="${esc(x.sjId)}" type="number" value="${x.outstanding}" min="0.01" max="${x.outstanding}" step="0.01"></label>`).join('')||'<div class="empty">Tidak ada piutang.</div>'}</div><label class="field"><span>Catatan</span><textarea name="note"></textarea></label><div class="actions"><button class="btn btn-line" type="button" id="ghCancel">Tutup</button><button class="btn btn-primary">Review Pembayaran</button></div></form>`);
+    $('#ghCancel').onclick=closeSheet;
+    $('#ghAr').onsubmit=async e=>{
+      e.preventDefault();
+      const fd=new FormData(e.target),cks=$$('.arck:checked');
+      const outs=[...new Set(cks.map(x=>x.dataset.outlet))];
+      if(!cks.length)return toast('Pilih minimal satu piutang.','warning');
+      if(outs.length>1)return toast('Satu pembayaran hanya boleh untuk satu outlet.','warning');
+      const reference=String(fd.get('reference')||'').trim();
+      if(reference.length<3)return toast('Referensi pembayaran wajib diisi.','warning');
+      const payload={
+        destination:fd.get('destination'),
+        reference,
+        note:fd.get('note'),
+        allocations:cks.map(x=>({
+          sjId:x.dataset.id,
+          amount:document.querySelector(`.aramt[data-id="${CSS.escape(x.dataset.id)}"]`).value
+        }))
+      };
+      beginBusy('Menyiapkan review pembayaran…');
+      try{
+        const review=await bridge.call('prepareOutletPaymentV1390',state.token,payload);
+        if(!review||!review.confirmToken)throw new Error('Token konfirmasi pembayaran tidak terbentuk. Ulangi review.');
+        const detail=(review.allocations||[]).map(x=>x.noSj+' · '+rp(x.amount)).join('\n');
+        const approved=window.confirm(
+          'REVIEW PEMBAYARAN\n\n'+
+          'Outlet: '+review.outletName+'\n'+
+          detail+
+          '\n\nTotal: '+rp(review.total)+
+          '\nMasuk ke: '+review.destination+
+          '\nReferensi: '+review.reference+
+          '\n\nLanjutkan posting?'
+        );
+        if(!approved)return;
+        const confirmedPayload={
+          confirmToken:review.confirmToken,
+          destination:review.destination,
+          reference:review.reference,
+          note:payload.note,
+          allocations:(review.allocations||[]).map(x=>({sjId:x.sjId,amount:x.amount}))
+        };
+        await writeDirect('outletPaymentV1390','postOutletPayment',confirmedPayload);
+      }catch(err){
+        toast(err&&err.message?err.message:'Pembayaran gagal. Ulangi review.','error');
+      }finally{
+        endBusy();
+      }
+    };
+  }
   function directExpense(){const cats=(state.data||{}).expenseCategories||[];sheetHtml('Pengeluaran Operasional',`<form id="ghExp"><label class="field"><span>Kategori</span><select name="category">${cats.map(x=>`<option value="${esc(x.code)}">${esc(x.label)}</option>`).join('')}</select></label><div class="form-2"><label class="field"><span>Sumber</span><select name="paymentSource"><option value="CASH">Kas Gudang</option><option value="BANK">Bank</option></select></label><label class="field"><span>Nominal</span><input name="amount" type="number" min="1" required></label></div><label class="field"><span>Referensi</span><input name="reference"></label><label class="field"><span>Catatan</span><textarea name="note"></textarea></label><div class="actions"><button class="btn btn-line" type="button" id="ghCancel">Tutup</button><button class="btn btn-primary">Posting</button></div></form>`);$('#ghCancel').onclick=closeSheet;$('#ghExp').onsubmit=async e=>{e.preventDefault();await writeDirect('expense','postOperationalExpense',Object.fromEntries(new FormData(e.target).entries()))};}
   function directSupplierPayment(){const rows=((state.data||{}).payables||[]).filter(x=>x.outstanding>0);sheetHtml('Bayar Supplier',`<form id="ghPaySup"><label class="field"><span>Sumber</span><select name="paymentSource"><option value="CASH">Kas Gudang</option><option value="BANK">Bank</option></select></label><div class="direct-list">${rows.map(x=>`<label class="direct-card"><b>${esc(x.supplier)}</b><small>${esc(x.purchaseTxnId)} · ${rp(x.outstanding)}</small><input class="spck" type="checkbox" data-id="${esc(x.purchaseTxnId)}" data-sup="${esc(x.supplierId)}"><input class="spamt" data-id="${esc(x.purchaseTxnId)}" type="number" value="${x.outstanding}" min="0.01" max="${x.outstanding}"></label>`).join('')||'<div class="empty">Tidak ada hutang.</div>'}</div><label class="field"><span>Catatan</span><textarea name="note"></textarea></label><div class="actions"><button class="btn btn-line" type="button" id="ghCancel">Tutup</button><button class="btn btn-primary">Posting</button></div></form>`);$('#ghCancel').onclick=closeSheet;$('#ghPaySup').onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.target),cks=$$('.spck:checked'),sup=[...new Set(cks.map(x=>x.dataset.sup))];if(!cks.length)return toast('Pilih hutang.');if(sup.length>1)return toast('Pilih satu supplier.');await writeDirect('supplierPayment','postSupplierPayment',{paymentSource:fd.get('paymentSource'),note:fd.get('note'),allocations:cks.map(x=>({purchaseTxnId:x.dataset.id,amount:$(`.spamt[data-id="${CSS.escape(x.dataset.id)}"]`).value}))})};}
   function directAdjustment(){if(currentRole()!=='OWNER')return toast('Penyesuaian stok hanya dapat dilakukan Owner.');sheetHtml('Opname / Koreksi',`<form id="ghAdj"><label class="field"><span>Alasan</span><select name="reason"><option value="SELISIH_OPNAME">Selisih opname</option><option value="STOK_AWAL_TERLEWAT">Stok awal terlewat</option><option value="BARANG_DITEMUKAN">Barang ditemukan</option><option value="BARANG_RUSAK">Barang rusak</option><option value="BARANG_HILANG">Barang hilang</option><option value="KESALAHAN_PENCATATAN">Kesalahan pencatatan</option><option value="KOREKSI_INVESTIGASI">Koreksi investigasi</option><option value="LAINNYA">Lainnya</option></select></label><div id="ghAdjLines"></div><button class="btn btn-soft" type="button" id="ghAddAdj">+ Tambah bahan</button><label class="field"><span>Catatan</span><textarea name="note"></textarea></label><div class="actions"><button class="btn btn-line" type="button" id="ghCancel">Tutup</button><button class="btn btn-primary">Posting Koreksi</button></div></form>`);const box=$('#ghAdjLines'),add=()=>{const el=document.createElement('div');el.className='direct-line';el.innerHTML=`<select class="code"><option value="">Pilih bahan</option>${matOpts(false)}</select><input class="physical" type="number" min="0" step="0.000001" placeholder="Stok fisik unit"><input class="cost" type="number" min="0" step="0.01" placeholder="Modal/unit jika perlu"><button class="line-remove" type="button">×</button>`;el.querySelector('.line-remove').onclick=()=>el.remove();box.appendChild(el)};add();$('#ghAddAdj').onclick=add;$('#ghCancel').onclick=closeSheet;$('#ghAdj').onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.target),mm=matByCode(),items=[...box.querySelectorAll('.direct-line')].map(x=>{const m=mm[x.querySelector('.code').value],physical=Number(x.querySelector('.physical').value||0),cost=x.querySelector('.cost').value;return{code:m.code,physicalQtyBase:physical*Number(m.factor||1),unitCostBase:cost===''?'':Number(cost)/Number(m.factor||1)}});await writeDirect('adjustment','postStockAdjustment',{reason:fd.get('reason'),note:fd.get('note'),items})};}
   function directPackingWage(){const rows=((state.data||{}).packingWages||[]).filter(x=>x.outstanding>0);sheetHtml('Bayar Upah Packing',`<form id="ghPw"><label class="field"><span>Sumber</span><select name="paymentSource"><option value="CASH">Kas Gudang</option><option value="BANK">Bank</option></select></label><div class="direct-list">${rows.map(x=>`<label class="direct-card"><b>${esc(x.packer)}</b><small>${esc(x.batchId)} · ${rp(x.outstanding)}</small><input class="pwck" type="checkbox" data-id="${esc(x.batchId)}" data-packer="${esc(x.packer)}"><input class="pwamt" data-id="${esc(x.batchId)}" type="number" value="${x.outstanding}" min="0.01" max="${x.outstanding}"></label>`).join('')||'<div class="empty">Tidak ada upah terhutang.</div>'}</div><label class="field"><span>Catatan</span><textarea name="note"></textarea></label><div class="actions"><button class="btn btn-line" type="button" id="ghCancel">Tutup</button><button class="btn btn-primary">Posting</button></div></form>`);$('#ghCancel').onclick=closeSheet;$('#ghPw').onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.target),cks=$$('.pwck:checked'),pack=[...new Set(cks.map(x=>x.dataset.packer))];if(!cks.length)return toast('Pilih upah.');if(pack.length>1)return toast('Pilih satu packer.');await writeDirect('packingWage','postPackingWagePayment',{paymentSource:fd.get('paymentSource'),note:fd.get('note'),allocations:cks.map(x=>({batchId:x.dataset.id,amount:$(`.pwamt[data-id="${CSS.escape(x.dataset.id)}"]`).value}))})};}
+
 
   async function directCentralPrice(){
     if(!roleCan('CENTRAL_PRICE'))return toast('Pusat Harga hanya untuk Owner / Admin 1 Finance.');
@@ -671,6 +754,7 @@
     f.onsubmit=async e=>{e.preventDefault();const p=Object.fromEntries(new FormData(f).entries());if(p.action!=='RESET_OVERRIDE'&&!(Number(p.price)>0))return toast('Harga harus lebih dari 0.');if(p.action!=='SET_DEFAULT'&&!p.outletCode)return toast('Pilih outlet.');await writeDirect('centralPriceRule','saveCentralMaterialPrice',p);};
     $('#ghCentralSync').onclick=async()=>{try{let r;await withBusy('Menyinkronkan harga ke outlet…',async()=>{r=await callDirect('syncCentralMaterialPricesNow',{})});toast(`Sinkron harga selesai · ${r.changed||0} perubahan${(r.errors||[]).length?' · '+r.errors.length+' gagal':''}${r.hppSync?' · HPP Kasir '+(r.hppSync.success||0)+' outlet'+((r.hppSync.errors||[]).length?' ('+r.hppSync.errors.length+' gagal)':''):''}`);if((r.errors||[]).length)console.warn(r.errors)}catch(e){toast(e.message)}};
   }
+
 
   function directInternalPrice(){
     sheetHtml('Harga Internal Outlet',`<div class="role-guide"><b>Sinkron Harga Otomatis Bertingkat</b><span>Prioritas: Terima Bahan aktif → Master Bahan outlet → Harga Warehouse lama.</span><span>Konversi kg↔gr, liter↔ml, dan faktor unit canonical dilakukan otomatis. Konflik tetap ditahan agar tidak salah harga.</span></div><div class="actions"><button class="btn btn-primary" type="button" id="ghSyncPrice">Sinkron Harga Sekarang</button></div><div id="ghPricePreview"><div class="demo-box">Membaca Terima Bahan & Master Bahan outlet…</div></div>`);
@@ -723,6 +807,7 @@
     history.back();
   }
 
+
   let busyShowTimer = null;
   function beginBusy(label = 'Memuat…') {
     busyDepth += 1;
@@ -743,6 +828,7 @@
   }
   async function withBusy(label, fn) { beginBusy(label); try { return await fn(); } finally { endBusy(); } }
 
+
   function toast(message, typeOrDuration = 'info', durationOverride = 0) {
     const text=String(message==null?'':message).trim();if(!text)return;
     let type='info',duration=0;
@@ -758,6 +844,7 @@
     const btn=root.querySelector('.toast-close');if(btn)btn.onclick=finish;window.__wwToastTimer=setTimeout(finish,item.duration);
   }
 
+
   function initAppHistory() {
     if (appHistoryReady) return;
     history.replaceState({ willsWarehouse: true, page: 'home', base: true }, document.title);
@@ -766,6 +853,7 @@
     sheetHistoryDepth = 0; sheetViewStack.splice(0,sheetViewStack.length); pendingAfterSheetBack = null;
     lastBackAt = 0;
   }
+
 
   window.addEventListener('popstate', event => {
     if (!appHistoryReady || $('#mainView').classList.contains('is-hidden')) return;
@@ -795,12 +883,14 @@
     history.pushState({ willsWarehouse: true, page: 'home', guard: true }, document.title);
   });
 
+
   function stockAlerts() {
     const priority = {Kritis:0, Menipis:1};
     return liveStocks()
       .filter(x => x.status === 'Kritis' || x.status === 'Menipis')
       .sort((a,b) => (priority[a.status] - priority[b.status]) || String(a.name).localeCompare(String(b.name), 'id'));
   }
+
 
   function notificationCount() {
     const dash = state.data && state.data.dashboard || {};
@@ -812,6 +902,7 @@
     return count;
   }
 
+
   function updateNotificationBadge() {
     const badge = $('#notifyBadge');
     const btn = $('#notifyBtn');
@@ -822,6 +913,7 @@
     btn.setAttribute('aria-label', count ? `Notifikasi, ${count} perlu perhatian` : 'Notifikasi, tidak ada yang perlu perhatian');
   }
 
+
   function openNotifications() {
     const alerts = stockAlerts();
     const dash = state.data && state.data.dashboard || {};
@@ -831,14 +923,17 @@
       return `<div class="notice-row"><span class="notice-icon ${isCritical ? 'bad' : ''}">${icons.warning}</span><div class="notice-copy"><b>${esc(x.name)}</b><small>${esc(x.code)} · Stok ${num(x.qty)} ${esc(x.unit)}${minText}</small></div><div class="notice-side"><strong>${num(x.qty)} ${esc(x.unit)}</strong><span class="badge ${isCritical ? 'bad' : 'warn'}">${esc(x.status)}</span></div></div>`;
     }).join('') : '<div class="notice-ok">Semua stok bahan masih dalam kondisi aman.</div>';
 
+
     const other = [];
     if (Number(dash.recoveryPending || 0) > 0) other.push(`<div class="notice-row"><span class="notice-icon bad">${icons.warning}</span><div class="notice-copy"><b>Pemulihan transaksi</b><small>Ada transaksi yang perlu diperiksa sistem.</small></div><div class="notice-side"><strong>${num(dash.recoveryPending,0)}</strong><span class="badge bad">PERIKSA</span></div></div>`);
     if (Number(dash.packingWageCount || 0) > 0) other.push(`<div class="notice-row"><span class="notice-icon">${icons.money}</span><div class="notice-copy"><b>Upah packing belum dibayar</b><small>${num(dash.packingWageCount,0)} kewajiban upah masih terbuka.</small></div><div class="notice-side"><strong>${compactRp(dash.packingWageOutstanding)}</strong><span class="badge warn">BELUM LUNAS</span></div></div>`);
     const req=((state.data||{}).incomingRequests||[]).filter(x=>!['SELESAI','DIBATALKAN'].includes(String(x.warehouseStatus||'')));
     if(req.length) other.push(`<div class="notice-row"><span class="notice-icon">${icons.truck}</span><div class="notice-copy"><b>Bahan yang Harus Dikirim Sekarang</b><small>${req.slice(0,4).map(x=>esc(x.outletName)+' · '+num(x.itemCount||0)+' bahan').join('<br>')}${req.length>4?'<br>+'+(req.length-4)+' permintaan lainnya':''}</small></div><div class="notice-side"><strong>${req.length}</strong><span class="badge warn">SIAPKAN</span></div></div>`);
 
+
     sheetHtml('Pemberitahuan',`<div class="notice-section"><div class="notice-heading"><b>Bahan yang perlu dibelanja</b><span>${alerts.length} bahan</span></div><div class="notice-list">${stockHtml}</div></div>${other.length ? `<div class="notice-section"><div class="notice-heading"><b>Perlu perhatian</b><span>${other.length} pemberitahuan</span></div><div class="notice-list">${other.join('')}</div></div>` : ''}<div class="notice-summary">Daftar belanja mengikuti status stok <b>Kritis</b> dan <b>Menipis</b> dari sistem gudang. Nama bahan dan jumlah stok ditampilkan langsung agar Admin bisa menindaklanjuti tanpa menebak itemnya.</div>`,{key:'notifications'});
   }
+
 
   function setAuthStatus(isReady, detail = '') {
     const indicator = $('#authConnection');
@@ -853,6 +948,7 @@
     if (btn) btn.disabled = !state.bridgeReady;
     if (detail && !state.bridgeReady) console.warn('[Wills Warehouse] Sistem belum siap:', detail);
   }
+
 
   async function loadAppWithToken(token, silent = false) {
     const cached=readBootstrapSnapshotV1360(token);
@@ -880,9 +976,11 @@
     }
   }
 
+
   function initials(name) {
     return String(name || 'WW').trim().split(/\s+/).slice(0,2).map(x => x[0] || '').join('').toUpperCase() || 'WW';
   }
+
 
   async function boot() {
     const existing=localStorage.getItem(TOKEN_KEY)||'';
@@ -905,6 +1003,7 @@
     }
   }
 
+
   $('#loginForm').addEventListener('submit', async e => {
     e.preventDefault();
     if (!state.bridgeReady) return toast('Sistem belum siap. Coba beberapa saat lagi.');
@@ -926,6 +1025,7 @@
     }
   });
 
+
   $$('.nav-item').forEach(btn => btn.addEventListener('click', () => setPage(btn.dataset.page)));
   $('#notifyBtn').addEventListener('click', openNotifications);
   $('#profileBtn').addEventListener('click', () => {
@@ -943,6 +1043,7 @@
     };
   });
 
+
   if ('serviceWorker' in navigator) {
     let reloadingForUpdate = false;
     navigator.serviceWorker.addEventListener('controllerchange', () => {
@@ -953,8 +1054,10 @@
     window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=0.6.7', { updateViaCache: 'none' }).then(reg => reg.update()).catch(() => {}));
   }
 
+
   // Scroll tetap native/normal. Pull-to-refresh dicegah lewat CSS overscroll-behavior,
   // bukan dengan membatalkan touchmove sehingga tarikan layar tetap terasa normal.
+
 
   boot();
 })();
