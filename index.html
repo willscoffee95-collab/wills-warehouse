@@ -92,6 +92,32 @@
       .wwp1504-row{grid-template-columns:1fr}
       .wwp1504-print-one{width:100%}
     }
+
+    .wwp15062-actions{
+      display:flex;gap:7px;align-items:center;justify-content:flex-end;flex-wrap:wrap;
+    }
+    .wwp15062-sync{
+      border:1px solid #f1b7ba;border-radius:11px;background:#fff0f0;color:#b71117;
+      font-weight:800;padding:10px 11px;white-space:nowrap;cursor:pointer;
+    }
+    .wwp15062-sync:disabled{opacity:.75;cursor:wait}
+    .wwp15062-sync.loading{background:#d41414;color:#fff;border-color:#d41414}
+    .wwp15062-spin{
+      width:13px;height:13px;border:2px solid rgba(255,255,255,.45);
+      border-top-color:#fff;border-radius:50%;display:inline-block;
+      vertical-align:-2px;margin-right:6px;animation:wwp15062spin .75s linear infinite;
+    }
+    @keyframes wwp15062spin{to{transform:rotate(360deg)}}
+    .wwp15062-msg{
+      width:100%;font-size:10px;line-height:1.35;color:#666;margin-top:2px;text-align:right;
+    }
+    .wwp15062-msg.ok{color:#16723a;font-weight:800}
+    .wwp15062-msg.bad{color:#b71117;font-weight:800}
+    @media(max-width:480px){
+      .wwp15062-actions{width:100%;justify-content:stretch}
+      .wwp15062-actions>button{flex:1}
+      .wwp15062-msg{text-align:left}
+    }
   </style>
 </head>
 <body>
@@ -195,16 +221,16 @@
 
 
   <!--
-    WILLS WAREHOUSE v1.5.0.5
-    Drop-in print override for current GitHub PWA.
-    Read-only: only calls getDeliveryPrintDataV1500.
+    WILLS WAREHOUSE v1.5.0.6.2
+    Arsip & Sinkron Surat Jalan + thermal print.
+    Sinkron memakai backend canonical syncOutletReceiptForDelivery per-SJ.
   -->
   <script id="ww-print-v1504">
   (() => {
     'use strict';
 
 
-    const VERSION = '1.5.0.5';
+    const VERSION = '1.5.0.6.2';
     const TOKEN_KEY = 'ww_github_token_v1';
 
 
@@ -908,12 +934,12 @@
       overlay.innerHTML=
         '<div class="wwp1503-sheet">'+
           '<div class="wwp1503-head">'+
-            '<h3>Cetak Ulang Surat Jalan</h3>'+
+            '<h3>Arsip & Sinkron Surat Jalan</h3>'+
             '<button class="wwp1503-close" type="button" aria-label="Tutup">×</button>'+
           '</div>'+
           '<div class="wwp1503-note">'+
             '<b>Histori SJ lengkap</b><br>'+
-            'Filter tanggal, outlet, atau No. SJ. Cetak ulang tidak mengubah transaksi apa pun.'+
+            'Filter tanggal, outlet, atau No. SJ. Gunakan Sinkron SJ untuk menarik ulang penerimaan outlet. Cetak ulang tidak mengubah transaksi.'+
           '</div>'+
           '<div class="wwp1504-filters">'+
             '<label class="wwp1503-field">'+
@@ -1036,6 +1062,10 @@
       results.innerHTML=rows.map(row=>{
         const payment=String(row.paymentStatus||'BELUM LUNAS').toUpperCase();
         const payClass=payment==='LUNAS'?'paid':'pay';
+        const deliveryStatus=String(row.deliveryStatus||'').toUpperCase();
+        const canSync=
+          deliveryStatus!=='DRAFT' &&
+          deliveryStatus!=='DIBATALKAN';
 
 
         const amount=
@@ -1070,9 +1100,17 @@
                 '</span>'+
               '</div>'+
             '</div>'+
-            '<button class="wwp1504-print-one" type="button" data-wwp1504-sjid="'+
-              escapeHtmlV1504(row.sjId)+
-            '">Cetak Ulang</button>'+
+            '<div class="wwp15062-actions">'+
+              (canSync
+                ? '<button class="wwp15062-sync" type="button" data-wwp15062-sync-sjid="'+
+                    escapeHtmlV1504(row.sjId)+
+                  '">Sinkron SJ</button>'
+                : '')+
+              '<button class="wwp1504-print-one" type="button" data-wwp1504-sjid="'+
+                escapeHtmlV1504(row.sjId)+
+              '">Cetak Ulang</button>'+
+              '<span class="wwp15062-msg" data-wwp15062-msg></span>'+
+            '</div>'+
           '</div>'
         );
       }).join('');
@@ -1086,6 +1124,94 @@
               (err&&err.message||err)
             );
           });
+        });
+      });
+
+
+      results.querySelectorAll('[data-wwp15062-sync-sjid]').forEach(btn=>{
+        btn.addEventListener('click',async()=>{
+          if(btn.disabled) return;
+
+
+          const sjId=String(btn.dataset.wwp15062SyncSjid||'').trim();
+          const row=btn.closest('.wwp1504-row');
+          const msg=row
+            ? row.querySelector('[data-wwp15062-msg]')
+            : null;
+
+
+          const token=String(localStorage.getItem(TOKEN_KEY)||'');
+          if(!token){
+            if(msg){
+              msg.className='wwp15062-msg bad';
+              msg.textContent='Sesi Warehouse tidak ditemukan. Login ulang.';
+            }
+            return;
+          }
+
+
+          const title=row && row.querySelector('.wwp1504-row-copy b')
+            ? row.querySelector('.wwp1504-row-copy b').textContent
+            : sjId;
+
+
+          if(!confirm(
+            'Sinkron ulang penerimaan outlet untuk '+title+'?\n\n'+
+            'Sistem hanya memproses SJ ini.'
+          )){
+            return;
+          }
+
+
+          btn.disabled=true;
+          btn.classList.add('loading');
+          btn.innerHTML=
+            '<span class="wwp15062-spin"></span>Sinkron...';
+
+
+          if(msg){
+            msg.className='wwp15062-msg';
+            msg.textContent='Mengambil receipt terbaru dari outlet...';
+          }
+
+
+          try{
+            const result=await window.WILLS_BRIDGE.call(
+              'syncOutletReceiptForDelivery',
+              token,
+              {sjId:sjId}
+            );
+
+
+            if(!result || result.ok===false){
+              throw new Error(
+                (result&&result.error)||
+                'Sinkron SJ gagal.'
+              );
+            }
+
+
+            if(msg){
+              const ms=Number(result.elapsedMs||0);
+              msg.className='wwp15062-msg ok';
+              msg.textContent=
+                'Sinkron berhasil'+
+                (ms?' • '+(ms/1000).toFixed(1)+' dtk':'')+
+                '. Memuat ulang status...';
+            }
+
+
+            await loadArchiveRowsV1504(overlay,true);
+          }catch(err){
+            if(msg){
+              msg.className='wwp15062-msg bad';
+              msg.textContent=
+                'Gagal: '+String(err&&err.message||err);
+            }
+            btn.disabled=false;
+            btn.classList.remove('loading');
+            btn.textContent='Coba Sinkron';
+          }
         });
       });
     }
@@ -1148,8 +1274,8 @@
       button.innerHTML=
         '<span class="wwp1504-archive-icon">↻</span>'+
         '<span class="wwp1504-archive-copy">'+
-          '<b>Cetak Ulang Surat Jalan</b>'+
-          '<small>Histori dari tanggal 1 · filter outlet & No. SJ · v1.5.0.5</small>'+
+          '<b>Arsip & Sinkron Surat Jalan</b>'+
+          '<small>Cari histori SJ · sinkron penerimaan · cetak ulang · v1.5.0.6.2</small>'+
         '</span>'+
         '<span class="chev">›</span>';
       return button;
@@ -1186,7 +1312,7 @@
       const existing=content.querySelector('[data-ww-reprint]');
 
 
-      // v1.5.0.5: card is exclusive to Transaksi.
+      // v1.5.0.6.2: card is exclusive to Transaksi.
       if(!isTransactionsPageV1505()){
         if(existing) existing.remove();
         return;
@@ -1248,252 +1374,8 @@
     );
   })();
   </script>
-<!--
-WILLS WAREHOUSE v1.5.0.6.1
-SJ ARCHIVE + ONE-SJ SYNC — PERFORMANCE FIX
-IMPORTANT: REPLACE the old v1.5.0.6 patch with this block.
-Do NOT keep both patches installed.
--->
-<style id="ww-v15061-style">
-  .wwp15061-actions{display:flex;gap:7px;align-items:center;flex-wrap:wrap}
-  .wwp15061-sync{
-    appearance:none;border-radius:10px;padding:10px 12px;
-    font-weight:800;font-size:12px;cursor:pointer;min-width:94px;
-    background:#fff0f0;color:#c3131b;border:1px solid #f4b7ba;
-  }
-  .wwp15061-sync:disabled{opacity:.75;cursor:wait}
-  .wwp15061-sync.is-loading{
-    background:#d9141e;color:#fff;border-color:#d9141e;
-  }
-  .wwp15061-spin{
-    width:13px;height:13px;border:2px solid rgba(255,255,255,.45);
-    border-top-color:#fff;border-radius:50%;display:inline-block;
-    vertical-align:-2px;margin-right:6px;animation:wwp15061spin .75s linear infinite;
-  }
-  @keyframes wwp15061spin{to{transform:rotate(360deg)}}
-  .wwp15061-msg{display:block;width:100%;margin-top:6px;font-size:11px;line-height:1.4;color:#687076}
-  .wwp15061-msg.ok{color:#14804a;font-weight:700}
-  .wwp15061-msg.bad{color:#b42318;font-weight:700}
-  @media(max-width:520px){
-    .wwp15061-actions{width:100%;margin-top:8px}
-    .wwp15061-actions>button{flex:1}
-  }
-</style>
 
-<script id="ww-v15061-script">
-(() => {
-  'use strict';
 
-  if (window.__WW_V15061_INSTALLED__) return;
-  window.__WW_V15061_INSTALLED__ = true;
-  window.WW_SJ_ARCHIVE_SYNC_VERSION = '1.5.0.6.1-performance-fix';
-
-  let archiveObserver = null;
-  let rafQueued = false;
-
-  function getToken(){
-    try{
-      if(typeof TOKEN_KEY !== 'undefined'){
-        return String(localStorage.getItem(TOKEN_KEY)||'');
-      }
-    }catch(_){}
-    return '';
-  }
-
-  function queueDecorate(root){
-    if(rafQueued) return;
-    rafQueued = true;
-    requestAnimationFrame(()=>{
-      rafQueued = false;
-      decorateArchive(root);
-    });
-  }
-
-  function decorateArchive(root){
-    if(!root || !root.isConnected) return;
-
-    const title=root.querySelector('.wwp1503-head h3');
-    if(title) title.textContent='Arsip & Sinkron Surat Jalan';
-
-    const note=root.querySelector('.wwp1503-note');
-    if(note && !note.dataset.wwV15061){
-      note.dataset.wwV15061='1';
-      note.innerHTML=
-        '<b>Histori SJ lengkap</b><br>'+
-        'Filter tanggal, outlet, atau No. SJ. Cetak ulang tidak mengubah transaksi. '+
-        'Gunakan <b>Sinkron SJ</b> untuk menarik ulang penerimaan outlet pada satu SJ.';
-    }
-
-    root.querySelectorAll('.wwp1504-row').forEach(row=>{
-      if(row.querySelector('[data-ww-v15061-sync]')) return;
-
-      const print=row.querySelector('[data-wwp1504-sjid]');
-      if(!print) return;
-
-      const sjId=String(print.dataset.wwp1504Sjid||'').trim();
-      if(!sjId) return;
-
-      const badges=[...row.querySelectorAll('.wwp1504-badge')]
-        .map(x=>String(x.textContent||'').trim().toUpperCase());
-
-      if(badges.some(x=>x==='DRAFT'||x==='DIBATALKAN')) return;
-
-      let actions=print.parentElement;
-      if(!actions || !actions.classList.contains('wwp15061-actions')){
-        actions=document.createElement('div');
-        actions.className='wwp15061-actions';
-        print.parentNode.insertBefore(actions,print);
-        actions.appendChild(print);
-      }
-
-      const sync=document.createElement('button');
-      sync.type='button';
-      sync.className='wwp15061-sync';
-      sync.dataset.wwV15061Sync='1';
-      sync.dataset.sjid=sjId;
-      sync.textContent='Sinkron SJ';
-
-      const msg=document.createElement('span');
-      msg.className='wwp15061-msg';
-      msg.dataset.wwV15061Msg='1';
-
-      actions.insertBefore(sync,print);
-      actions.appendChild(msg);
-    });
-  }
-
-  function disconnectArchiveObserver(){
-    if(archiveObserver){
-      try{ archiveObserver.disconnect(); }catch(_){}
-      archiveObserver=null;
-    }
-  }
-
-  function bindArchive(root){
-    if(!root || root.dataset.wwV15061Bound==='1') return;
-    root.dataset.wwV15061Bound='1';
-
-    decorateArchive(root);
-
-    const results=root.querySelector('#wwp1504Results');
-    if(results){
-      disconnectArchiveObserver();
-      archiveObserver=new MutationObserver(()=>queueDecorate(root));
-      archiveObserver.observe(results,{childList:true});
-    }
-
-    root.addEventListener('click',async e=>{
-      const btn=e.target.closest('[data-ww-v15061-sync]');
-      if(!btn || !root.contains(btn)) return;
-
-      e.preventDefault();
-      e.stopPropagation();
-
-      if(btn.disabled) return;
-
-      const sjId=String(btn.dataset.sjid||'').trim();
-      const row=btn.closest('.wwp1504-row');
-      const msg=(btn.parentElement||row).querySelector('[data-ww-v15061-msg]');
-      const title=(row && row.querySelector('.wwp1504-row-copy b'))
-        ? row.querySelector('.wwp1504-row-copy b').textContent
-        : sjId;
-
-      const token=getToken();
-      if(!token){
-        if(msg){
-          msg.className='wwp15061-msg bad';
-          msg.textContent='Sesi Warehouse tidak ditemukan. Login ulang.';
-        }
-        return;
-      }
-
-      if(!window.WILLS_BRIDGE || typeof window.WILLS_BRIDGE.call!=='function'){
-        if(msg){
-          msg.className='wwp15061-msg bad';
-          msg.textContent='Bridge Warehouse belum tersedia.';
-        }
-        return;
-      }
-
-      if(!confirm(
-        'Sinkron ulang penerimaan outlet untuk '+title+'?\\n\\n'+
-        'Sistem hanya memproses SJ ini.'
-      )) return;
-
-      btn.disabled=true;
-      btn.classList.add('is-loading');
-      btn.innerHTML='<span class="wwp15061-spin"></span>Sinkron...';
-
-      if(msg){
-        msg.className='wwp15061-msg';
-        msg.textContent='Mengambil receipt terbaru dari outlet...';
-      }
-
-      try{
-        const result=await window.WILLS_BRIDGE.call(
-          'syncOutletReceiptForDelivery',
-          token,
-          {sjId}
-        );
-
-        if(!result || result.ok===false){
-          throw new Error((result&&result.error)||'Sinkron SJ gagal.');
-        }
-
-        if(msg){
-          const ms=Number(result.elapsedMs||0);
-          msg.className='wwp15061-msg ok';
-          msg.textContent=
-            'Sinkron berhasil'+
-            (ms?' • '+(ms/1000).toFixed(1)+' dtk':'')+
-            '. Memuat ulang status...';
-        }
-
-        const load=root.querySelector('#wwp1504Load');
-        if(load){
-          setTimeout(()=>load.click(),350);
-        }else{
-          btn.disabled=false;
-          btn.classList.remove('is-loading');
-          btn.textContent='Sinkron SJ';
-        }
-      }catch(err){
-        if(msg){
-          msg.className='wwp15061-msg bad';
-          msg.textContent='Gagal: '+String(err&&err.message||err);
-        }
-        btn.disabled=false;
-        btn.classList.remove('is-loading');
-        btn.textContent='Coba Sinkron';
-      }
-    });
-
-    const closeBtn=root.querySelector('.wwp1503-close');
-    if(closeBtn){
-      closeBtn.addEventListener('click',()=>disconnectArchiveObserver(),{once:true});
-    }
-  }
-
-  function waitForArchive(attempt=0){
-    const root=document.getElementById('wwp1504Archive');
-    if(root){
-      bindArchive(root);
-      return;
-    }
-    if(attempt<25){
-      setTimeout(()=>waitForArchive(attempt+1),80);
-    }
-  }
-
-  // Only wake up when the archive card is clicked.
-  document.addEventListener('click',e=>{
-    const open=e.target.closest && e.target.closest('[data-ww-reprint]');
-    if(open){
-      setTimeout(()=>waitForArchive(0),0);
-    }
-  },true);
-})();
-</script>
 
 </body>
 </html>
