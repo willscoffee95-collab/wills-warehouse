@@ -1248,5 +1248,192 @@
     );
   })();
   </script>
+  <!--
+WILLS WAREHOUSE v1.5.0.6
+SJ ARCHIVE + MANUAL ONE-SJ RECEIPT SYNC
+Install: append this block near the end of Warehouse index.html, before </body>.
+No backend/Bridge change is required as long as syncOutletReceiptForDelivery is already allowed.
+-->
+<style id="ww-v1506-style">
+  .wwp1506-sync-one{
+    appearance:none;border:0;border-radius:10px;padding:10px 12px;
+    font-weight:800;font-size:12px;cursor:pointer;
+    background:#fff0f0;color:#c3131b;border:1px solid #f4b7ba;
+    min-width:94px;
+  }
+  .wwp1506-sync-one:hover{filter:brightness(.98)}
+  .wwp1506-sync-one:disabled{opacity:.72;cursor:wait}
+  .wwp1506-sync-one.is-loading{
+    background:#d9141e;color:#fff;border-color:#d9141e;
+  }
+  .wwp1506-spin{
+    width:13px;height:13px;border:2px solid rgba(255,255,255,.45);
+    border-top-color:#fff;border-radius:50%;display:inline-block;
+    vertical-align:-2px;margin-right:6px;animation:wwp1506spin .75s linear infinite;
+  }
+  @keyframes wwp1506spin{to{transform:rotate(360deg)}}
+  .wwp1506-msg{
+    display:block;margin-top:7px;font-size:11px;line-height:1.4;
+    color:#687076;
+  }
+  .wwp1506-msg.ok{color:#14804a;font-weight:700}
+  .wwp1506-msg.bad{color:#b42318;font-weight:700}
+  .wwp1506-actions{display:flex;gap:7px;align-items:center;flex-wrap:wrap}
+  @media(max-width:520px){
+    .wwp1506-actions{width:100%;margin-top:8px}
+    .wwp1506-actions>button{flex:1}
+  }
+</style>
+
+<script id="ww-v1506-script">
+(() => {
+  'use strict';
+  const VERSION='1.5.0.6-sj-archive-sync';
+
+  function token(){
+    try{return String(localStorage.getItem(TOKEN_KEY)||'');}
+    catch(_){return '';}
+  }
+
+  function escapeText(v){
+    return String(v==null?'':v);
+  }
+
+  function archiveOpen(){
+    return !!document.getElementById('wwp1504Archive');
+  }
+
+  function decorateArchiveTitle(){
+    const root=document.getElementById('wwp1504Archive');
+    if(!root)return;
+    const title=root.querySelector('.wwp1503-head h3');
+    if(title)title.textContent='Arsip & Sinkron Surat Jalan';
+    const note=root.querySelector('.wwp1503-note');
+    if(note && !note.dataset.v1506){
+      note.dataset.v1506='1';
+      note.innerHTML=
+        '<b>Semua histori SJ dalam satu tempat</b><br>'+
+        'Cari berdasarkan tanggal, outlet, atau No. SJ. '+
+        'Gunakan <b>Sinkron SJ</b> untuk menarik ulang penerimaan outlet pada SJ tersebut. '+
+        'Cetak ulang tetap tidak mengubah transaksi.';
+    }
+  }
+
+  function eligibleRow(row){
+    const copy=row.querySelector('.wwp1504-row-copy');
+    if(!copy)return true;
+    const badges=[...row.querySelectorAll('.wwp1504-badge')]
+      .map(x=>String(x.textContent||'').trim().toUpperCase());
+    return !badges.some(x=>x==='DRAFT'||x==='DIBATALKAN');
+  }
+
+  function addSyncButton(row){
+    if(row.dataset.wwV1506==='1')return;
+    const print=row.querySelector('[data-wwp1504-sjid]');
+    if(!print)return;
+
+    row.dataset.wwV1506='1';
+
+    let actions=print.parentElement;
+    if(!actions || !actions.classList.contains('wwp1506-actions')){
+      actions=document.createElement('div');
+      actions.className='wwp1506-actions';
+      print.parentNode.insertBefore(actions,print);
+      actions.appendChild(print);
+    }
+
+    if(!eligibleRow(row))return;
+
+    const sjId=String(print.dataset.wwp1504Sjid||'').trim();
+    if(!sjId)return;
+
+    const btn=document.createElement('button');
+    btn.type='button';
+    btn.className='wwp1506-sync-one';
+    btn.dataset.sjid=sjId;
+    btn.textContent='Sinkron SJ';
+
+    const msg=document.createElement('span');
+    msg.className='wwp1506-msg';
+    msg.style.width='100%';
+
+    btn.addEventListener('click',async()=>{
+      if(btn.disabled)return;
+      const t=token();
+      if(!t){
+        msg.className='wwp1506-msg bad';
+        msg.textContent='Sesi Warehouse tidak ditemukan. Login ulang.';
+        return;
+      }
+
+      if(!window.WILLS_BRIDGE || typeof window.WILLS_BRIDGE.call!=='function'){
+        msg.className='wwp1506-msg bad';
+        msg.textContent='Bridge Warehouse belum tersedia.';
+        return;
+      }
+
+      const title=(row.querySelector('.wwp1504-row-copy b')||{}).textContent||'SJ ini';
+      if(!confirm('Sinkron ulang penerimaan outlet untuk '+title+'?\\n\\nSistem hanya memproses SJ ini.')){
+        return;
+      }
+
+      btn.disabled=true;
+      btn.classList.add('is-loading');
+      btn.innerHTML='<span class="wwp1506-spin"></span>Sinkron...';
+      msg.className='wwp1506-msg';
+      msg.textContent='Mengambil receipt terbaru dari outlet dan memperbarui status SJ...';
+
+      try{
+        const r=await window.WILLS_BRIDGE.call(
+          'syncOutletReceiptForDelivery',
+          t,
+          {sjId:sjId}
+        );
+
+        if(!r || r.ok===false){
+          throw new Error((r&&r.error)||'Sinkron SJ gagal.');
+        }
+
+        msg.className='wwp1506-msg ok';
+        const ms=Number(r.elapsedMs||0);
+        msg.textContent='Sinkron berhasil'+(ms?' • '+(ms/1000).toFixed(1)+' dtk':'')+'. Memuat ulang status...';
+
+        const load=document.getElementById('wwp1504Load');
+        if(load){
+          setTimeout(()=>load.click(),450);
+        }
+      }catch(err){
+        msg.className='wwp1506-msg bad';
+        msg.textContent='Gagal: '+escapeText(err&&err.message||err);
+        btn.disabled=false;
+        btn.classList.remove('is-loading');
+        btn.textContent='Coba Sinkron';
+      }
+    });
+
+    actions.insertBefore(btn,print);
+    actions.appendChild(msg);
+  }
+
+  function decorateRows(){
+    if(!archiveOpen())return;
+    decorateArchiveTitle();
+    document.querySelectorAll('#wwp1504Archive .wwp1504-row').forEach(addSyncButton);
+  }
+
+  const obs=new MutationObserver(()=>decorateRows());
+  obs.observe(document.documentElement,{childList:true,subtree:true});
+
+  document.addEventListener('click',e=>{
+    const target=e.target && e.target.closest ? e.target.closest('[data-ww-reprint]') : null;
+    if(target)setTimeout(decorateRows,80);
+  },true);
+
+  setInterval(()=>{if(archiveOpen())decorateRows()},700);
+
+  window.WW_SJ_ARCHIVE_SYNC_VERSION=VERSION;
+})();
+</script>
+
 </body>
 </html>
