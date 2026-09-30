@@ -113,6 +113,7 @@
     }
     .wwp15062-msg.ok{color:#16723a;font-weight:800}
     .wwp15062-msg.bad{color:#b71117;font-weight:800}
+    .wwp15062-msg.pending{color:#a35a00;font-weight:800}
     @media(max-width:480px){
       .wwp15062-actions{width:100%;justify-content:stretch}
       .wwp15062-actions>button{flex:1}
@@ -221,7 +222,7 @@
 
 
   <!--
-    WILLS WAREHOUSE v1.5.0.6.2
+    WILLS WAREHOUSE v1.5.0.7.0
     Arsip & Sinkron Surat Jalan + thermal print.
     Sinkron memakai backend canonical syncOutletReceiptForDelivery per-SJ.
   -->
@@ -230,7 +231,7 @@
     'use strict';
 
 
-    const VERSION = '1.5.0.6.2';
+    const VERSION = '1.5.0.7.0';
     const TOKEN_KEY = 'ww_github_token_v1';
 
 
@@ -925,6 +926,96 @@
     }
 
 
+    function sleepV15070(ms){
+      return new Promise(resolve=>setTimeout(resolve,ms));
+    }
+
+
+    function syncTimeoutErrorV15070(err){
+      const text=String(err&&err.message||err||'').toLowerCase();
+      return (
+        text.includes('backend belum selesai setelah 3 menit') ||
+        text.includes('timeout') ||
+        text.includes('timed out') ||
+        text.includes('time out')
+      );
+    }
+
+
+    function deliverySyncMarkV15070(d){
+      if(!d) return null;
+      return {
+        lastSync:String(d.lastSync||d.lastReceiptSync||''),
+        updatedAt:String(d.updatedAt||''),
+        status:String(d.status||'').toUpperCase()
+      };
+    }
+
+
+    function deliverySyncChangedV15070(before,after){
+      if(!after) return false;
+      if(!before){
+        return !!(after.lastSync||after.updatedAt||after.status);
+      }
+      return (
+        after.lastSync!==before.lastSync ||
+        after.updatedAt!==before.updatedAt ||
+        after.status!==before.status
+      );
+    }
+
+
+    async function readDeliverySyncMarkV15070(token,sjId){
+      try{
+        const d=await window.WILLS_BRIDGE.call(
+          'getDeliveryDetailFreshV1354',
+          token,
+          sjId
+        );
+        return deliverySyncMarkV15070(d);
+      }catch(_){
+        return null;
+      }
+    }
+
+
+    async function watchTimedOutSyncV15070(token,sjId,before,msg){
+      const started=Date.now();
+      const maxWatchMs=210000;
+      let attempt=0;
+
+
+      while(Date.now()-started<maxWatchMs){
+        attempt++;
+        if(msg){
+          msg.className='wwp15062-msg pending';
+          msg.textContent=
+            'Backend masih memproses. Jangan klik ulang. '+
+            'Cek otomatis '+attempt+'…';
+        }
+
+
+        await sleepV15070(attempt===1?12000:15000);
+
+
+        const after=await readDeliverySyncMarkV15070(token,sjId);
+        if(deliverySyncChangedV15070(before,after)){
+          return {
+            confirmed:true,
+            after:after,
+            waitedMs:Date.now()-started
+          };
+        }
+      }
+
+
+      return {
+        confirmed:false,
+        waitedMs:Date.now()-started
+      };
+    }
+
+
     function archiveOverlay(){
       const overlay=document.createElement('div');
       overlay.className='wwp1503-backdrop';
@@ -1133,6 +1224,29 @@
           if(btn.disabled) return;
 
 
+          if(String(btn.dataset.wwp15070Mode||'')==='status'){
+            btn.disabled=true;
+            btn.textContent='Memuat...';
+            try{
+              await loadArchiveRowsV1504(overlay,true);
+            }catch(loadErr){
+              const row=btn.closest('.wwp1504-row');
+              const statusMsg=row
+                ? row.querySelector('[data-wwp15062-msg]')
+                : null;
+              if(statusMsg){
+                statusMsg.className='wwp15062-msg bad';
+                statusMsg.textContent=
+                  'Gagal memuat status: '+
+                  String(loadErr&&loadErr.message||loadErr);
+              }
+              btn.disabled=false;
+              btn.textContent='Muat Ulang Status';
+            }
+            return;
+          }
+
+
           const sjId=String(btn.dataset.wwp15062SyncSjid||'').trim();
           const row=btn.closest('.wwp1504-row');
           const msg=row
@@ -1175,6 +1289,12 @@
           }
 
 
+          const beforeMark=await readDeliverySyncMarkV15070(
+            token,
+            sjId
+          );
+
+
           try{
             const result=await window.WILLS_BRIDGE.call(
               'syncOutletReceiptForDelivery',
@@ -1203,6 +1323,55 @@
 
             await loadArchiveRowsV1504(overlay,true);
           }catch(err){
+            if(syncTimeoutErrorV15070(err)){
+              if(msg){
+                msg.className='wwp15062-msg pending';
+                msg.textContent=
+                  'Batas tunggu aplikasi habis, tetapi backend masih bisa berjalan. '+
+                  'Jangan klik ulang; sistem sedang mengecek hasil otomatis.';
+              }
+
+
+              btn.innerHTML=
+                '<span class="wwp15062-spin"></span>Memeriksa...';
+
+
+              const watched=await watchTimedOutSyncV15070(
+                token,
+                sjId,
+                beforeMark,
+                msg
+              );
+
+
+              if(watched.confirmed){
+                if(msg){
+                  msg.className='wwp15062-msg ok';
+                  msg.textContent=
+                    'Backend selesai setelah timeout tampilan. '+
+                    'Memuat ulang status SJ...';
+                }
+                await loadArchiveRowsV1504(overlay,true);
+                return;
+              }
+
+
+              if(msg){
+                msg.className='wwp15062-msg pending';
+                msg.textContent=
+                  'Belum bisa dikonfirmasi otomatis. Jangan ulangi sinkron sekarang. '+
+                  'Tutup-buka Arsip/Riwayat untuk mengecek hasil backend.';
+              }
+
+
+              btn.disabled=false;
+              btn.classList.remove('loading');
+              btn.dataset.wwp15070Mode='status';
+              btn.textContent='Muat Ulang Status';
+              return;
+            }
+
+
             if(msg){
               msg.className='wwp15062-msg bad';
               msg.textContent=
@@ -1275,7 +1444,7 @@
         '<span class="wwp1504-archive-icon">↻</span>'+
         '<span class="wwp1504-archive-copy">'+
           '<b>Arsip & Sinkron Surat Jalan</b>'+
-          '<small>Cari histori SJ · sinkron penerimaan · cetak ulang · v1.5.0.6.2</small>'+
+          '<small>Cari histori SJ · sinkron penerimaan · cetak ulang · v1.5.0.7.0</small>'+
         '</span>'+
         '<span class="chev">›</span>';
       return button;
@@ -1312,7 +1481,7 @@
       const existing=content.querySelector('[data-ww-reprint]');
 
 
-      // v1.5.0.6.2: card is exclusive to Transaksi.
+      // v1.5.0.7.0: card is exclusive to Transaksi; timeout sinkron diperlakukan sebagai pending, bukan gagal.
       if(!isTransactionsPageV1505()){
         if(existing) existing.remove();
         return;
