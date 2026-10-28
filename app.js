@@ -1080,7 +1080,7 @@
       '<div class="ww-user-actions"><button class="btn btn-line" data-ww-user-edit="'+esc(u.id)+'" type="button">Ubah</button>'+
       '<button class="btn btn-soft" data-ww-user-toggle="'+esc(u.id)+'" type="button" '+(self?'disabled title="Akun yang sedang dipakai tidak dapat dinonaktifkan"':'')+'>'+(active?'Nonaktifkan':'Aktifkan')+'</button></div></div>';
     }).join('');
-    const roleOpts=[['ADMIN_1','Admin 1 · Keuangan'],['ADMIN_2','Admin 2 · Gudang'],['STAFF_GUDANG','Staff Gudang'],['STAFF_LOGISTIK','Logistik'],['FINANCE','Finance'],['HR','HR'],['OWNER','Owner']];
+    const roleOpts=[['ADMIN','Admin Legacy (kompatibilitas)'],['ADMIN_1','Admin 1 · Keuangan'],['ADMIN_2','Admin 2 · Gudang'],['STAFF_GUDANG','Staff Gudang'],['STAFF_LOGISTIK','Logistik'],['FINANCE','Finance'],['HR','HR'],['OWNER','Owner']];
     sheetHtml('Pengguna & Peran',
       '<div class="ww-users-overview"><b>Pengelolaan Akun Warehouse</b><span>'+num(counts.active,0)+' aktif · '+num(counts.inactive,0)+' nonaktif</span><p>Nonaktifkan akun tanpa menghapus transaksi, histori, atau hak akses inti sistem. Akun dapat diaktifkan kembali.</p></div>'+
       '<div class="ww-users-toolbar"><button class="btn btn-primary" id="wwNewUser" type="button">+ Tambah Pengguna</button></div>'+
