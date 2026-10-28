@@ -163,8 +163,8 @@
       '<details class="ww-task-group"><summary>Template Arsip <span>'+num(inactive.length)+' template</span></summary><div class="ww-task-templates">'+(rows(inactive)||'<div class="empty">Belum ada template arsip.</div>')+'</div></details>');
     $('#wwTaskTemplateBack').onclick=openTasks;
     $('#wwTaskTemplateNew').onclick=()=>editTaskTemplateV1522(null);
-    $('[data-ww-tpl-edit]').forEach(b=>b.onclick=()=>editTaskTemplateV1522(templates.find(x=>x.id===b.dataset.wwTplEdit)));
-    $('[data-ww-tpl-toggle]').forEach(b=>b.onclick=async()=>{
+    $$('[data-ww-tpl-edit]').forEach(b=>b.onclick=()=>editTaskTemplateV1522(templates.find(x=>x.id===b.dataset.wwTplEdit)));
+    $$('[data-ww-tpl-toggle]').forEach(b=>b.onclick=async()=>{
       const t=templates.find(x=>x.id===b.dataset.wwTplToggle);if(!t)return;
       const action=t.active==='YA'?'ARCHIVE':'RESTORE';
       if(!window.confirm((action==='ARCHIVE'?'Arsipkan':'Aktifkan kembali')+' template "'+t.name+'"? Histori tugas harian tidak dihapus.'))return;
