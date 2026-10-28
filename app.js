@@ -68,7 +68,7 @@
 
 
   let activePage = 'home';
-  let stockFilter = 'Semua';
+  let stockFilter = 'Gudang';
   let historyCategoryFilter = 'Semua';
   let historyDateFilter = 'ALL';
   let historyExactDate = '';
@@ -333,18 +333,28 @@
 
 
   function renderStock() {
-    return `${pageHead('Stok Gudang', 'Stok bahan terbaru dari sistem gudang.')}
-      <div class="search-wrap">${icons.search}<input id="stockSearch" class="search" placeholder="Cari bahan atau kode..."></div>
-      <div class="chips">${['Semua','Gudang','Curah','Hasil Packing'].map(x=>`<button class="chip ${stockFilter===x?'is-active':''}" data-stock-filter="${x}">${x}</button>`).join('')}</div>
-      <div id="stockRows" class="list">${stockRows(liveStocks())}</div>`;
+    const groups=['Gudang','Curah','Hasil Packing'],stocks=liveStocks();
+    const iconsByType={'Gudang':icons.box,'Curah':icons.cart,'Hasil Packing':icons.pack};
+    const cards=groups.map(type=>{
+      const rows=stocks.filter(x=>x.type===type),critical=rows.filter(x=>x.status!=='Aman').length;
+      return '<button type="button" class="ww-stock-group '+(stockFilter===type?'is-active':'')+'" data-stock-filter="'+esc(type)+'" aria-pressed="'+(stockFilter===type)+'">'+
+        '<span class="ww-stock-group-icon">'+iconsByType[type]+'</span><span class="ww-stock-group-label">'+esc(type)+'</span>'+
+        '<span class="ww-stock-group-count">'+num(rows.length,0)+' bahan'+(critical?' · '+num(critical,0)+' perlu cek':'')+'</span></button>';
+    }).join('');
+    return pageHead('Stok Gudang','Pilih kelompok bahan untuk memantau stok tanpa menggulir daftar panjang.')+
+      '<div class="ww-stock-groups">'+cards+'</div>'+
+      '<div class="search-wrap">'+icons.search+'<input id="stockSearch" class="search" placeholder="Cari di '+esc(stockFilter)+'..." aria-label="Cari bahan"></div>'+
+      '<div class="ww-stock-list-head"><b>'+esc(stockFilter)+'</b><span>'+num(stocks.filter(x=>x.type===stockFilter).length,0)+' bahan</span></div>'+
+      '<div id="stockRows" class="ww-stock-tile-grid" aria-live="polite">'+stockRows(stocks)+'</div>';
   }
-
-
   function stockRows(rows) {
-    const filtered = stockFilter === 'Semua' ? rows : rows.filter(x => x.type === stockFilter);
-    return filtered.map(x => `<div class="stock-row"><div><b>${esc(x.name)}</b><small>${esc(x.code)} · ${esc(x.type)} · <span class="badge ${x.status==='Aman'?'ok':x.status==='Menipis'?'warn':'bad'}">${esc(x.status)}</span>${x.value==null?'':' · '+rp(x.value)}</small></div><div class="stock-qty"><strong>${num(x.qty)}</strong><span>${esc(x.unit)}</span></div></div>`).join('') || '<div class="empty">Tidak ada bahan pada filter ini.</div>';
+    const filtered=rows.filter(x=>x.type===stockFilter),ico=stockFilter==='Hasil Packing'?icons.pack:stockFilter==='Curah'?icons.cart:icons.box;
+    return filtered.map(x=>
+      '<div class="ww-stock-tile"><span class="ww-stock-tile-icon">'+ico+'</span><div class="ww-stock-tile-main"><b>'+esc(x.name)+'</b>'+
+      '<small>'+esc(x.code)+'</small><strong>'+num(x.qty)+' <span>'+esc(x.unit)+'</span></strong></div>'+
+      '<span class="badge '+(x.status==='Aman'?'ok':x.status==='Menipis'?'warn':'bad')+'">'+esc(x.status)+'</span></div>'
+    ).join('')||'<div class="empty">Tidak ada bahan pada kelompok ini.</div>';
   }
-
 
   function renderTransactions() {
     const all = [
@@ -871,6 +881,11 @@
     setTimeout(()=>{try{win.print();}catch(e){toast('Cetak tidak dapat dibuka: '+e.message);}},200);
   }
 
+  let wwSelectedOutletV1522='';
+  function wwRequestOutletV1522(x){
+    const code=String(x.outletCode||'').trim().toUpperCase();
+    return code==='TGM'?'TM':(code||'LAINNYA');
+  }
   function directDelivery(){
     const d=state.data||{},req=(d.incomingRequests||[]).filter(x=>!['SELESAI','DIBATALKAN'].includes(String(x.warehouseStatus||''))),rows=d.deliveries||[];
     const tools=[];
@@ -878,15 +893,40 @@
     if(roleCan('REQUEST_SYNC'))tools.push('<button class="btn btn-soft" id="ghSyncReq">Perbarui Permintaan</button>');
     if(roleCan('DELIVERY_SYNC'))tools.push('<button class="btn btn-primary" id="ghSyncRec">Sinkron Penerimaan</button>');
     if(canAny('AUDIT_OPERATIONAL','DELIVERY_SYNC'))tools.push('<button class="btn btn-line" id="ghDiag">Diagnostik</button>');
-    sheetHtml('Bahan yang Harus Dikirim Sekarang',`${tools.length?`<div class="direct-toolbar">${tools.join('')}</div>`:''}<h4>Permintaan Aktif</h4><div class="direct-list">${req.map(x=>{const reqDate=displayDateShort(x.requestDate||x.createdAt),needDate=displayDateShort(x.needDate);return `<button class="direct-card direct-click ww-ops-request-card" type="button" data-request-id="${esc(x.requestId)}" aria-label="Buka permintaan bahan ${esc(x.outletName)}"><b>${esc(x.outletName)} · Dibutuhkan ${esc(needDate)}</b><small>Permintaan ${esc(reqDate)} · ${num(x.itemCount||0)} bahan${x.linkedNoSj?' · SJ '+esc(x.linkedNoSj):''}</small><span class="badge warn">${esc(x.warehouseStatus||'')}</span><span class="btn btn-line ww-ops-request-btn" aria-hidden="true">Rincian & Cetak</span></button>`;}).join('')||'<div class="empty">Tidak ada permintaan aktif.</div>'}</div><h4>Surat Jalan</h4><div class="direct-list">${rows.slice(0,30).map(x=>`<button class="direct-card direct-click" data-sjid="${esc(x.sjId)}"><b>${esc(x.noSj)} · ${esc(x.outletName)}</b><small>${displayDateShort(x.shipDate||x.createdAt)} · ${(x.lines||[]).length} item${x.status==='DRAFT'?(dispatchPendingV44(x.sjId)?' · PERLU CEK STATUS KIRIM':' · siap checklist thermal'):''}${x.lastError?' · '+esc(x.lastError):''}</small>${deliveryStatusBadge(x.status)}</button>`).join('')||'<div class="empty">Belum ada SJ.</div>'}</div>`,{key:'delivery-list'});
+    const grouped=new Map();
+    req.forEach(x=>{const code=wwRequestOutletV1522(x);if(!grouped.has(code))grouped.set(code,{name:x.outletName||code,rows:[]});grouped.get(code).rows.push(x);});
+    const order=['RB','TM','UPI','CPK','CPS'];
+    const keys=[...grouped.keys()].sort((a,b)=>{const ia=order.indexOf(a),ib=order.indexOf(b);return (ia<0?99:ia)-(ib<0?99:ib)||a.localeCompare(b);});
+    if(!grouped.has(wwSelectedOutletV1522))wwSelectedOutletV1522=keys[0]||'';
+    const menu=keys.map(k=>'<button type="button" class="ww-request-tab '+(k===wwSelectedOutletV1522?'is-active':'')+'" data-ww-request-outlet="'+esc(k)+'" aria-pressed="'+(k===wwSelectedOutletV1522)+'">'+
+      '<span>'+esc(k)+'</span><b>'+num(grouped.get(k).rows.length,0)+'</b></button>').join('');
+    const selected=grouped.get(wwSelectedOutletV1522);
+    const entries=selected?selected.rows:[];
+    const requests=entries.map(x=>'<button class="direct-card direct-click ww-ops-request-card ww-request-item" type="button" data-request-id="'+esc(x.requestId)+'">'+
+      '<b>'+esc(x.outletName||x.outletCode||'-')+' · '+esc(displayDateShort(x.needDate))+'</b>'+
+      '<small>'+esc(displayDateShort(x.requestDate||x.createdAt))+' · '+num(x.itemCount||0,0)+' bahan'+(x.linkedNoSj?' · SJ '+esc(x.linkedNoSj):'')+'</small>'+
+      '<span class="badge warn">'+esc(x.warehouseStatus||'PERLU PROSES')+'</span><span class="ww-request-item-link">Rincian & Cetak ›</span></button>').join('');
+    const sj=rows.slice(0,30).map(x=>'<button class="direct-card direct-click" data-sjid="'+esc(x.sjId)+'"><b>'+
+      esc(x.noSj)+' · '+esc(x.outletName)+'</b><small>'+esc(displayDateShort(x.shipDate||x.createdAt))+' · '+(x.lines||[]).length+' item'+
+      (x.status==='DRAFT'?(dispatchPendingV44(x.sjId)?' · PERLU CEK STATUS KIRIM':' · siap checklist thermal'):'')+
+      (x.lastError?' · '+esc(x.lastError):'')+'</small>'+deliveryStatusBadge(x.status)+'</button>').join('');
+    sheetHtml('Bahan yang Harus Dikirim Sekarang',
+      (tools.length?'<div class="direct-toolbar">'+tools.join('')+'</div>':'')+
+      '<div class="ww-request-top"><b>Permintaan per outlet</b><span>'+num(req.length,0)+' permintaan aktif</span></div>'+
+      '<div class="ww-request-tabs" role="group" aria-label="Pilih outlet">'+(menu||'<span>Belum ada permintaan</span>')+'</div>'+
+      '<div class="ww-request-section"><div class="ww-request-section-head"><b>'+esc(selected?selected.name:'Tidak ada permintaan')+'</b><span>'+num(entries.length,0)+' permintaan</span></div>'+
+      '<div class="ww-request-scroll">'+(requests||'<div class="empty">Tidak ada permintaan aktif untuk outlet ini.</div>')+'</div></div>'+
+      '<details class="ww-sj-collapse"><summary>Surat Jalan Terbaru <span>'+num(rows.length,0)+' SJ · ketuk untuk membuka</span></summary>'+
+      '<div class="direct-list">'+(sj||'<div class="empty">Belum ada SJ.</div>')+'</div></details>',
+      {key:'delivery-list'});
     const newSj=$('#ghNewSj');if(newSj)newSj.onclick=directNewSj;
     const syncReq=$('#ghSyncReq');if(syncReq)syncReq.onclick=async()=>{try{await withBusy('Memperbarui permintaan…',async()=>{await callDirect('syncOutletMaterialRequestsNowV1250');await reloadDeliveryModule();});toast('Permintaan diperbarui.');directDelivery()}catch(e){toast(e.message)}};
     const syncRec=$('#ghSyncRec');if(syncRec)syncRec.onclick=async()=>{try{let r;await withBusy('Sinkron penerimaan…',async()=>{r=await callDirect('syncOutletReceipts');await reloadDeliveryModule();});toast('Penerimaan disinkronkan'+(r&&r.elapsedMs?' · '+r.elapsedMs+' ms':''));directDelivery()}catch(e){toast(e.message)}};
     const diag=$('#ghDiag');if(diag)diag.onclick=async()=>{try{let r;await withBusy('Menjalankan diagnostik…',async()=>{r=await callDirect('auditReceiptSyncDiagnosticAppV1260')});showDiagnostic(r)}catch(e){toast(e.message)}};
-    $$('[data-request-id]').forEach(b=>b.addEventListener('click',()=>opsRequestDetailV43(b.dataset.requestId)));
-    $$('[data-sjid]').forEach(b=>b.addEventListener('click',()=>directDeliveryDetail(b.dataset.sjid)));
+    $('[data-ww-request-outlet]').forEach(b=>b.onclick=()=>{wwSelectedOutletV1522=b.dataset.wwRequestOutlet;directDelivery();});
+    $('[data-request-id]').forEach(b=>b.addEventListener('click',()=>opsRequestDetailV43(b.dataset.requestId)));
+    $('[data-sjid]').forEach(b=>b.addEventListener('click',()=>directDeliveryDetail(b.dataset.sjid)));
   }
-
 
   function directDraftPrintList(){
     const rows=((state.data||{}).deliveries||[]).filter(x=>String(x.status||'')==='DRAFT');
