@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  window.WW_FRONTEND_BUILD='2026-10-28.1.5.2.1-inventory-ui-safe';
+  window.WW_FRONTEND_BUILD='2026-10-28.1.5.2.2-ux-outlet-stock-task';
 
 
   const $ = (q, root = document) => root.querySelector(q);
