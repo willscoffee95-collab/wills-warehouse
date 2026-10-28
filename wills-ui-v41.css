@@ -192,3 +192,9 @@ html,body{background:#f5f5f5!important}
 .ww-ops-audit-grid .btn{font-size:11px!important;line-height:1.35!important;padding:12px 10px!important;white-space:normal!important;min-width:0!important;min-height:51px!important}
 .ww-ops-audit-status{padding:11px 12px;background:#f6f7f9;color:#62646d;border-radius:11px;font-size:11px;margin-bottom:10px;line-height:1.5}
 @media(max-width:350px){.ww-ops-audit-grid{grid-template-columns:1fr}}
+
+/* v4.3.1: mobile touch target for outlet requests and draft SJ; keep v4.2 visuals */
+button.ww-ops-request-card,button.direct-card[data-sjid]{width:100%;cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:rgba(185,14,43,.08)}
+button.ww-ops-request-card:focus-visible,button.direct-card[data-sjid]:focus-visible{outline:3px solid rgba(185,14,43,.35);outline-offset:2px}
+button.ww-ops-request-card:active,button.direct-card[data-sjid]:active{background:#fff6f8!important;border-color:#eac9d2!important}
+button.ww-ops-request-card .ww-ops-request-btn{pointer-events:none;grid-column:1/-1;justify-self:start;min-height:38px}
