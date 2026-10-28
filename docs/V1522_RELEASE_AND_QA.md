@@ -13,7 +13,9 @@
 ## Backend prerequisite for new task creation
 Install `backend-addon/Code_Tasks_V1522.gs` as a separate file in the **existing production** Apps Script project only **after source backup and Owner approval**. Do not replace Code.gs or add triggers. The addon is OWNER-only and idempotent. Before publishing frontend, run `ww1522TaskAdminAuditReadOnly`: expected `ok:true`, `taskSheetPresent:true`, `taskColumns>=19`, `templateSheetPresent:true`, `templateColumns>=11`, `stockMoneySjWorkerChanged:false`.
 
-**Also update the existing Apps Script Bridge.html `ALLOWED_METHODS` with the three new task methods**, per `backend-addon/BRIDGE_ALLOWLIST_V1522_PATCH.md`. Do not overwrite Bridge.html with the old reference.\n\n**Do not merge this PR before the task backend addon has been installed and verified**. It is based on the pending PR #8 frontend safety work; merge #8 first and retarget this PR to main.
+**Also update the existing Apps Script Bridge.html `ALLOWED_METHODS` with the three new task methods**, per `backend-addon/BRIDGE_ALLOWLIST_V1522_PATCH.md`. Do not overwrite Bridge.html with the old reference.
+
+**Do not merge this PR before the task backend addon has been installed and verified**. It is based on the pending PR #8 frontend safety work; merge #8 first and retarget this PR to main.
 
 ## Production acceptance tests
 - Login mobile width 320/375/430 and desktop: label PIN immediately follows username with consistent spacing.
