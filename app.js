@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  window.WW_FRONTEND_BUILD='2026-10-28.4.5.0-fast-status';
+  window.WW_FRONTEND_BUILD='2026-10-28.1.5.2.1-inventory-ui-safe';
 
 
   const $ = (q, root = document) => root.querySelector(q);
@@ -8,7 +8,7 @@
   const config = window.WILLS_CONFIG || { MODE: 'live' };
   const bridge = window.WILLS_BRIDGE;
   const TOKEN_KEY = 'ww_github_token_v1';
-  const BOOT_SNAPSHOT_KEY = 'ww_github_bootstrap_v1360';
+  const BOOT_SNAPSHOT_KEY = 'ww_github_bootstrap_v1521';
   const BOOT_SNAPSHOT_MAX_AGE = 21600000; // 6 jam; stale snapshot hanya untuk render cepat, server tetap revalidate.
 
 
@@ -113,11 +113,13 @@
     return list.includes('*')||list.includes(permission);
   }
   function canAny(...permissions){return permissions.some(roleCan);}
-  const inventoryOnlyV1520=()=>!!((state.data||{}).inventoryOnlyV1520);
+  // Fail-closed while the login/bootstrap shell has not yet supplied the new-mode flag.
+  // Prevent stale finance cards/actions from flashing during login.
+  const inventoryOnlyV1520=()=>((state.data||{}).inventoryOnlyV1520)!==false;
   const moneyActionsV1520=['outletPayment','expense','supplierPayment','packingWage','financeActual'];
   function actionAllowed(action){
     if(inventoryOnlyV1520()&&moneyActionsV1520.includes(action))return false;
-    if(action==='offlineSjValue')return inventoryOnlyV1520()&&roleCan('DISPATCH_REPORT');
+    if(action==='offlineSjValue')return ((state.data||{}).inventoryOnlyV1520)===true&&roleCan('DISPATCH_REPORT');
     if(action==='delivery')return canAny('REQUEST_SYNC','DELIVERY_CREATE','DELIVERY_PREPARE','DELIVERY_DISPATCH','DELIVERY_SYNC','DELIVERY_COMPLETE');
     if(action==='draftPrint')return canAny('DELIVERY_PREPARE','DELIVERY_DISPATCH','DELIVERY_SYNC','DELIVERY_COMPLETE');
     const permission=ACTION_PERMISSION[action];
@@ -726,7 +728,7 @@
   }
   function directPurchase(){
     const d=state.data||{},sups=d.suppliers||[],offline=inventoryOnlyV1520();
-    sheetHtml('Belanja Bahan',`<div class="role-guide"><b>Guard Harga & Satuan Aktif</b><span>Satuan pembelian mengikuti nota dan profil Master Bahan. Contoh Creamer: 1 karton = 24 box × 500 gr (Rp780.000/karton = Rp32.500/box). UHT: 1 karton = 12 pcs. Jangan masukkan harga karton sebagai harga box.</span><span>Sistem akan memperingatkan jika harga/HPP melonjak tidak wajar sebelum transaksi diposting.</span></div><form id="ghPurchase"><label class="field"><span>Supplier</span><select name="supplierId"><option value="">Supplier sekali pakai</option>${sups.filter(x=>x.active==='YA').map(x=>`<option value="${esc(x.id)}">${esc(x.name)}</option>`).join('')}</select></label><label class="field"><span>Nama supplier sekali pakai</span><input name="supplierName"></label>${offline?'<div class="role-guide"><b>Inventory Only · Pembayaran offline</b><span>Barang masuk meskipun saldo Kas/Bank Rp0. Harga nota tetap tersimpan untuk HPP. Warehouse tidak mencatat pembayaran atau membuat utang.</span></div>':`<div class="form-2"><label class="field"><span>Pembayaran</span><select name="paymentStatus"><option>LUNAS</option><option>TEMPO</option></select></label><label class="field"><span>Sumber</span><select name="paymentSource"><option value="CASH">Kas Gudang</option><option value="BANK">Bank</option></select></label></div>`}<div class="form-2"><label class="field"><span>Status nota</span><select name="notaStatus"><option>ADA NOTA</option><option>TANPA NOTA</option><option>NOTA MENYUSUL</option></select></label><label class="field"><span>No Nota</span><input name="invoiceNo"></label></div>${offline?'':`<label class="field"><span>Jatuh tempo (Tempo)</span><input name="dueDate" type="date"></label>`}<label class="field"><span>Catatan</span><textarea name="note"></textarea></label><div id="ghPurchaseLines"></div><button class="btn btn-soft" type="button" id="ghAddPurchase">+ Tambah item</button><div class="actions"><button class="btn btn-line" type="button" id="ghCancel">Tutup</button><button class="btn btn-primary" type="submit">Review & Posting Belanja</button></div></form>`);
+    sheetHtml('Belanja Bahan',`<div class="role-guide"><b>Guard Harga & Satuan Aktif</b><span>Satuan pembelian mengikuti nota dan profil Master Bahan. Contoh Creamer: 1 karton = 24 box × 500 gr (Rp780.000/karton = Rp32.500/box). UHT: 1 karton = 12 pcs. Jangan masukkan harga karton sebagai harga box.</span><span>Sistem akan memperingatkan jika harga/HPP melonjak tidak wajar sebelum transaksi diposting.</span></div><form id="ghPurchase"><label class="field"><span>Supplier</span><select name="supplierId"><option value="">Supplier sekali pakai</option>${sups.filter(x=>x.active==='YA').map(x=>`<option value="${esc(x.id)}">${esc(x.name)}</option>`).join('')}</select></label><label class="field"><span>Nama supplier sekali pakai</span><input name="supplierName"></label>${offline?'<div class="role-guide"><b>Inventory Only · Pembayaran offline</b><p>Barang masuk meskipun saldo Kas/Bank Rp0. Harga nota tetap tersimpan untuk HPP. Warehouse tidak mencatat pembayaran atau membuat utang.</p></div>':`<div class="form-2"><label class="field"><span>Pembayaran</span><select name="paymentStatus"><option>LUNAS</option><option>TEMPO</option></select></label><label class="field"><span>Sumber</span><select name="paymentSource"><option value="CASH">Kas Gudang</option><option value="BANK">Bank</option></select></label></div>`}<div class="form-2"><label class="field"><span>Status nota</span><select name="notaStatus"><option>ADA NOTA</option><option>TANPA NOTA</option><option>NOTA MENYUSUL</option></select></label><label class="field"><span>No Nota</span><input name="invoiceNo"></label></div>${offline?'':`<label class="field"><span>Jatuh tempo (Tempo)</span><input name="dueDate" type="date"></label>`}<label class="field"><span>Catatan</span><textarea name="note"></textarea></label><div id="ghPurchaseLines"></div><button class="btn btn-soft" type="button" id="ghAddPurchase">+ Tambah item</button><div class="actions"><button class="btn btn-line" type="button" id="ghCancel">Tutup</button><button class="btn btn-primary" type="submit">Review & Posting Belanja</button></div></form>`);
     const box=$('#ghPurchaseLines'),mats=((state.data||{}).materials||[]);
     const unitsFor=m=>Array.isArray(m&&m.purchaseUnits)&&m.purchaseUnits.length?m.purchaseUnits:[{unit:m&&m.receiveUnit||'',multiplier:1,label:m&&m.receiveUnit||''}];
     const add=()=>{
