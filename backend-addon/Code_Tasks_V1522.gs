@@ -67,7 +67,10 @@ function createWarehouseTaskV1522(token, payload, idem) {
     row[11] = deadline;                         // Deadline
     row[12] = 'TIDAK';                          // Required Closing
     row[16] = note;                             // Note
+    row[17] = now;                              // Created at
     row[18] = now;                              // Updated at
+    if (width > 19) row[19] = owner.name;      // Created by
+    if (width > 20) row[20] = '2026-10-28.warehouse-task-v1522'; // Version
     sh.getRange(sh.getLastRow()+1,1,1,width).setValues([row]);
     SpreadsheetApp.flush();
     const after = warehouseTaskRowV1370_(row,owner);
