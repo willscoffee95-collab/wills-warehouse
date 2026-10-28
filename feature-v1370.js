@@ -27,7 +27,11 @@
     const root=$('#toastRoot');
     if(!root){ alert(msg); return; }
     const el=document.createElement('div'); el.className='toast '+(type==='error'?'bad':type==='success'?'ok':''); el.textContent=String(msg||''); root.appendChild(el);
-    requestAnimationFrame(()=>el.classList.add('show')); setTimeout(()=>{el.classList.remove('show');setTimeout(()=>el.remove(),250)},3200);
+    let dismissed=false;
+    const close=()=>{if(dismissed)return;dismissed=true;el.classList.remove('show');setTimeout(()=>el.remove(),200);};
+    requestAnimationFrame(()=>el.classList.add('show'));
+    if(window.wwAttachSwipeToastV1522)window.wwAttachSwipeToastV1522(el,close);
+    setTimeout(close,3200);
   }
   function closeFeature(){ const root=$('#sheetRoot'); if(root) root.innerHTML=''; }
   function openFeature(title,html){
@@ -79,17 +83,121 @@
   function taskClass(st){ st=String(st||'').toUpperCase(); return st==='SELESAI'?'ok':st==='TERKENDALA'?'bad':st==='DIKERJAKAN'?'brand':st==='BELUM DIKERJAKAN'?'warn':''; }
   async function openTasks(){
     let r;
-    try{ await withBusy('Memuat tugas gudang…',async()=>{r=await call('getWarehouseTasksV1370');}); }
-    catch(e){ openFeature('Tugas Gudang',`<div class="notice warn"><b>Backend fitur belum aktif.</b><br>${esc(e.message)}</div>`); return; }
-    const tasks=r.tasks||[], groups=['OPENING','OPERASIONAL','CLOSING'],sum=r.summary||{};
+    try{await withBusy('Memuat tugas gudang…',async()=>{r=await call('getWarehouseTasksV1370');});}
+    catch(e){openFeature('Tugas Gudang','<div class="notice warn"><b>Backend tugas belum aktif.</b><p>'+esc(e.message)+'</p></div>');return;}
+    const tasks=r.tasks||[],groups=['OPENING','OPERASIONAL','CLOSING'],sum=r.summary||{},owner=role()==='OWNER';
     const blocks=groups.map(g=>{
-      const rows=tasks.filter(x=>String(x.group||'').toUpperCase()===g);
+      const rows=tasks.filter(x=>String(x.group||'').toUpperCase()===g&&String(x.status||'').toUpperCase()!=='TIDAK BERLAKU');
       const label=g==='OPENING'?'Opening':g==='OPERASIONAL'?'Operasional':'Closing';
-      return `<section class="section"><div class="section-head"><h3>${label}</h3><span>${rows.filter(x=>String(x.status).toUpperCase()==='SELESAI').length}/${rows.length} selesai</span></div><div class="direct-list">${rows.map(x=>`<button class="direct-card direct-click" data-task-id="${esc(x.taskId)}" ${x.editable===false?'disabled':''}><b>${esc(x.name)}</b><small>${esc(x.picRole||'')}${x.deadline?' · '+esc(x.deadline):''}</small><span class="badge ${taskClass(x.status)}">${esc(x.status||'BELUM DIKERJAKAN')}</span></button>`).join('')||'<div class="empty">Tidak ada tugas.</div>'}</div></section>`;
+      const entries=rows.map(x=>
+        '<div class="ww-task-entry"><button class="ww-task-main" data-task-id="'+esc(x.taskId)+'" type="button" '+(x.editable===false?'disabled':'')+'>'+
+        '<b>'+esc(x.name)+'</b><small>PIC '+esc(x.picRole||'')+(x.deadline?' · '+esc(x.deadline):'')+'</small>'+
+        '<span class="badge '+taskClass(x.status)+'">'+esc(x.status||'BELUM DIKERJAKAN')+'</span></button>'+
+        (owner?'<button class="ww-task-archive" data-ww-task-archive="'+esc(x.taskId)+'" type="button">Arsipkan</button>':'')+'</div>'
+      ).join('');
+      return '<details class="ww-task-group" '+(g==='OPERASIONAL'?'open':'')+'><summary><b>'+esc(label)+'</b><span>'+
+        rows.filter(x=>String(x.status).toUpperCase()==='SELESAI').length+'/'+rows.length+' selesai</span></summary>'+
+        '<div class="ww-task-list">'+(entries||'<div class="empty">Belum ada tugas aktif.</div>')+'</div></details>';
     }).join('');
-    openFeature('Tugas Gudang',`<div class="demo-box"><b>${esc(r.dateLabel||'Hari ini')}</b><br>Selesai ${num(sum.completed)} dari ${num(sum.total||tasks.length)} · Dikerjakan ${num(sum.inProgress)} · Terkendala ${num(sum.blocked)} · Belum ${num(sum.pending)}</div>${blocks}`);
+    const archived=tasks.filter(x=>String(x.status||'').toUpperCase()==='TIDAK BERLAKU');
+    const archivedHtml=owner?'<details class="ww-task-group ww-task-archived"><summary>Arsip tugas hari ini <span>'+num(archived.length)+' tugas</span></summary>'+
+      '<div class="ww-task-list">'+(archived.map(x=>'<div class="ww-task-entry"><div class="ww-task-main"><b>'+esc(x.name)+'</b><small>'+esc(x.group)+' · '+esc(x.picRole)+'</small></div>'+
+        '<button class="ww-task-archive" data-ww-task-restore="'+esc(x.taskId)+'" type="button">Aktifkan</button></div>').join('')||'<div class="empty">Belum ada tugas diarsipkan.</div>')+'</div></details>':'';
+    openFeature('Tugas Gudang','<div class="ww-task-summary"><b>'+esc(r.dateLabel||'Hari ini')+'</b><span>'+
+      num(sum.completed)+' selesai · '+num(sum.inProgress)+' dikerjakan · '+num(sum.pending)+' belum</span></div>'+
+      (owner?'<div class="ww-task-admin-actions"><button id="wwTaskTemplateManage" class="btn btn-soft" type="button">Kelola Template & PIC</button><button id="wwTaskNew" class="btn btn-primary" type="button">+ Tugas Hari Ini</button></div>':'')+
+      blocks+archivedHtml);
     $$('[data-task-id]').forEach(b=>b.onclick=()=>editTask(tasks.find(x=>String(x.taskId)===String(b.dataset.taskId))));
+    if(owner){
+      $('#wwTaskNew').onclick=openTaskCreatorV1522;
+      $('#wwTaskTemplateManage').onclick=openTaskTemplatesV1522;
+      $$('[data-ww-task-archive]').forEach(b=>b.onclick=()=>changeTaskArchiveV1522(tasks.find(x=>String(x.taskId)===b.dataset.wwTaskArchive),true));
+      $$('[data-ww-task-restore]').forEach(b=>b.onclick=()=>changeTaskArchiveV1522(tasks.find(x=>String(x.taskId)===b.dataset.wwTaskRestore),false));
+    }
   }
+  async function changeTaskArchiveV1522(task,archive){
+    if(!task||role()!=='OWNER')return;
+    if(!window.confirm((archive?'Arsipkan':'Aktifkan kembali')+' tugas "'+task.name+'"? Histori tugas tetap tersimpan.'))return;
+    try{
+      await withBusy('Mengubah status tugas…',()=>call('updateWarehouseTaskV1370',{taskId:task.taskId,status:archive?'TIDAK BERLAKU':'BELUM DIKERJAKAN',note:task.note||''},makeIdem('TASKARCHIVE')));
+      toast(archive?'Tugas diarsipkan.':'Tugas diaktifkan kembali.','success');await openTasks();
+    }catch(e){toast(e.message,'error');}
+  }
+  function openTaskCreatorV1522(){
+    if(role()!=='OWNER')return;
+    const today=new Date(),date=today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');
+    openFeature('Buat Tugas Gudang','<div class="ww-task-help">Tugas baru dibuat untuk satu tanggal. Tugas yang diarsipkan tidak dihapus dari histori.</div>'+
+      '<form id="wwTaskCreateForm" class="ww-task-create">'+
+      '<label class="field"><span>Tanggal tugas</span><input type="date" name="date" required value="'+date+'"></label>'+
+      '<label class="field"><span>Kelompok</span><select name="group"><option value="OPENING">Opening</option><option value="OPERASIONAL">Operasional</option><option value="CLOSING">Closing</option></select></label>'+
+      '<label class="field"><span>Nama tugas</span><input name="name" maxlength="120" required placeholder="Contoh: Cek stok packing"></label>'+
+      '<label class="field"><span>Penanggung jawab</span><select name="picRole"><option value="STAFF GUDANG">Staff Gudang</option><option value="FINANCE">Finance</option></select></label>'+
+      '<label class="field"><span>Batas waktu (opsional)</span><input name="deadline" placeholder="Contoh: 10.00"></label>'+
+      '<label class="field"><span>Catatan (opsional)</span><textarea name="note" maxlength="500"></textarea></label>'+
+      '<div class="actions"><button class="btn btn-line" type="button" id="wwTaskCreateCancel">Kembali</button><button class="btn btn-primary" type="submit">Simpan Tugas</button></div></form>');
+    $('#wwTaskCreateCancel').onclick=openTasks;
+    $('#wwTaskCreateForm').onsubmit=async e=>{
+      e.preventDefault();const fd=new FormData(e.target),payload=Object.fromEntries(fd.entries());
+      if(!payload.name||!payload.date)return toast('Tanggal dan nama tugas wajib diisi.','error');
+      try{await withBusy('Membuat tugas…',()=>call('createWarehouseTaskV1522',payload,makeIdem('TASKCREATE')));toast('Tugas baru ditambahkan.','success');await openTasks();}
+      catch(err){toast('Tugas belum dibuat: '+err.message+'. Pastikan add-on backend V1.5.2.2 terpasang.','error');}
+    };
+  }
+
+  async function openTaskTemplatesV1522(){
+    if(role()!=='OWNER')return;
+    let data;
+    try{await withBusy('Memuat master tugas…',async()=>{data=await call('listWarehouseTaskTemplatesV1522');});}
+    catch(e){openFeature('Master Tugas Gudang','<div class="notice warn">Fitur master belum terpasang: '+esc(e.message)+'</div><button class="btn btn-line" id="wwTemplateBack">Kembali</button>');$('#wwTemplateBack').onclick=openTasks;return;}
+    const templates=(data.templates||[]).slice().sort((a,b)=>{
+      const ord=['OPENING','OPERASIONAL','CLOSING'];
+      return ord.indexOf(a.group)-ord.indexOf(b.group)||Number(a.order||0)-Number(b.order||0);
+    });
+    const active=templates.filter(x=>x.active==='YA'),inactive=templates.filter(x=>x.active!=='YA');
+    const rows=(list)=>list.map(x=>'<div class="ww-task-template-row"><div class="ww-task-template-copy"><b>'+esc(x.name)+'</b><small>'+esc(x.group)+' · PIC '+esc(x.picRole)+' · urutan '+num(x.order)+'</small></div>'+
+      '<button type="button" data-ww-tpl-edit="'+esc(x.id)+'">Ubah</button><button type="button" data-ww-tpl-toggle="'+esc(x.id)+'">'+(x.active==='YA'?'Arsipkan':'Aktifkan')+'</button></div>').join('');
+    openFeature('Master Tugas & Peran PIC',
+      '<div class="ww-task-summary"><b>Template Tugas Gudang</b><span>'+num(active.length)+' aktif · '+num(inactive.length)+' diarsipkan</span><span>Arsip menyembunyikan template dari penjadwalan berikutnya; histori tugas lama tetap ada.</span></div>'+
+      '<div class="ww-task-admin-actions"><button id="wwTaskTemplateBack" class="btn btn-line" type="button">Kembali</button><button id="wwTaskTemplateNew" class="btn btn-primary" type="button">+ Template Baru</button></div>'+
+      '<div class="ww-task-templates">'+(rows(active)||'<div class="empty">Belum ada template aktif.</div>')+'</div>'+
+      '<details class="ww-task-group"><summary>Template Arsip <span>'+num(inactive.length)+' template</span></summary><div class="ww-task-templates">'+(rows(inactive)||'<div class="empty">Belum ada template arsip.</div>')+'</div></details>');
+    $('#wwTaskTemplateBack').onclick=openTasks;
+    $('#wwTaskTemplateNew').onclick=()=>editTaskTemplateV1522(null);
+    $('[data-ww-tpl-edit]').forEach(b=>b.onclick=()=>editTaskTemplateV1522(templates.find(x=>x.id===b.dataset.wwTplEdit)));
+    $('[data-ww-tpl-toggle]').forEach(b=>b.onclick=async()=>{
+      const t=templates.find(x=>x.id===b.dataset.wwTplToggle);if(!t)return;
+      const action=t.active==='YA'?'ARCHIVE':'RESTORE';
+      if(!window.confirm((action==='ARCHIVE'?'Arsipkan':'Aktifkan kembali')+' template "'+t.name+'"? Histori tugas harian tidak dihapus.'))return;
+      try{await withBusy('Memperbarui master tugas…',()=>call('saveWarehouseTaskTemplateV1522',{id:t.id,action:action},makeIdem('TPLSTATUS')));toast('Template berhasil diperbarui.','success');openTaskTemplatesV1522();}
+      catch(e){toast(e.message,'error');}
+    });
+  }
+  function editTaskTemplateV1522(t){
+    if(role()!=='OWNER')return;
+    const creating=!t,idem=makeIdem('TPLSAVE');
+    openFeature(creating?'Template Tugas Baru':'Ubah Template Tugas',
+      '<div class="ww-task-help">PIC adalah penanggung jawab tugas, bukan definisi akses pengguna. Perubahan template tidak menghapus histori.</div>'+
+      '<form id="wwTemplateForm" class="ww-task-create">'+
+      '<label class="field"><span>Kelompok</span><select name="group">'+['OPENING','OPERASIONAL','CLOSING'].map(g=>'<option value="'+g+'" '+(t&&t.group===g?'selected':'')+'>'+g+'</option>').join('')+'</select></label>'+
+      '<label class="field"><span>Nama tugas</span><input name="name" maxlength="150" required value="'+esc(t?t.name:'')+'"></label>'+
+      '<label class="field"><span>PIC Role</span><select name="picRole"><option value="STAFF GUDANG" '+(t&&t.picRole==='STAFF GUDANG'?'selected':'')+'>Staff Gudang</option><option value="FINANCE" '+(t&&t.picRole==='FINANCE'?'selected':'')+'>Finance</option></select></label>'+
+      '<div class="form-2"><label class="field"><span>Urutan</span><input type="number" name="order" min="0" max="99999" value="'+esc(t?t.order:100)+'"></label>'+
+      '<label class="field"><span>Deadline</span><input name="deadline" maxlength="50" placeholder="Contoh: 17.00" value="'+esc(t?t.deadline:'')+'"></label></div>'+
+      '<label class="field"><span>Wajib Closing</span><select name="requiredClosing"><option value="TIDAK" '+(!t||t.requiredClosing!=='YA'?'selected':'')+'>Tidak</option><option value="YA" '+(t&&t.requiredClosing==='YA'?'selected':'')+'>Ya</option></select></label>'+
+      '<label class="field"><span>Catatan</span><textarea name="note" maxlength="500">'+esc(t?t.note:'')+'</textarea></label>'+
+      '<div class="actions"><button id="wwTemplateCancel" class="btn btn-line" type="button">Kembali</button><button class="btn btn-primary" type="submit">Simpan Template</button></div></form>');
+    $('#wwTemplateCancel').onclick=openTaskTemplatesV1522;
+    $('#wwTemplateForm').onsubmit=async e=>{
+      e.preventDefault();const form=e.target,submit=form.querySelector('button[type="submit"]');
+      if(submit.disabled)return;
+      const fd=new FormData(form),payload={...Object.fromEntries(fd.entries()),action:creating?'CREATE':'UPDATE'};
+      if(!creating)payload.id=t.id;
+      submit.disabled=true;
+      try{await withBusy('Menyimpan template…',()=>call('saveWarehouseTaskTemplateV1522',payload,idem));toast('Template tersimpan.','success');await openTaskTemplatesV1522();}
+      catch(err){toast(err.message,'error');submit.disabled=false;}
+    };
+  }
+
   function editTask(task){
     if(!task || task.editable===false) return toast('Tugas ini hanya dapat diubah oleh PIC yang sesuai.','error');
     const st=String(task.status||'BELUM DIKERJAKAN').toUpperCase();
