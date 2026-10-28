@@ -198,3 +198,21 @@ button.ww-ops-request-card,button.direct-card[data-sjid]{width:100%;cursor:point
 button.ww-ops-request-card:focus-visible,button.direct-card[data-sjid]:focus-visible{outline:3px solid rgba(185,14,43,.35);outline-offset:2px}
 button.ww-ops-request-card:active,button.direct-card[data-sjid]:active{background:#fff6f8!important;border-color:#eac9d2!important}
 button.ww-ops-request-card .ww-ops-request-btn{pointer-events:none;grid-column:1/-1;justify-self:start;min-height:38px}
+
+/* v4.4 — Non-blocking busy in bar; preserve approved v4.2 theme */
+.ww-inline-busy-v44{display:inline-flex;align-items:center;gap:7px;max-width:100%;min-height:28px;padding:6px 9px;border:1px solid #edd2d8;border-radius:10px;background:#fff4f6;color:#a4152e;font-size:10px;font-weight:750;line-height:1.2}
+.ww-inline-spinner-v44{width:13px;height:13px;flex:0 0 13px;border:2px solid #efccd5;border-top-color:#bc1733;border-radius:50%;animation:wwSpin .75s linear infinite}
+.ww-inline-label-v44{overflow:hidden;max-width:min(54vw,260px);text-overflow:ellipsis;white-space:nowrap}
+.sheet-head{flex-wrap:wrap}
+.sheet-head>.ww-inline-busy-v44{order:3;flex:0 0 auto;max-width:100%;margin:3px 0 2px}
+.sheet-head>.ww-inline-busy-v44 .ww-inline-label-v44{max-width:min(60vw,290px)}
+.topbar{position:relative!important}
+.topbar>.ww-inline-busy-v44{position:absolute;right:10px;top:100%;z-index:8;max-width:min(80vw,340px);box-shadow:0 3px 12px rgba(20,10,15,.08)}
+.auth-card>.ww-inline-busy-v44{margin-top:8px}
+.busy-root{position:fixed!important;inset:auto 12px auto auto!important;top:75px!important;z-index:145!important;width:auto!important;height:auto!important;max-width:min(85vw,350px)!important;margin:0!important;padding:0!important;display:flex!important;align-items:center!important;justify-content:flex-end!important;pointer-events:none!important;background:transparent!important;backdrop-filter:none!important}
+.busy-root.is-hidden{display:none!important}
+.busy-card{pointer-events:none!important;margin:0!important;min-height:30px!important;padding:8px 10px!important;border-radius:11px!important;box-shadow:0 4px 13px rgba(25,18,22,.08)!important;font-size:10px!important;max-width:min(85vw,350px)!important}
+.busy-spinner{width:13px!important;height:13px!important;flex:0 0 13px!important;border-width:2px!important}
+.ww-dispatch-pending-note{margin:11px 0;padding:12px;background:#fff6e7;border:1px solid #f0d7af;border-radius:11px;color:#80531e;font-size:11px;line-height:1.55}
+.ww-dispatch-pending-note b{display:block;margin-bottom:4px}
+@media(prefers-reduced-motion:reduce){.ww-inline-spinner-v44,.busy-spinner{animation:none!important}}
