@@ -564,24 +564,111 @@
     opsWriteInFlightV43.add(action);const idem=idemKey(action);beginBusy('Menyimpan…');try{const r=await bridge.call(method,state.token,payload||{},idem);if(r&&r.ok===false)throw new Error(r.message||'Transaksi gagal');localStorage.removeItem('ww_gh_idem_'+action);toast('Berhasil disimpan'+(r&&r.txnId?' · '+r.txnId:''));closeSheet();invalidateDataModules();refreshBootstrapLight().catch(err=>console.warn('[Wills Warehouse] refresh ringan:',err.message));return r}catch(e){toast(e.message);throw e}finally{opsWriteInFlightV43.delete(action);endBusy()}}
   async function reloadDeliveryModule(){const m=await bridge.call('getAppModule',state.token,'delivery');Object.assign(state.data,m||{});state.moduleReady.delivery=true;return m;}
   function upsertFreshDeliveryV1354(d){if(!d||!d.sjId)return;state.data=state.data||{};const list=Array.isArray(state.data.deliveries)?state.data.deliveries:[];const i=list.findIndex(x=>String(x.sjId)===String(d.sjId));if(i>=0)list[i]=d;else list.unshift(d);state.data.deliveries=list;}
-  async function writeDeliveryDirect(action,method,payload,sjId){
-    if(opsWriteInFlightV43.has(action)){toast('SJ sedang diproses; jangan tekan Kirim dua kali.','warning');return null;}
-    opsWriteInFlightV43.add(action);
-    const idem=idemKey(action),fromKey=currentSheetKey();beginBusy(method==='dispatchDelivery'?'Mengirim Surat Jalan…':'Memproses Surat Jalan…');
+  // v4.4: persistent uncertainty guard: a slow Bridge response is never permission to dispatch again.
+  const WW_DISPATCH_PENDING_PREFIX_V44='ww_dispatch_pending_v44_';
+  function dispatchPendingKeyV44(id){return WW_DISPATCH_PENDING_PREFIX_V44+String(id||'').replace(/[^a-zA-Z0-9_-]/g,'').slice(0,100);}
+  function dispatchPendingV44(id){try{return JSON.parse(localStorage.getItem(dispatchPendingKeyV44(id))||'null')}catch(_){return null}}
+  function dispatchStorePendingV44(id,idem){try{localStorage.setItem(dispatchPendingKeyV44(id),JSON.stringify({sjId:String(id),idem:String(idem),startedAt:Date.now()}))}catch(_){}}
+  function dispatchClearPendingV44(id){try{localStorage.removeItem(dispatchPendingKeyV44(id));localStorage.removeItem('ww_gh_idem_dispatch_'+id)}catch(_){}}
+  function dispatchUpdateIfVisibleV44(id){
+    const key=currentSheetKey();
+    if(key==='delivery-detail:'+id)directDeliveryDetail(id);
+    else if(key==='delivery-list')directDelivery();
+  }
+  function dispatchApplyStatusV44(id,fresh){
+    if(!fresh||String(fresh.sjId||'')!==String(id))return false;
+    upsertFreshDeliveryV1354(fresh);
+    if(String(fresh.status||'').toUpperCase()==='DRAFT')return false;
+    dispatchClearPendingV44(id);
+    dispatchUpdateIfVisibleV44(id);
+    return true;
+  }
+  async function dispatchCheckStatusV44(id){
+    if(opsWriteInFlightV43.has('status_'+id))return;
+    opsWriteInFlightV43.add('status_'+id);
+    beginBusy('Memeriksa status '+id+'…');
     try{
-      const r=await bridge.call(method,state.token,payload||{},idem);if(r&&r.ok===false)throw new Error(r.message||'Perintah gagal');localStorage.removeItem('ww_gh_idem_'+action);
-      let fresh=r&&r.deliveryV1354||null;
-      if(method==='dispatchDelivery'&&!fresh){try{fresh=await bridge.call('getDeliveryDetailFreshV1354',state.token,sjId)}catch(e){console.warn('[Wills Warehouse] fresh SJ:',e.message)}}
-      try{await reloadDeliveryModule()}catch(e){console.warn('[Wills Warehouse] reload delivery:',e.message)}
-      if(fresh)upsertFreshDeliveryV1354(fresh);
-      if(method==='dispatchDelivery'){
-        if(fresh&&String(fresh.status||'').toUpperCase()==='DRAFT')throw new Error('Backend sudah memproses dispatch tetapi tampilan fresh masih DRAFT. Jangan klik Kirim lagi; cek Audit/Recovery.');
-        const fs=r&&r.feedSyncV1354||r&&r.feedSyncV1353||null, label=(fresh&&fresh.noSj)||sjId||'SJ';
-        if(fs&&fs.ok)toast(label+' • DIKIRIM • feed outlet diperbarui','success');
-        else toast(label+' sudah DIKIRIM, tetapi feed outlet belum terkirim'+(fs&&fs.error?' • '+fs.error:'')+'. Jangan kirim ulang; gunakan Sinkron SJ / worker.','warning');
-      }else toast('Berhasil disimpan'+(r&&r.txnId?' · '+r.txnId:''),'success');
-      if(fromKey==='delivery-fulfillment:'+sjId&&sheetHistoryDepth>1){pendingAfterSheetBack=()=>directDeliveryDetail(sjId);closeSheet();}else directDeliveryDetail(sjId);return r;
-    }catch(e){toast(e.message,'error');throw e}finally{opsWriteInFlightV43.delete(action);endBusy()}
+      const fresh=await bridge.call('getDeliveryDetailFreshV1354',state.token,id);
+      if(!fresh||String(fresh.sjId||'')!==String(id))throw new Error('Status belum tersedia.');
+      const final=dispatchApplyStatusV44(id,fresh);
+      if(final){
+        toast((fresh.noSj||'Surat Jalan')+' berstatus '+fresh.status+'. Tidak ada pengiriman ulang.','success');
+        reloadDeliveryModule().then(()=>dispatchUpdateIfVisibleV44(id)).catch(e=>console.warn('[Warehouse] Refresh SJ:',e.message));
+      }else{
+        toast('SJ masih DRAFT di snapshot. Ada percobaan kirim yang belum terverifikasi. Jangan klik Kirim lagi; cek Riwayat/Audit Recovery.','warning',12000);
+        dispatchUpdateIfVisibleV44(id);
+      }
+    }catch(err){toast('Status belum berhasil dibaca. Jangan kirim ulang: '+String(err&&err.message||err),'warning',12000);}
+    finally{opsWriteInFlightV43.delete('status_'+id);endBusy();}
+  }
+  function dispatchAcceptResponseV44(id,response){
+    if(!response||response.ok===false){
+      toast('Hasil Kirim belum berhasil dikonfirmasi. Jangan kirim ulang; gunakan Cek Status.','warning',12000);
+      dispatchUpdateIfVisibleV44(id);return;
+    }
+    const fresh=response.deliveryV1354||null;
+    if(!dispatchApplyStatusV44(id,fresh)){
+      toast('Backend merespons, tetapi status SJ belum terverifikasi. Gunakan Cek Status; jangan kirim ulang.','warning',12000);
+      dispatchUpdateIfVisibleV44(id);
+      return;
+    }
+    const feed=response.feedSyncV1354||response.feedSyncV1353||null;
+    if(feed&&feed.ok)toast((fresh.noSj||'SJ')+' · '+fresh.status+' · Feed outlet berhasil.','success');
+    else toast((fresh.noSj||'SJ')+' · '+fresh.status+' tercatat. Feed outlet belum terkonfirmasi; gunakan Sinkron SJ setelah memeriksa status.','warning',12000);
+    // The module refresh must never block the dispatch confirmation UI.
+    reloadDeliveryModule().then(()=>dispatchUpdateIfVisibleV44(id)).catch(e=>console.warn('[Warehouse] Refresh setelah kirim:',e.message));
+  }
+  async function writeDeliveryDirect(action,method,payload,sjId){
+    if(opsWriteInFlightV43.has(action)){toast('SJ sedang diproses; jangan tekan ulang.','warning');return null;}
+    const dispatch=method==='dispatchDelivery';
+    if(dispatch&&dispatchPendingV44(sjId)){
+      toast('Percobaan kirim sebelumnya belum terverifikasi. Gunakan Cek Status Kirim, jangan kirim ulang.','warning',12000);
+      dispatchUpdateIfVisibleV44(sjId);return {ok:false,pending:true};
+    }
+    opsWriteInFlightV43.add(action);
+    const idem=idemKey(action),fromKey=currentSheetKey();
+    if(dispatch)dispatchStorePendingV44(sjId,idem);
+    beginBusy(dispatch?'Konfirmasi Kirim SJ…':'Memproses Surat Jalan…');
+    try{
+      if(dispatch){
+        const remote=bridge.call(method,state.token,payload||{},idem);
+        const guarded=remote.then(value=>({type:'value',value}),error=>({type:'error',error}));
+        let timer;
+        const result=await Promise.race([
+          guarded,
+          new Promise(resolve=>{timer=setTimeout(()=>resolve({type:'slow'}),25000);})
+        ]);
+        clearTimeout(timer);
+        if(result.type==='slow'){
+          toast('Proses Kirim lebih dari 25 detik. Spinner dihentikan; backend mungkin masih bekerja. Jangan kirim ulang. Pilih Cek Status Kirim.','warning',12000);
+          dispatchUpdateIfVisibleV44(sjId);
+          guarded.then(out=>{
+            if(out.type==='value')dispatchAcceptResponseV44(sjId,out.value);
+            else{toast('Respons pengiriman tertunda/gagal. Jangan kirim ulang; cek status SJ.','warning',12000);dispatchUpdateIfVisibleV44(sjId);}
+          });
+          return {ok:false,pending:true};
+        }
+        if(result.type==='error')throw result.error;
+        dispatchAcceptResponseV44(sjId,result.value);
+        return result.value;
+      }
+      const result=await bridge.call(method,state.token,payload||{},idem);
+      if(result&&result.ok===false)throw new Error(result.message||'Proses SJ gagal.');
+      localStorage.removeItem('ww_gh_idem_'+action);
+      toast('Berhasil disimpan'+(result&&result.txnId?' · '+result.txnId:''),'success');
+      // Keep the original follow-up navigation, but refresh outside this spinner.
+      reloadDeliveryModule().then(()=>{if(fromKey==='delivery-fulfillment:'+sjId&&sheetHistoryDepth>1){pendingAfterSheetBack=()=>directDeliveryDetail(sjId);closeSheet();}else dispatchUpdateIfVisibleV44(sjId);}).catch(e=>toast('SJ tersimpan, refresh status belum selesai: '+e.message,'warning'));
+      return result;
+    }catch(err){
+      if(dispatch){
+        toast('Konfirmasi Kirim belum pasti: '+String(err&&err.message||err)+'. Jangan kirim ulang sebelum Cek Status.','warning',12000);
+        dispatchUpdateIfVisibleV44(sjId);
+        return {ok:false,pending:true};
+      }
+      toast(String(err&&err.message||err),'error');throw err;
+    }finally{
+      opsWriteInFlightV43.delete(action);endBusy();
+    }
   }
   async function callDirect(method,...args){return bridge.call(method,state.token,...args)}
   const matByCode=()=>Object.fromEntries(((state.data||{}).materials||[]).map(m=>[m.code,m]));
@@ -747,7 +834,7 @@
     if(roleCan('REQUEST_SYNC'))tools.push('<button class="btn btn-soft" id="ghSyncReq">Perbarui Permintaan</button>');
     if(roleCan('DELIVERY_SYNC'))tools.push('<button class="btn btn-primary" id="ghSyncRec">Sinkron Penerimaan</button>');
     if(canAny('AUDIT_OPERATIONAL','DELIVERY_SYNC'))tools.push('<button class="btn btn-line" id="ghDiag">Diagnostik</button>');
-    sheetHtml('Bahan yang Harus Dikirim Sekarang',`${tools.length?`<div class="direct-toolbar">${tools.join('')}</div>`:''}<h4>Permintaan Aktif</h4><div class="direct-list">${req.map(x=>{const reqDate=displayDateShort(x.requestDate||x.createdAt),needDate=displayDateShort(x.needDate);return `<button class="direct-card direct-click ww-ops-request-card" type="button" data-request-id="${esc(x.requestId)}" aria-label="Buka permintaan bahan ${esc(x.outletName)}"><b>${esc(x.outletName)} · Dibutuhkan ${esc(needDate)}</b><small>Permintaan ${esc(reqDate)} · ${num(x.itemCount||0)} bahan${x.linkedNoSj?' · SJ '+esc(x.linkedNoSj):''}</small><span class="badge warn">${esc(x.warehouseStatus||'')}</span><span class="btn btn-line ww-ops-request-btn" aria-hidden="true">Rincian & Cetak</span></button>`;}).join('')||'<div class="empty">Tidak ada permintaan aktif.</div>'}</div><h4>Surat Jalan</h4><div class="direct-list">${rows.slice(0,30).map(x=>`<button class="direct-card direct-click" data-sjid="${esc(x.sjId)}"><b>${esc(x.noSj)} · ${esc(x.outletName)}</b><small>${displayDateShort(x.shipDate||x.createdAt)} · ${(x.lines||[]).length} item${x.status==='DRAFT'?' · siap checklist thermal':''}${x.lastError?' · '+esc(x.lastError):''}</small>${deliveryStatusBadge(x.status)}</button>`).join('')||'<div class="empty">Belum ada SJ.</div>'}</div>`,{key:'delivery-list'});
+    sheetHtml('Bahan yang Harus Dikirim Sekarang',`${tools.length?`<div class="direct-toolbar">${tools.join('')}</div>`:''}<h4>Permintaan Aktif</h4><div class="direct-list">${req.map(x=>{const reqDate=displayDateShort(x.requestDate||x.createdAt),needDate=displayDateShort(x.needDate);return `<button class="direct-card direct-click ww-ops-request-card" type="button" data-request-id="${esc(x.requestId)}" aria-label="Buka permintaan bahan ${esc(x.outletName)}"><b>${esc(x.outletName)} · Dibutuhkan ${esc(needDate)}</b><small>Permintaan ${esc(reqDate)} · ${num(x.itemCount||0)} bahan${x.linkedNoSj?' · SJ '+esc(x.linkedNoSj):''}</small><span class="badge warn">${esc(x.warehouseStatus||'')}</span><span class="btn btn-line ww-ops-request-btn" aria-hidden="true">Rincian & Cetak</span></button>`;}).join('')||'<div class="empty">Tidak ada permintaan aktif.</div>'}</div><h4>Surat Jalan</h4><div class="direct-list">${rows.slice(0,30).map(x=>`<button class="direct-card direct-click" data-sjid="${esc(x.sjId)}"><b>${esc(x.noSj)} · ${esc(x.outletName)}</b><small>${displayDateShort(x.shipDate||x.createdAt)} · ${(x.lines||[]).length} item${x.status==='DRAFT'?(dispatchPendingV44(x.sjId)?' · PERLU CEK STATUS KIRIM':' · siap checklist thermal'):''}${x.lastError?' · '+esc(x.lastError):''}</small>${deliveryStatusBadge(x.status)}</button>`).join('')||'<div class="empty">Belum ada SJ.</div>'}</div>`,{key:'delivery-list'});
     const newSj=$('#ghNewSj');if(newSj)newSj.onclick=directNewSj;
     const syncReq=$('#ghSyncReq');if(syncReq)syncReq.onclick=async()=>{try{await withBusy('Memperbarui permintaan…',async()=>{await callDirect('syncOutletMaterialRequestsNowV1250');await reloadDeliveryModule();});toast('Permintaan diperbarui.');directDelivery()}catch(e){toast(e.message)}};
     const syncRec=$('#ghSyncRec');if(syncRec)syncRec.onclick=async()=>{try{let r;await withBusy('Sinkron penerimaan…',async()=>{r=await callDirect('syncOutletReceipts');await reloadDeliveryModule();});toast('Penerimaan disinkronkan'+(r&&r.elapsedMs?' · '+r.elapsedMs+' ms':''));directDelivery()}catch(e){toast(e.message)}};
@@ -769,15 +856,16 @@
   function directDeliveryDetail(id){
     const d=((state.data||{}).deliveries||[]).find(x=>x.sjId===id);if(!d)return toast('SJ tidak ditemukan.');
     const canPrepare=roleCan('DELIVERY_PREPARE'),canCancel=roleCan('DELIVERY_CANCEL'),canDispatch=roleCan('DELIVERY_DISPATCH'),canSync=roleCan('DELIVERY_SYNC');
-    const req=findRequestForDelivery(d),sjDate=displayDateTimeShort(d.dispatchedAt||d.shipDate||d.createdAt),receiptFirst=String(d.outletReceiptFirstDate||''),receiptLast=String(d.outletReceiptLastDate||''),receiptCount=Number(d.outletReceiptCount||0);
+    const pendingDispatch=dispatchPendingV44(id),req=findRequestForDelivery(d),sjDate=displayDateTimeShort(d.dispatchedAt||d.shipDate||d.createdAt),receiptFirst=String(d.outletReceiptFirstDate||''),receiptLast=String(d.outletReceiptLastDate||''),receiptCount=Number(d.outletReceiptCount||0);
     const requestMeta=req?`<div class="delivery-request-meta"><b>Permintaan Outlet · ${esc(displayDateShort(req.requestDate||req.createdAt))}</b><span>${req.needDate?'Dibutuhkan '+esc(displayDateShort(req.needDate)):''}${req.itemCount?' · '+num(req.itemCount,0)+' bahan':''}</span></div>`:'';
     const dateMeta=`<div class="delivery-date-meta"><b>Tanggal Surat Jalan</b><span>${esc(sjDate)}</span></div>`;
     const receiptLabel=!receiptLast?(receiptCount>0?'Sudah diterima · tanggal belum tercatat':'Belum diterima'):receiptFirst&&receiptFirst!==receiptLast?`${displayDateShort(receiptFirst)} – ${displayDateShort(receiptLast)}`:displayDateShort(receiptLast);
     const receiptMeta=`<div class="delivery-date-meta"><b>Tanggal Diterima Outlet</b><span>${esc(receiptLabel)}</span></div>`;
-    sheetHtml(d.noSj,`<p><b>${esc(d.outletName)}</b> · ${deliveryStatusBadge(d.status)}${d.createdBy?' · dibuat '+esc(d.createdBy):''}</p>${dateMeta}${requestMeta}${receiptMeta}<div class="direct-list">${(d.lines||[]).map(l=>{const requested=Number(l.requestedQtyUnit!=null?l.requestedQtyUnit:(l.qtyUnit||0)),approved=Number(l.qtyUnit||0),received=Number(l.receivedBase||0)/Number(l.factor||1),fulfillment=l.fulfillmentStatus||'DIPENUHI',fc=fulfillment==='DIPENUHI'?'ok':fulfillment==='TIDAK TERSEDIA'?'bad':'warn';return `<div class="direct-card"><b>${esc(l.name)}</b><small>Diminta ${num(requested)} · disiapkan ${num(approved)} ${esc(l.sendUnit)}${d.status!=='DRAFT'?' · diterima '+num(received):''}</small>${l.fulfillmentReason?`<small>Alasan: ${esc(l.fulfillmentReason)}</small>`:''}<span class="badge ${fc}">${esc(fulfillment)}</span></div>`}).join('')}</div><div class="actions">${d.status!=='DIBATALKAN'&&actionAllowed('draftPrint')?'<button class="btn btn-thermal" id="ghPrintSj">Cetak Thermal</button>':''}${d.status==='DRAFT'&&canPrepare?'<button class="btn btn-soft" id="ghAdjustSj">Atur Ketersediaan</button>':''}${d.status==='DRAFT'&&canCancel?'<button class="btn btn-line" id="ghCancelSj">Batalkan</button>':''}${d.status==='DRAFT'&&canDispatch?'<button class="btn btn-primary" id="ghSendSj">Konfirmasi Kirim</button>':''}${!['DRAFT','DIBATALKAN'].includes(d.status)&&canSync?'<button class="btn btn-soft" id="ghSyncSj">Sinkron SJ Ini</button>':''}</div>`,{key:'delivery-detail:'+id});
+    sheetHtml(d.noSj,`<p><b>${esc(d.outletName)}</b> · ${deliveryStatusBadge(d.status)}${d.createdBy?' · dibuat '+esc(d.createdBy):''}</p>${dateMeta}${requestMeta}${receiptMeta}${pendingDispatch?'<div class="ww-dispatch-pending-note" role="status"><b>Status pengiriman belum pasti.</b> Jangan tekan Kirim lagi. Gunakan Cek Status Kirim untuk membaca status backend. Stok mungkin sudah berkurang.</div>':''}<div class="direct-list">${(d.lines||[]).map(l=>{const requested=Number(l.requestedQtyUnit!=null?l.requestedQtyUnit:(l.qtyUnit||0)),approved=Number(l.qtyUnit||0),received=Number(l.receivedBase||0)/Number(l.factor||1),fulfillment=l.fulfillmentStatus||'DIPENUHI',fc=fulfillment==='DIPENUHI'?'ok':fulfillment==='TIDAK TERSEDIA'?'bad':'warn';return `<div class="direct-card"><b>${esc(l.name)}</b><small>Diminta ${num(requested)} · disiapkan ${num(approved)} ${esc(l.sendUnit)}${d.status!=='DRAFT'?' · diterima '+num(received):''}</small>${l.fulfillmentReason?`<small>Alasan: ${esc(l.fulfillmentReason)}</small>`:''}<span class="badge ${fc}">${esc(fulfillment)}</span></div>`}).join('')}</div><div class="actions">${d.status!=='DIBATALKAN'&&actionAllowed('draftPrint')?'<button class="btn btn-thermal" id="ghPrintSj">Cetak Thermal</button>':''}${d.status==='DRAFT'&&canPrepare?'<button class="btn btn-soft" id="ghAdjustSj">Atur Ketersediaan</button>':''}${d.status==='DRAFT'&&canCancel?'<button class="btn btn-line" id="ghCancelSj">Batalkan</button>':''}${d.status==='DRAFT'&&canDispatch&&!pendingDispatch?'<button class="btn btn-primary" id="ghSendSj">Konfirmasi Kirim</button>':''}${pendingDispatch?'<button class="btn btn-soft" id="ghCheckSjStatus">Cek Status Kirim</button>':''}${!['DRAFT','DIBATALKAN'].includes(d.status)&&canSync?'<button class="btn btn-soft" id="ghSyncSj">Sinkron SJ Ini</button>':''}</div>`,{key:'delivery-detail:'+id});
     const p=$('#ghPrintSj');if(p)p.onclick=()=>directPrintDeliveryDraft(id);
     const a=$('#ghAdjustSj');if(a)a.onclick=()=>directFulfillment(id);
     const c=$('#ghCancelSj');if(c)c.onclick=()=>writeDeliveryDirect('cancel_'+id,'cancelDeliveryDraft',{sjId:id,reason:'Dibatalkan dari GitHub PWA'},id);
+    const check=$('#ghCheckSjStatus');if(check)check.onclick=()=>dispatchCheckStatusV44(id);
     const k=$('#ghSendSj');if(k)k.onclick=()=>confirm('Hanya qty yang sudah disiapkan/disetujui yang akan mengurangi stok. Barang benar-benar siap dikirim?')&&writeDeliveryDirect('dispatch_'+id,'dispatchDelivery',{sjId:id},id);
     const y=$('#ghSyncSj');if(y)y.onclick=async()=>{try{let r;await withBusy('Sinkron SJ…',async()=>{r=await callDirect('syncOutletReceiptForDelivery',{sjId:id});if(!r.ok)throw new Error(r.error||'Sinkron gagal.');await reloadDeliveryModule();});toast('Penerimaan SJ diperbarui · '+r.elapsedMs+' ms');directDeliveryDetail(id)}catch(e){toast(e.message)}};
   }
