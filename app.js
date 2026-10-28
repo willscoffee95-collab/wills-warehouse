@@ -1268,7 +1268,7 @@
     },{passive:true});
     const end=e=>{
       if(!tracking)return;tracking=false;
-      if(Math.abs(e.clientX-x0)>72&&Math.abs(e.clientX-x0)>Math.abs(e.clientY-y0)){close();return;}
+      if(Math.abs(e.clientX-x0)>72&&Math.abs(e.clientX-x0)>Math.abs(e.clientY-y0)){node.style.transform='';close();return;}
       node.style.transform='';
     };
     node.addEventListener('pointerup',end,{passive:true});
