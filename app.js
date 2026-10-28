@@ -303,7 +303,7 @@
     ].join(''):[
       kpiCard('Bahan Aktif',qty(dash.activeMaterials),'Stok fisik Warehouse'),
       kpiCard('Harus Dikirim',qty(openReq),'Permintaan outlet aktif'),
-      kpiCard('Dalam Pengiriman',qty(dash.transitLines)+' item','Status transit'),
+      kpiCard('Dalam Pengiriman',qty(dash.transitLines)+' baris','Status transit'),
       kpiCard('Pemulihan',qty(dash.recoveryPending),Number(dash.recoveryPending||0)?'Perlu perhatian':'Tidak ada proses tertunda')
     ].join('');
     const quick=[];
