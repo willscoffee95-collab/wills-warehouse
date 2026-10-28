@@ -79,13 +79,17 @@ function createWarehouseTaskV1522(token, payload, idem) {
 
 /** Read-only validation of the addon and existing task dependencies. */
 function ww1522TaskAdminAuditReadOnly() {
-  const ss = warehouseSs_(),sh = ss.getSheetByName(WW_V1370.TASK_SHEET);
+  const ss = warehouseSs_(),sh = ss.getSheetByName(WW_V1370.TASK_SHEET),master = ss.getSheetByName('Template Tugas Gudang');
   const out = {
-    ok: !!(sh && sh.getLastColumn()>=19),
+    ok: !!(sh && sh.getLastColumn()>=19 && master && master.getLastColumn()>=11),
     readOnly:true,build:'2026-10-28.1.5.2.2-task-admin-candidate',
     spreadsheetId:ss.getId(),
     taskSheetPresent:!!sh,
     taskColumns:sh?sh.getLastColumn():0,
+    templateSheetPresent:!!master,
+    templateColumns:master?master.getLastColumn():0,
+    templateCount:master?Math.max(0,master.getLastRow()-1):0,
+    templateCrudReady:!!(master&&master.getLastColumn()>=11),
     ownerOnlyCreate:true,
     archiveViaExistingTaskStatus:true,
     taskRowCount:sh?Math.max(0,sh.getLastRow()-1):0,
