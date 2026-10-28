@@ -617,6 +617,42 @@
     [sel,input,actual,remain,waste].forEach(x=>{x.addEventListener('input',calc);x.addEventListener('change',calc)});calc();$('#ghCancel').onclick=closeSheet;
     form.onsubmit=async e=>{e.preventDefault();const c=calc();if(!c)return toast('Lengkapi data packing.');if(c.status==='CEK'&&String($('#ghPackNote').value||'').trim().length<5)return toast('Variance lebih dari 5 pack. Isi Catatan QC.');const fd=new FormData(form);await writeDirect('packing','postPackingBatch',{mappingId:c.map.id,inputQtyReceive:c.inputQtyReceive,inputQtyBase:c.inputQtyBase,outputQtyUnit:c.actual,remainderQtyBase:c.remainder,wasteQtyBase:c.waste,packer:fd.get('packer'),wageAmount:Number(fd.get('wageAmount')||0),note:fd.get('note')});};
   }
+  // v4.3 · Permintaan outlet: ringkasan dan cetak tanpa mutasi data.
+  function opsRequestV43(requestId) {
+    return ((state.data||{}).incomingRequests||[]).find(x=>String(x.requestId||'')===String(requestId||''))||null;
+  }
+  function opsRequestDetailV43(requestId) {
+    const req=opsRequestV43(requestId);
+    if(!req)return toast('Permintaan tidak ditemukan di snapshot. Tekan Perbarui Permintaan lalu coba lagi.');
+    const items=Array.isArray(req.items)?req.items:[];
+    sheetHtml('Permintaan Bahan Outlet',`<div class="ww-ops-request-meta"><strong>${esc(req.outletName||req.outletCode||'-')}</strong><span>Nomor permintaan: ${esc(req.requestId||'-')}</span><span>Diajukan: ${esc(displayDateShort(req.requestDate||req.createdAt))} · Dibutuhkan: ${esc(displayDateShort(req.needDate))}</span><span>Status: ${esc(req.warehouseStatus||req.sourceStatus||'-')}${req.linkedNoSj?' · SJ '+esc(req.linkedNoSj):''}</span>${req.note?'<span>Catatan: '+esc(req.note)+'</span>':''}</div><div class="direct-list">${items.map((it,i)=>`<div class="direct-card"><b>${i+1}. ${esc(it.name||it.code||'Bahan')}</b><small>${num(Number(it.qtyUnit!=null?it.qtyUnit:(it.qty||0)))} ${esc(it.unit||it.receiveUnit||'')} · ${esc(it.code||'')}</small></div>`).join('')||'<div class="empty">Detail bahan belum tersedia. Perbarui Permintaan untuk memuat ulang.</div>'}</div><div class="actions"><button class="btn btn-line" id="opsV43RequestBack" type="button">Kembali</button><button class="btn btn-primary" id="opsV43RequestPrint" type="button" ${items.length?'':'disabled'}>Cetak Permintaan A4</button></div>`,{key:'request-detail-v43:'+requestId});
+    const back=$('#opsV43RequestBack');if(back)back.onclick=()=>directDelivery();
+    const print=$('#opsV43RequestPrint');if(print)print.onclick=()=>opsPrintRequestV43(requestId);
+  }
+  function opsPrintRequestV43(requestId) {
+    const req=opsRequestV43(requestId);
+    if(!req||!Array.isArray(req.items)||!req.items.length)return toast('Detail bahan belum lengkap, cetak dibatalkan.');
+    const rows=req.items.map((it,i)=>`<tr><td>${i+1}</td><td>${esc(it.name||it.code||'Bahan')}<small>${esc(it.code||'')}</small></td><td class="right">${num(Number(it.qtyUnit!=null?it.qtyUnit:(it.qty||0)))}</td><td>${esc(it.unit||it.receiveUnit||'')}</td><td class="check">□</td></tr>`).join('');
+    const html=`<!doctype html><html lang="id"><head><meta charset="utf-8"><title>Permintaan Bahan Outlet</title><style>
+      @page{size:A4 portrait;margin:12mm}*{box-sizing:border-box}body{font:11px/1.4 Arial,sans-serif;color:#232323;margin:0}
+      h1{color:#a80f29;font-size:19px;margin:0 0 3px}.sub{font-size:10px;color:#666;margin-bottom:15px}
+      .head{display:flex;justify-content:space-between;gap:16px;border-bottom:2px solid #9e142a;padding-bottom:12px}
+      .meta{margin:14px 0;display:grid;grid-template-columns:1fr 1fr;gap:6px 12px}b{font-weight:700}table{width:100%;border-collapse:collapse}
+      th{background:#f6e8eb;color:#802033;text-align:left}th,td{padding:8px 7px;border:1px solid #d8d8d8;vertical-align:top}
+      td small{display:block;color:#777;margin-top:2px}.right{text-align:right}.check{text-align:center;font-size:17px}
+      .note{margin-top:14px;min-height:44px}.sign{margin-top:28px;display:grid;grid-template-columns:repeat(2,1fr);text-align:center;gap:28px}
+      .sign div{padding-top:52px}.sign span{display:block;border-top:1px solid #999;padding-top:6px}
+      </style></head><body><div class="head"><div><h1>WILLS COFFEE</h1><div class="sub">WAREHOUSE · PERMINTAAN BAHAN OUTLET</div></div><div>Nomor: <b>${esc(req.requestId||'-')}</b><br>Dicetak: ${esc(new Intl.DateTimeFormat('id-ID',{dateStyle:'medium',timeStyle:'short'}).format(new Date()))}</div></div>
+      <div class="meta"><div>Outlet: <b>${esc(req.outletName||req.outletCode||'-')}</b></div><div>Status: <b>${esc(req.warehouseStatus||req.sourceStatus||'-')}</b></div><div>Diajukan: <b>${esc(displayDateShort(req.requestDate||req.createdAt))}</b></div><div>Dibutuhkan: <b>${esc(displayDateShort(req.needDate))}</b></div></div>
+      <table><thead><tr><th>No.</th><th>Nama Bahan</th><th>Jumlah</th><th>Satuan</th><th>Cek</th></tr></thead><tbody>${rows}</tbody></table><div class="note"><b>Catatan Outlet:</b> ${esc(req.note||'-')}</div>
+      <div class="sign"><div><span>Disiapkan oleh Gudang</span></div><div><span>Diperiksa / Diterima Outlet</span></div></div>
+      <p class="sub">Dokumen permintaan, bukan bukti pengiriman. Pengurangan stok hanya melalui Surat Jalan yang dikirim.</p></body></html>`;
+    const win=window.open('','_blank','width=820,height=900');
+    if(!win)return toast('Pop-up cetak diblokir. Izinkan pop-up untuk aplikasi Warehouse.');
+    win.document.open();win.document.write(html);win.document.close();win.focus();
+    setTimeout(()=>{try{win.print();}catch(e){toast('Cetak tidak dapat dibuka: '+e.message);}},200);
+  }
+
   function directDelivery(){
     const d=state.data||{},req=(d.incomingRequests||[]).filter(x=>!['SELESAI','DIBATALKAN'].includes(String(x.warehouseStatus||''))),rows=d.deliveries||[];
     const tools=[];
@@ -624,12 +660,13 @@
     if(roleCan('REQUEST_SYNC'))tools.push('<button class="btn btn-soft" id="ghSyncReq">Perbarui Permintaan</button>');
     if(roleCan('DELIVERY_SYNC'))tools.push('<button class="btn btn-primary" id="ghSyncRec">Sinkron Penerimaan</button>');
     if(canAny('AUDIT_OPERATIONAL','DELIVERY_SYNC'))tools.push('<button class="btn btn-line" id="ghDiag">Diagnostik</button>');
-    sheetHtml('Bahan yang Harus Dikirim Sekarang',`${tools.length?`<div class="direct-toolbar">${tools.join('')}</div>`:''}<h4>Permintaan Aktif</h4><div class="direct-list">${req.map(x=>{const reqDate=displayDateShort(x.requestDate||x.createdAt),needDate=displayDateShort(x.needDate);return `<div class="direct-card"><b>${esc(x.outletName)} · Dibutuhkan ${esc(needDate)}</b><small>Permintaan ${esc(reqDate)} · ${num(x.itemCount||0)} bahan${x.linkedNoSj?' · SJ '+esc(x.linkedNoSj):''}</small><span class="badge warn">${esc(x.warehouseStatus||'')}</span></div>`;}).join('')||'<div class="empty">Tidak ada permintaan aktif.</div>'}</div><h4>Surat Jalan</h4><div class="direct-list">${rows.slice(0,30).map(x=>`<button class="direct-card direct-click" data-sjid="${esc(x.sjId)}"><b>${esc(x.noSj)} · ${esc(x.outletName)}</b><small>${displayDateShort(x.shipDate||x.createdAt)} · ${(x.lines||[]).length} item${x.status==='DRAFT'?' · siap checklist thermal':''}${x.lastError?' · '+esc(x.lastError):''}</small>${deliveryStatusBadge(x.status)}</button>`).join('')||'<div class="empty">Belum ada SJ.</div>'}</div>`,{key:'delivery-list'});
+    sheetHtml('Bahan yang Harus Dikirim Sekarang',`${tools.length?`<div class="direct-toolbar">${tools.join('')}</div>`:''}<h4>Permintaan Aktif</h4><div class="direct-list">${req.map(x=>{const reqDate=displayDateShort(x.requestDate||x.createdAt),needDate=displayDateShort(x.needDate);return `<div class="direct-card"><b>${esc(x.outletName)} · Dibutuhkan ${esc(needDate)}</b><small>Permintaan ${esc(reqDate)} · ${num(x.itemCount||0)} bahan${x.linkedNoSj?' · SJ '+esc(x.linkedNoSj):''}</small><span class="badge warn">${esc(x.warehouseStatus||'')}</span><button class="btn btn-line ww-ops-request-btn" type="button" data-request-id="${esc(x.requestId)}">Rincian & Cetak</button></div>`;}).join('')||'<div class="empty">Tidak ada permintaan aktif.</div>'}</div><h4>Surat Jalan</h4><div class="direct-list">${rows.slice(0,30).map(x=>`<button class="direct-card direct-click" data-sjid="${esc(x.sjId)}"><b>${esc(x.noSj)} · ${esc(x.outletName)}</b><small>${displayDateShort(x.shipDate||x.createdAt)} · ${(x.lines||[]).length} item${x.status==='DRAFT'?' · siap checklist thermal':''}${x.lastError?' · '+esc(x.lastError):''}</small>${deliveryStatusBadge(x.status)}</button>`).join('')||'<div class="empty">Belum ada SJ.</div>'}</div>`,{key:'delivery-list'});
     const newSj=$('#ghNewSj');if(newSj)newSj.onclick=directNewSj;
     const syncReq=$('#ghSyncReq');if(syncReq)syncReq.onclick=async()=>{try{await withBusy('Memperbarui permintaan…',async()=>{await callDirect('syncOutletMaterialRequestsNowV1250');await reloadDeliveryModule();});toast('Permintaan diperbarui.');directDelivery()}catch(e){toast(e.message)}};
     const syncRec=$('#ghSyncRec');if(syncRec)syncRec.onclick=async()=>{try{let r;await withBusy('Sinkron penerimaan…',async()=>{r=await callDirect('syncOutletReceipts');await reloadDeliveryModule();});toast('Penerimaan disinkronkan'+(r&&r.elapsedMs?' · '+r.elapsedMs+' ms':''));directDelivery()}catch(e){toast(e.message)}};
     const diag=$('#ghDiag');if(diag)diag.onclick=async()=>{try{let r;await withBusy('Menjalankan diagnostik…',async()=>{r=await callDirect('auditReceiptSyncDiagnosticAppV1260')});showDiagnostic(r)}catch(e){toast(e.message)}};
-    $$('[data-sjid]').forEach(b=>b.onclick=()=>directDeliveryDetail(b.dataset.sjid));
+    $('[data-request-id]').forEach(b=>b.onclick=()=>opsRequestDetailV43(b.dataset.requestId));
+    $('[data-sjid]').forEach(b=>b.onclick=()=>directDeliveryDetail(b.dataset.sjid));
   }
 
 
