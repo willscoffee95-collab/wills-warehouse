@@ -117,6 +117,7 @@
   const moneyActionsV1520=['outletPayment','expense','supplierPayment','packingWage','financeActual'];
   function actionAllowed(action){
     if(inventoryOnlyV1520()&&moneyActionsV1520.includes(action))return false;
+    if(action==='offlineSjValue')return inventoryOnlyV1520()&&roleCan('DISPATCH_REPORT');
     if(action==='delivery')return canAny('REQUEST_SYNC','DELIVERY_CREATE','DELIVERY_PREPARE','DELIVERY_DISPATCH','DELIVERY_SYNC','DELIVERY_COMPLETE');
     if(action==='draftPrint')return canAny('DELIVERY_PREPARE','DELIVERY_DISPATCH','DELIVERY_SYNC','DELIVERY_COMPLETE');
     const permission=ACTION_PERMISSION[action];
@@ -389,6 +390,7 @@
       ['money','Posisi Dana Warehouse','Atur saldo Bank & Kas yang benar sekarang','financeActual'],
       ['clipboard','Laporan Stok Warehouse','Mingguan / bulanan · pembelian & distribusi outlet','stockReport'],
       ['truck','Rekap Pengiriman Outlet','Per tanggal · per outlet · per bahan yang benar-benar dikirim','dispatchRecap'],
+      ['truck','Nilai Bahan Outlet (Offline)','Nilai kirim & terima dari harga snapshot SJ · tanpa status pembayaran','offlineSjValue'],
       ['audit','Koreksi HPP Historis','Perbaiki cost lama tanpa mengubah qty stok','hppCorrection']
     ];
     const modules=visibleModuleRows(all);
@@ -704,9 +706,23 @@
     if(action==='outletPayment')return directOutletPayment(); if(action==='expense')return directExpense(); if(action==='supplierPayment')return directSupplierPayment();
     if(action==='adjustment')return directAdjustment(); if(action==='packingWage')return directPackingWage(); if(action==='centralPrice')return directCentralPrice();if(action==='internalPrice')return directInternalPrice();
     if(action==='users')return directUsers(); if(action==='audit')return directAudit(); if(action==='recovery')return directRecovery();
+    if(action==='offlineSjValue')return directOfflineSjValuesV1520();
     if(action==='financeActual')return directFinanceActualV1300(); if(action==='stockReport')return directStockReportV1300(); if(action==='dispatchRecap')return directDispatchRecapV1320();
     if(action==='materials')return directMaterials(); if(action==='hppCorrection')return directHistoricalHppCorrection();
     toast('Modul belum tersedia.');
+  }
+  async function directOfflineSjValuesV1520(){
+    if(!inventoryOnlyV1520())return toast('Laporan offline hanya tersedia dalam mode Inventory Only.','warning');
+    sheetHtml('Nilai Bahan Outlet · Offline','<div class="role-guide">Memuat nilai dari snapshot Surat Jalan…</div>');
+    try{
+      const data=await callDirect('getWarehouseOfflineSjValuesV1520',50);
+      if(!data||!data.ok)throw new Error('Data nilai bahan belum tersedia.');
+      const groups=(data.outlets||[]).map(x=>'<div class="list-card"><div class="list-main"><b>'+esc(x.outletName||x.outletCode)+'</b><small>'+num(x.sjCount,0)+' SJ dalam laporan</small></div><div class="list-side"><strong>'+rp(x.receivedValue)+'</strong><small>Nilai diterima</small></div></div>').join('');
+      const details=(data.rows||[]).map(x=>'<div class="list-card"><div class="list-main"><b>'+esc(x.noSj)+'</b><small>'+esc(x.outletName)+' · '+esc(x.status)+'</small></div><div class="list-side"><strong>'+rp(x.sentValue)+'</strong><small>Terima '+rp(x.receivedValue)+'</small></div></div>').join('');
+      const html='<div class="role-guide"><b>Nilai barang, bukan catatan pelunasan</b><span>Harga internal mengikuti snapshot pada SJ. Pembayaran supplier dan outlet berlangsung offline, sehingga status sudah/belum dibayar tidak dinilai di sini. Menampilkan maksimal 50 SJ terkirim terakhir.</span></div><h4>Ringkasan per outlet</h4><div class="direct-list">'+(groups||'<div class="empty">Belum ada SJ.</div>')+'</div><h4>Rincian Surat Jalan</h4><div class="direct-list">'+(details||'<div class="empty">Belum ada SJ.</div>')+'</div><div class="actions"><button class="btn btn-line" id="ghCancel" type="button">Tutup</button></div>';
+      sheetHtml('Nilai Bahan Outlet · Offline',html);
+      const cancel=$('#ghCancel');if(cancel)cancel.onclick=closeSheet;
+    }catch(e){sheetHtml('Nilai Bahan Outlet · Offline','<div class="role-guide"><b>Gagal membaca nilai bahan.</b><span>'+esc(e&&e.message||e)+'</span></div><div class="actions"><button class="btn btn-line" id="ghCancel" type="button">Tutup</button></div>');const cancel=$('#ghCancel');if(cancel)cancel.onclick=closeSheet;}
   }
   function directPurchase(){
     const d=state.data||{},sups=d.suppliers||[],offline=inventoryOnlyV1520();
