@@ -924,9 +924,9 @@
     const syncReq=$('#ghSyncReq');if(syncReq)syncReq.onclick=async()=>{try{await withBusy('Memperbarui permintaan…',async()=>{await callDirect('syncOutletMaterialRequestsNowV1250');await reloadDeliveryModule();});toast('Permintaan diperbarui.');directDelivery()}catch(e){toast(e.message)}};
     const syncRec=$('#ghSyncRec');if(syncRec)syncRec.onclick=async()=>{try{let r;await withBusy('Sinkron penerimaan…',async()=>{r=await callDirect('syncOutletReceipts');await reloadDeliveryModule();});toast('Penerimaan disinkronkan'+(r&&r.elapsedMs?' · '+r.elapsedMs+' ms':''));directDelivery()}catch(e){toast(e.message)}};
     const diag=$('#ghDiag');if(diag)diag.onclick=async()=>{try{let r;await withBusy('Menjalankan diagnostik…',async()=>{r=await callDirect('auditReceiptSyncDiagnosticAppV1260')});showDiagnostic(r)}catch(e){toast(e.message)}};
-    $('[data-ww-request-outlet']).forEach(b=>b.onclick=()=>{wwSelectedOutletV1522=b.dataset.wwRequestOutlet;directDelivery();});
-    $('[data-request-id']).forEach(b=>b.addEventListener('click',()=>opsRequestDetailV43(b.dataset.requestId)));
-    $('[data-sjid']).forEach(b=>b.addEventListener('click',()=>directDeliveryDetail(b.dataset.sjid)));
+    $('[data-ww-request-outlet]').forEach(b=>b.onclick=()=>{wwSelectedOutletV1522=b.dataset.wwRequestOutlet;directDelivery();});
+    $('[data-request-id]').forEach(b=>b.addEventListener('click',()=>opsRequestDetailV43(b.dataset.requestId)));
+    $('[data-sjid]').forEach(b=>b.addEventListener('click',()=>directDeliveryDetail(b.dataset.sjid)));
   }
 
   function directDraftPrintList(){
@@ -1108,8 +1108,8 @@
     };
     $('#wwNewUser').onclick=()=>open(null);
     $('#wwCancelUserEdit').onclick=()=>{form.hidden=true;form.dataset.editUserId='';};
-    $('[data-ww-user-edit']).forEach(b=>b.onclick=()=>{const u=users.find(x=>String(x.id)===b.dataset.wwUserEdit);if(u)open(u);});
-    $('[data-ww-user-toggle']).forEach(b=>b.onclick=async()=>{
+    $('[data-ww-user-edit]').forEach(b=>b.onclick=()=>{const u=users.find(x=>String(x.id)===b.dataset.wwUserEdit);if(u)open(u);});
+    $('[data-ww-user-toggle]').forEach(b=>b.onclick=async()=>{
       const u=users.find(x=>String(x.id)===b.dataset.wwUserToggle);
       if(!u||String(u.id)===String(((state.data||{}).user||{}).id))return;
       const next=u.active==='YA'?false:true;
