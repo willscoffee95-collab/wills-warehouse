@@ -181,3 +181,14 @@ html,body{background:#f5f5f5!important}
  .module-grid .module-card b{font-size:11px!important}
  .quick-card b{font-size:11px!important}
 }
+
+
+/* v4.3: Warehouse Operational Upgrade — incremental controls only; original v4.2 theme unchanged */
+.ww-ops-request-btn{display:inline-flex!important;align-items:center!important;justify-content:center!important;margin-top:10px!important;width:max-content!important;max-width:100%!important;padding:8px 12px!important;border-radius:9px!important;color:#a9152f!important;border-color:#edd8de!important;background:#fff7f9!important;font-size:11px!important;font-weight:750!important}
+.ww-ops-request-meta{display:grid;gap:7px;padding:12px;border:1px solid #f0d7dd;border-radius:12px;background:#fff8fa;margin:0 0 14px;color:#5b5b63;font-size:11px;overflow-wrap:anywhere}
+.ww-ops-request-meta strong{font-size:15px;color:#a61531}
+.ww-ops-request-meta span{display:block;line-height:1.4}
+.ww-ops-audit-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:13px 0}
+.ww-ops-audit-grid .btn{font-size:11px!important;line-height:1.35!important;padding:12px 10px!important;white-space:normal!important;min-width:0!important;min-height:51px!important}
+.ww-ops-audit-status{padding:11px 12px;background:#f6f7f9;color:#62646d;border-radius:11px;font-size:11px;margin-bottom:10px;line-height:1.5}
+@media(max-width:350px){.ww-ops-audit-grid{grid-template-columns:1fr}}
