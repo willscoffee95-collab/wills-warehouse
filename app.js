@@ -277,41 +277,45 @@
 
 
 
+  // v4.2: visual parity with production Apps Script Dashboard; no transaction changes.
   function renderHome() {
-    const d = state.data || {};
-    const dash = d.dashboard || {};
-    const displayName = d.user && d.user.name ? d.user.name : 'User';
-
-    const requestCount=((d.incomingRequests||[]).filter(x=>!['SELESAI','DIBATALKAN'].includes(String(x.warehouseStatus||''))).length);
+    const d=state.data||{}, dash=d.dashboard||{};
+    const role=currentRole(), finance=dash.financeVisible!==false;
     const draftCount=(d.deliveries||[]).filter(x=>String(x.status||'')==='DRAFT').length;
-    const financeVisible=dash.financeVisible!==false;
-    const heroActions=[];
-    if(roleCan('PURCHASE')) heroActions.push('<button class="btn btn-primary" data-action="purchase">+ Belanja Bahan</button>');
-    if(actionAllowed('delivery')) heroActions.push('<button class="btn btn-soft" data-action="delivery">Bahan Harus Dikirim</button>');
+    const openReq=(d.incomingRequests||[]).filter(x=>!['SELESAI','DIBATALKAN'].includes(String(x.warehouseStatus||''))).length;
+    const cashReady=dash.financeUnit&&dash.financeUnit.ready;
+    const money=v=>v==null?'—':rp(v);
+    const qty=v=>v==null?'—':num(v,0);
+    const kpis=finance?[
+      kpiCard(cashReady?'Saldo Unit Gudang':'Saldo Gudang',money(cashReady?dash.financeUnit.balance:dash.warehouseFunds),
+        'Dana fisik '+money(dash.warehouseFunds)+' · Bank '+money(dash.bankBalance)+' · Kas '+money(dash.cashBalance)),
+      kpiCard('Piutang Outlet',money(dash.receivablesTotal),qty(dash.receivablesCount)+' tagihan aktif'),
+      kpiCard('Nilai Stok',money(dash.stockValue),''),
+      kpiCard('Dalam Transit',money(dash.transitValue),qty(dash.transitLines)+' baris aktif')
+    ].join(''):[
+      kpiCard('Bahan Aktif',qty(dash.activeMaterials),'Stok fisik Warehouse'),
+      kpiCard('Harus Dikirim',qty(openReq),'Permintaan outlet aktif'),
+      kpiCard('Dalam Pengiriman',qty(dash.transitLines)+' item','Status transit'),
+      kpiCard('Pemulihan',qty(dash.recoveryPending),Number(dash.recoveryPending||0)?'Perlu perhatian':'Tidak ada proses tertunda')
+    ].join('');
     const quick=[];
     if(roleCan('PACKING')) quick.push(quickCard('pack','Batch Packing','Bahan curah → hasil packing','packing'));
-    if(actionAllowed('delivery')) quick.push(quickCard('truck','Bahan yang Harus Dikirim Sekarang','Cek daftar & siapkan bahan outlet','delivery'));
-    if(actionAllowed('delivery')) quick.push(quickCard('truck','Surat Jalan','Pengiriman barang ke outlet','delivery'));
-    if(actionAllowed('draftPrint')&&draftCount) quick.push(quickCard('printer','Draft Siap Kirim',`${draftCount} draft · cetak thermal Bluetooth`,'draftPrint'));
-    if(roleCan('OUTLET_PAYMENT')) quick.push(quickCard('money','Pembayaran Outlet','Piutang dibayar ke Kas / Bank','outletPayment'));
+    if(actionAllowed('delivery')) quick.push(quickCard('truck','Bahan yang Harus Dikirim','Siapkan bahan outlet','delivery'));
+    if(actionAllowed('delivery')) quick.push(quickCard('truck','Surat Jalan','Siapkan • cetak • kirim','delivery'));
+    if(actionAllowed('draftPrint')&&draftCount) quick.push(quickCard('printer','Draft Siap Kirim','Cetak thermal Bluetooth','draftPrint'));
+    if(roleCan('PURCHASE')) quick.push(quickCard('cart','Belanja Bahan','Bank / Kas / Tempo','purchase'));
+    if(roleCan('OUTLET_PAYMENT')) quick.push(quickCard('money','Pembayaran Outlet','Catat pembayaran outlet','outletPayment'));
+    if(roleCan('PACKING_WAGE_PAYMENT')&&Number(dash.packingWageOutstanding||0)>0) quick.push(quickCard('money','Bayar Upah Packing','Pelunasan upah batch','packingWage'));
+    if(roleCan('SUPPLIER_PAYMENT')) quick.push(quickCard('wallet','Bayar Supplier','Bank / Kas Gudang','supplierPayment'));
     if(roleCan('EXPENSE')) quick.push(quickCard('expense','Pengeluaran','Operasional gudang','expense'));
-    const heroValue=financeVisible?compactRp(dash.stockValue):`${num(dash.activeMaterials,0)} bahan`;
-    const heroDesc=financeVisible?`Total nilai stok aktif · ${num(dash.activeMaterials,0)} bahan aktif`:'Permintaan outlet aktif ditampilkan melalui lonceng notifikasi';
-    const kpis=financeVisible
-      ? `${kpiCard('Dana Gudang', compactRp(dash.warehouseFunds), `Bank ${compactRp(dash.bankBalance)} · Kas ${compactRp(dash.cashBalance)}`, 'good')}${kpiCard('Piutang Outlet', compactRp(dash.receivablesTotal), `${num(dash.receivablesCount,0)} tagihan aktif`)}${kpiCard('Dalam Pengiriman', `${num(dash.transitLines,0)} item`, compactRp(dash.transitValue), Number(dash.transitLines||0)===0?'good':'')}${kpiCard('Pemulihan', num(dash.recoveryPending,0), Number(dash.recoveryPending||0)===0?'Tidak ada proses tertunda':'Perlu perhatian', Number(dash.recoveryPending||0)===0?'good':'')}`
-      : `${kpiCard('Bahan Aktif', num(dash.activeMaterials,0), 'Stok fisik tersedia')}${kpiCard('Permintaan Outlet', 'Lihat Lonceng', 'Antrean aktif ada di notifikasi', 'good')}${kpiCard('Dalam Pengiriman', `${num(dash.transitLines,0)} item`, Number(dash.transitLines||0)===0?'Tidak ada barang di transit':'Sedang menuju outlet', Number(dash.transitLines||0)===0?'good':'')}${kpiCard('Pemulihan', num(dash.recoveryPending,0), Number(dash.recoveryPending||0)===0?'Tidak ada proses tertunda':'Perlu perhatian', Number(dash.recoveryPending||0)===0?'good':'')}`;
-    return `${pageHead(`${greeting()}, ${displayName}`, roleName(d.user&&d.user.role||''), 'Sistem aktif')}
-      <section class="hero">
-        <div class="hero-kicker"><span class="pulse"></span>Pusat Kendali Gudang</div>
-        <h3>${esc(heroValue)}</h3>
-        <p>${esc(heroDesc)}</p>
-        ${heroActions.length?`<div class="hero-actions">${heroActions.join('')}</div>`:''}
-      </section>
-      <div class="kpi-grid">${kpis}</div>
-      ${quick.length?`<section class="section"><div class="section-head"><h3>Aksi Cepat</h3><button data-page-jump="transactions">Lihat semua</button></div><div class="quick-grid">${quick.join('')}</div></section>`:''}
-`;
+    return `<section class="hero ww-as-home-hero">
+      <div class="hero-kicker">WILLS COFFEE · ${esc(roleName(role))}</div>
+      <h3>${esc(d.warehouseName||'Wills Warehouse')}</h3>
+      ${Number(dash.recoveryPending||0)>0?'<p class="ww-as-warning">⚠ '+num(dash.recoveryPending,0)+' transaksi dalam antrean pemulihan.</p>':''}
+    </section>
+    <div class="kpi-grid ww-as-kpi-grid">${kpis}</div>
+    ${quick.length?`<section class="section ww-as-actions"><div class="section-head"><h3>Aksi cepat</h3></div><div class="quick-grid">${quick.join('')}</div></section>`:''}`;
   }
-
 
   function kpiCard(label, value, delta, cls='') {
     return `<div class="kpi"><small>${esc(label)}</small><strong>${esc(value)}</strong><span class="delta ${cls}">${esc(delta)}</span></div>`;
@@ -348,7 +352,7 @@
       ['money','Bayar Upah Packing','Kas / Bank · hutang upah','packingWage']
     ];
     const modules=visibleModuleRows(all);
-    return `${pageHead('Transaksi', 'Menu disesuaikan otomatis dengan hak akses ' + roleName(currentRole()) + '.', 'Siap transaksi')}
+    return `${pageHead('Transaksi', 'Menu sesuai hak akses dan otomatis tersambung ke backend.', 'Siap transaksi')}
       <div class="module-grid">${modules.map(m=>moduleCard(...m)).join('') || '<div class="empty">Tidak ada transaksi untuk role ini.</div>'}</div>`;
   }
   function moduleCard(icon,title,desc,action){return `<button class="module-card" data-action="${action}"><span class="module-icon">${icons[icon]}</span><span class="copy"><b>${esc(title)}</b><small>${esc(desc)}</small></span><span class="chev">›</span></button>`}
@@ -384,7 +388,12 @@
       ['audit','Koreksi HPP Historis','Perbaiki cost lama tanpa mengubah qty stok','hppCorrection']
     ];
     const modules=visibleModuleRows(all);
-    return `${pageHead('Kontrol', 'Pengaturan dan pemantauan sesuai hak akses.', 'Sistem aktif')}
+    const role=currentRole();
+    const guide='<div class="ww-as-role-guide"><b>Pembagian tugas:</b><br>'+
+      'Admin 1 Finance — belanja/pemasukan, pengeluaran, pembayaran, supplier & kontrol harga; tanpa koreksi stok.<br>'+
+      'Admin 2 Staff Gudang — permintaan outlet, siapkan bahan, Surat Jalan dan pengiriman.<br>'+
+      'Owner — satu-satunya role untuk koreksi stok, koreksi saldo, dan pemeriksaan seluruh sistem.</div>';
+    return `${pageHead('Kontrol', 'Owner · hak akses dipisahkan di backend.', 'Sistem aktif')}${guide}
       <div class="module-grid">${modules.map(m=>moduleCard(...m)).join('')}</div>
       <section class="section"><div class="section-head"><h3>Status Sistem</h3><span>Terhubung</span></div>
         <div class="hero compact-hero"><div class="hero-kicker"><span class="pulse"></span>Sistem Gudang</div><h3>DATA TERSAMBUNG</h3><p>Dashboard, stok, riwayat, dan transaksi berjalan melalui sistem utama dengan audit dan idempotensi yang sama.</p></div>
