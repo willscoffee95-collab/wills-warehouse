@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  window.WW_FRONTEND_BUILD='2026-10-28.1.5.2.3-selector-loading-fix';
+  window.WW_FRONTEND_BUILD='2026-10-28.1.5.2.4-outlet-requests-first';
 
 
   const $ = (q, root = document) => root.querySelector(q);
@@ -919,11 +919,12 @@
       (x.status==='DRAFT'?(dispatchPendingV44(x.sjId)?' · PERLU CEK STATUS KIRIM':' · siap checklist thermal'):'')+
       (x.lastError?' · '+esc(x.lastError):'')+'</small>'+deliveryStatusBadge(x.status)+'</button>').join('');
     sheetHtml('Bahan yang Harus Dikirim Sekarang',
-      (tools.length?'<div class="direct-toolbar">'+tools.join('')+'</div>':'')+
-      '<div class="ww-request-top"><b>Permintaan per outlet</b><span>'+num(req.length,0)+' permintaan aktif</span></div>'+
+      // Primary screen content: requests first, no action toolbar above it.
+      '<div class="ww-request-top"><b>Permintaan Bahan Outlet</b><span>'+num(req.length,0)+' permintaan aktif</span></div>'+
       '<div class="ww-request-tabs" role="group" aria-label="Pilih outlet">'+(menu||'<span>Belum ada permintaan</span>')+'</div>'+
       '<div class="ww-request-section"><div class="ww-request-section-head"><b>'+esc(selected?selected.name:'Tidak ada permintaan')+'</b><span>'+num(entries.length,0)+' permintaan</span></div>'+
       '<div class="ww-request-scroll">'+(requests||'<div class="empty">Tidak ada permintaan aktif untuk outlet ini.</div>')+'</div></div>'+
+      (tools.length?'<details class="ww-sj-collapse ww-request-actions"><summary>Aksi Gudang <span>Sinkronisasi · Surat Jalan manual · Diagnostik</span></summary><div class="direct-toolbar">'+tools.join('')+'</div></details>':'')+
       '<details class="ww-sj-collapse"><summary>Surat Jalan Terbaru <span>'+num(rows.length,0)+' SJ · ketuk untuk membuka</span></summary>'+
       '<div class="direct-list">'+(sj||'<div class="empty">Belum ada SJ.</div>')+'</div></details>',
       {key:'delivery-list'});
