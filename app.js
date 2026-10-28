@@ -683,9 +683,33 @@
     const req=opsRequestV43(requestId);
     if(!req)return toast('Permintaan tidak ditemukan di snapshot. Tekan Perbarui Permintaan lalu coba lagi.');
     const items=Array.isArray(req.items)?req.items:[];
-    sheetHtml('Permintaan Bahan Outlet',`<div class="ww-ops-request-meta"><strong>${esc(req.outletName||req.outletCode||'-')}</strong><span>Nomor permintaan: ${esc(req.requestId||'-')}</span><span>Diajukan: ${esc(displayDateShort(req.requestDate||req.createdAt))} · Dibutuhkan: ${esc(displayDateShort(req.needDate))}</span><span>Status: ${esc(req.warehouseStatus||req.sourceStatus||'-')}${req.linkedNoSj?' · SJ '+esc(req.linkedNoSj):''}</span>${req.note?'<span>Catatan: '+esc(req.note)+'</span>':''}</div><div class="direct-list">${items.map((it,i)=>`<div class="direct-card"><b>${i+1}. ${esc(it.name||it.code||'Bahan')}</b><small>${num(Number(it.qtyUnit!=null?it.qtyUnit:(it.qty||0)))} ${esc(it.unit||it.receiveUnit||'')} · ${esc(it.code||'')}</small></div>`).join('')||'<div class="empty">Detail bahan belum tersedia. Perbarui Permintaan untuk memuat ulang.</div>'}</div><div class="actions"><button class="btn btn-line" id="opsV43RequestBack" type="button">Kembali</button><button class="btn btn-primary" id="opsV43RequestPrint" type="button" ${items.length?'':'disabled'}>Cetak Permintaan A4</button></div>`,{key:'request-detail-v43:'+requestId});
+    sheetHtml('Permintaan Bahan Outlet',`<div class="ww-ops-request-meta"><strong>${esc(req.outletName||req.outletCode||'-')}</strong><span>Nomor permintaan: ${esc(req.requestId||'-')}</span><span>Diajukan: ${esc(displayDateShort(req.requestDate||req.createdAt))} · Dibutuhkan: ${esc(displayDateShort(req.needDate))}</span><span>Status: ${esc(req.warehouseStatus||req.sourceStatus||'-')}${req.linkedNoSj?' · SJ '+esc(req.linkedNoSj):''}</span>${req.note?'<span>Catatan: '+esc(req.note)+'</span>':''}</div><div class="direct-list">${items.map((it,i)=>`<div class="direct-card"><b>${i+1}. ${esc(it.name||it.code||'Bahan')}</b><small>${num(Number(it.qtyUnit!=null?it.qtyUnit:(it.qty||0)))} ${esc(it.unit||it.receiveUnit||'')} · ${esc(it.code||'')}</small></div>`).join('')||'<div class="empty">Detail bahan belum tersedia. Perbarui Permintaan untuk memuat ulang.</div>'}</div><div class="actions"><button class="btn btn-line" id="opsV43RequestBack" type="button">Kembali</button><button class="btn btn-soft" id="opsV43RequestThermal" type="button" ${items.length?'':'disabled'}>Cetak Thermal</button><button class="btn btn-primary" id="opsV43RequestPrint" type="button" ${items.length?'':'disabled'}>Cetak A4</button></div>`,{key:'request-detail-v43:'+requestId});
     const back=$('#opsV43RequestBack');if(back)back.onclick=()=>directDelivery();
     const print=$('#opsV43RequestPrint');if(print)print.onclick=()=>opsPrintRequestV43(requestId);
+    const thermal=$('#opsV43RequestThermal');if(thermal)thermal.onclick=()=>opsPrintRequestThermalV43(requestId);
+  }
+  function opsPrintRequestThermalV43(requestId) {
+    const req=opsRequestV43(requestId),items=req&&req.items;
+    if(!Array.isArray(items)||!items.length)return toast('Detail bahan kosong. Perbarui permintaan terlebih dahulu.');
+    const width=Number(localStorage.getItem('ww_thermal_width'))===48?48:32,hr='-'.repeat(width),parts=[];
+    parts.push(centerThermal('WILLS COFFEE',width));
+    parts.push(centerThermal('PERMINTAAN OUTLET',width));
+    parts.push(hr);
+    [
+      'Outlet: '+String(req.outletName||req.outletCode||'-'),
+      'No: '+String(req.requestId||'-'),
+      'Diajukan: '+displayDateShort(req.requestDate||req.createdAt),
+      'Dibutuhkan: '+displayDateShort(req.needDate)
+    ].forEach(line=>wrapThermal(line,width).forEach(x=>parts.push(x)));
+    parts.push(hr);
+    items.forEach((item,i)=>{
+      wrapThermal('[ ] '+(i+1)+'. '+String(item.name||item.code||'Bahan'),width).forEach(x=>parts.push(x));
+      wrapThermal('    '+num(Number(item.qtyUnit!=null?item.qtyUnit:(item.qty||0)))+' '+String(item.unit||item.receiveUnit||''),width).forEach(x=>parts.push(x));
+    });
+    parts.push(hr);
+    if(req.note)wrapThermal('Catatan: '+String(req.note),width).forEach(x=>parts.push(x));
+    parts.push('Disiapkan: _____________','Diperiksa:  _____________',hr,'BUKAN BUKTI PENGIRIMAN','','');
+    printRawBt(parts.join('\n'));
   }
   function opsPrintRequestV43(requestId) {
     const req=opsRequestV43(requestId);
