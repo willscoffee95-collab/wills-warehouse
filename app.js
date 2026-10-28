@@ -1070,9 +1070,61 @@
     $('#ghSyncPrice').onclick=async()=>{try{await writeDirect('syncPrice','syncOutletReceiptInternalPricesNow',{})}catch(_){}};render();
   }
   function directUsers(){
+    if(currentRole()!=='OWNER')return toast('Pengelolaan pengguna hanya untuk Owner.','warning');
     const users=(state.data||{}).users||[];
-    sheetHtml('Pengguna & Peran',`<div class="role-guide"><b>Pembagian kerja</b><span><strong>Admin 1 Finance</strong> · peran Admin 1: belanja/pemasukan, pengeluaran, pembayaran, supplier & kontrol harga; tanpa koreksi stok</span><span><strong>Admin 2 Staff Gudang</strong> · peran Admin 2: cek pesanan outlet, siapkan bahan, Surat Jalan & pengiriman</span><span><strong>Owner</strong> · satu-satunya role yang boleh koreksi stok dan menetapkan posisi dana Bank/Kas</span></div><form id="ghUser"><label class="field"><span>Nama</span><input name="name" required></label><label class="field"><span>Username</span><input name="username" required></label><label class="field"><span>Role</span><select name="role"><option value="ADMIN_1">Admin 1 Finance</option><option value="ADMIN_2">Admin 2 Staff Gudang</option><option value="OWNER">Owner</option></select></label><label class="field"><span>PIN</span><input name="pin" type="password" inputmode="numeric" required></label><div class="actions"><button class="btn btn-primary">Simpan User</button></div></form><div class="direct-list">${users.map(x=>`<div class="direct-card"><b>${esc(x.name)}</b><small>@${esc(x.username)} · ${esc(roleName(x.role))}${['ADMIN','STAFF_GUDANG'].includes(String(x.role||''))?' · legacy, sebaiknya ubah role':''}</small></div>`).join('')}</div>`);
-    $('#ghUser').onsubmit=async e=>{e.preventDefault();await writeDirect('user','saveUser',Object.fromEntries(new FormData(e.target).entries()))};
+    const counts={active:users.filter(x=>x.active==='YA').length,inactive:users.filter(x=>x.active!=='YA').length};
+    const cards=users.map(u=>{
+      const active=u.active==='YA',self=String(u.id)===String(((state.data||{}).user||{}).id);
+      return '<div class="ww-user-card"><div class="ww-user-avatar">'+esc((u.name||'?').trim().slice(0,1).toUpperCase())+'</div><div class="ww-user-info"><b>'+esc(u.name)+'</b>'+
+      '<small>@'+esc(u.username)+' · '+esc(roleName(u.role))+'</small><span class="badge '+(active?'ok':'warn')+'">'+(active?'AKTIF':'NONAKTIF')+'</span></div>'+
+      '<div class="ww-user-actions"><button class="btn btn-line" data-ww-user-edit="'+esc(u.id)+'" type="button">Ubah</button>'+
+      '<button class="btn btn-soft" data-ww-user-toggle="'+esc(u.id)+'" type="button" '+(self?'disabled title="Akun yang sedang dipakai tidak dapat dinonaktifkan"':'')+'>'+(active?'Nonaktifkan':'Aktifkan')+'</button></div></div>';
+    }).join('');
+    const roleOpts=[['ADMIN_1','Admin 1 · Keuangan'],['ADMIN_2','Admin 2 · Gudang'],['STAFF_GUDANG','Staff Gudang'],['STAFF_LOGISTIK','Logistik'],['FINANCE','Finance'],['HR','HR'],['OWNER','Owner']];
+    sheetHtml('Pengguna & Peran',
+      '<div class="ww-users-overview"><b>Pengelolaan Akun Warehouse</b><span>'+num(counts.active,0)+' aktif · '+num(counts.inactive,0)+' nonaktif</span><p>Nonaktifkan akun tanpa menghapus transaksi, histori, atau hak akses inti sistem. Akun dapat diaktifkan kembali.</p></div>'+
+      '<div class="ww-users-toolbar"><button class="btn btn-primary" id="wwNewUser" type="button">+ Tambah Pengguna</button></div>'+
+      '<form id="wwUserForm" class="ww-user-form" hidden><b id="wwUserFormTitle">Pengguna Baru</b>'+
+      '<label class="field"><span>Nama pengguna</span><input name="name" required maxlength="80"></label>'+
+      '<label class="field"><span>Username</span><input name="username" required maxlength="60" autocomplete="off"></label>'+
+      '<label class="field"><span>Peran</span><select name="role">'+roleOpts.map(x=>'<option value="'+x[0]+'">'+x[1]+'</option>').join('')+'</select></label>'+
+      '<label class="field"><span>PIN <small id="wwPinHint">Wajib untuk pengguna baru</small></span><input name="pin" type="password" inputmode="numeric" autocomplete="new-password"></label>'+
+      '<div class="actions"><button class="btn btn-line" type="button" id="wwCancelUserEdit">Batal</button><button class="btn btn-primary" type="submit">Simpan Pengguna</button></div></form>'+
+      '<div class="ww-user-list">'+(cards||'<div class="empty">Belum ada pengguna.</div>')+'</div>',
+      {key:'user-management-v1522'});
+    const form=$('#wwUserForm');
+    const open=(u)=>{
+      form.hidden=false;form.dataset.editUserId=u?String(u.id):'';
+      form.elements.name.value=u?u.name:'';
+      form.elements.username.value=u?u.username:'';
+      form.elements.username.readOnly=!!u;
+      form.elements.role.value=u?u.role:'ADMIN_2';
+      form.elements.pin.value='';
+      form.elements.pin.required=!u;
+      $('#wwUserFormTitle').textContent=u?'Ubah Pengguna · '+u.name:'Tambah Pengguna';
+      $('#wwPinHint').textContent=u?'Kosongkan jika PIN tidak berubah':'Wajib untuk pengguna baru';
+      form.scrollIntoView({behavior:'smooth',block:'nearest'});
+    };
+    $('#wwNewUser').onclick=()=>open(null);
+    $('#wwCancelUserEdit').onclick=()=>{form.hidden=true;form.dataset.editUserId='';};
+    $('[data-ww-user-edit]').forEach(b=>b.onclick=()=>{const u=users.find(x=>String(x.id)===b.dataset.wwUserEdit);if(u)open(u);});
+    $('[data-ww-user-toggle]').forEach(b=>b.onclick=async()=>{
+      const u=users.find(x=>String(x.id)===b.dataset.wwUserToggle);
+      if(!u||String(u.id)===String(((state.data||{}).user||{}).id))return;
+      const next=u.active==='YA'?false:true;
+      if(!window.confirm((next?'AKTIFKAN kembali':'NONAKTIFKAN')+' akun '+u.name+' (@'+u.username+')? Histori tidak akan dihapus.'))return;
+      try{await writeDirect('userStatus_'+u.id,'saveUser',{username:u.username,name:u.name,role:u.role,pin:'',active:next});}
+      catch(_){}
+    });
+    form.onsubmit=async e=>{
+      e.preventDefault();const fd=new FormData(form),isEdit=!!form.dataset.editUserId;
+      const payload={name:String(fd.get('name')||'').trim(),username:String(fd.get('username')||'').trim(),role:fd.get('role'),pin:String(fd.get('pin')||''),active:true};
+      if(!payload.name||!payload.username||(!isEdit&&!payload.pin))return toast('Lengkapi data pengguna dan PIN baru.','warning');
+      const prev=isEdit?users.find(x=>String(x.id)===form.dataset.editUserId):null;
+      if(prev&&prev.active!=='YA')payload.active=false;
+      try{await writeDirect('userSave_'+payload.username,'saveUser',payload);}
+      catch(_){}
+    };
   }
   // v4.3 · Integrated audit panel. Explicit user action, read-only backend calls.
   function directAudit(){
@@ -1205,13 +1257,39 @@
     if(!duration)duration=Number(durationOverride||({success:6000,warning:9000,error:12000,info:6000}[type]));
     toastQueue.push({message:text,duration:Math.max(4500,duration),type});showNextToast();
   }
-  function showNextToast() {
-    if(toastShowing||!toastQueue.length)return;toastShowing=true;const item=toastQueue.shift(),root=$('#toastRoot');
-    root.innerHTML=`<div class="toast ${esc(item.type)}"><span>${esc(item.message)}</span><button type="button" class="toast-close" aria-label="Tutup">×</button></div>`;
-    const finish=()=>{clearTimeout(window.__wwToastTimer);root.innerHTML='';toastShowing=false;setTimeout(showNextToast,120);};
-    const btn=root.querySelector('.toast-close');if(btn)btn.onclick=finish;window.__wwToastTimer=setTimeout(finish,item.duration);
+  function wwAttachSwipeToastV1522(node,close){
+    if(!node||node.dataset.wwSwipeReady==='1')return;
+    node.dataset.wwSwipeReady='1';
+    let x0=0,y0=0,tracking=false;
+    node.addEventListener('pointerdown',e=>{if(e.target.closest('button'))return;x0=e.clientX;y0=e.clientY;tracking=true;},{passive:true});
+    node.addEventListener('pointermove',e=>{
+      if(!tracking)return;const dx=e.clientX-x0,dy=e.clientY-y0;
+      if(Math.abs(dx)>Math.abs(dy)&&Math.abs(dx)>12)node.style.transform='translateX('+Math.max(-220,Math.min(220,dx))+'px)';
+    },{passive:true});
+    const end=e=>{
+      if(!tracking)return;tracking=false;
+      if(Math.abs(e.clientX-x0)>72&&Math.abs(e.clientX-x0)>Math.abs(e.clientY-y0)){close();return;}
+      node.style.transform='';
+    };
+    node.addEventListener('pointerup',end,{passive:true});
+    node.addEventListener('pointercancel',()=>{tracking=false;node.style.transform='';},{passive:true});
   }
-
+  window.wwAttachSwipeToastV1522=wwAttachSwipeToastV1522;
+  function showNextToast() {
+    if(toastShowing||!toastQueue.length)return;
+    toastShowing=true;
+    const item=toastQueue.shift(),root=$('#toastRoot');
+    if(!root){toastShowing=false;return;}
+    root.innerHTML='<div class="toast '+esc(item.type)+'"><span>'+esc(item.message)+'</span><button type="button" class="toast-close" aria-label="Tutup">×</button></div>';
+    let finished=false;
+    const finish=()=>{
+      if(finished)return;finished=true;
+      clearTimeout(window.__wwToastTimer);root.innerHTML='';toastShowing=false;setTimeout(showNextToast,120);
+    };
+    const btn=root.querySelector('.toast-close');if(btn)btn.onclick=finish;
+    wwAttachSwipeToastV1522(root.querySelector('.toast'),finish);
+    window.__wwToastTimer=setTimeout(finish,item.duration);
+  }
 
   function initAppHistory() {
     if (appHistoryReady) return;
