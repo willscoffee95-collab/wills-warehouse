@@ -558,10 +558,15 @@
     $('#sheetClose').onclick=closeSheet; $('#sheetBackdrop').onclick=e=>{if(e.target.id==='sheetBackdrop')closeSheet()};
   }
   function idemKey(action){const k='ww_gh_idem_'+action;let x;try{x=JSON.parse(localStorage.getItem(k)||'null')}catch(_){x=null}if(x&&Date.now()-x.ts<86400000)return x.id;const id=action+':'+Date.now()+':'+Math.random().toString(36).slice(2);localStorage.setItem(k,JSON.stringify({id,ts:Date.now()}));return id}
-  async function writeDirect(action,method,payload){const idem=idemKey(action);beginBusy('Menyimpan…');try{const r=await bridge.call(method,state.token,payload||{},idem);if(r&&r.ok===false)throw new Error(r.message||'Transaksi gagal');localStorage.removeItem('ww_gh_idem_'+action);toast('Berhasil disimpan'+(r&&r.txnId?' · '+r.txnId:''));closeSheet();invalidateDataModules();refreshBootstrapLight().catch(err=>console.warn('[Wills Warehouse] refresh ringan:',err.message));return r}catch(e){toast(e.message);throw e}finally{endBusy()}}
+  const opsWriteInFlightV43=new Set();
+  async function writeDirect(action,method,payload){
+    if(opsWriteInFlightV43.has(action)){toast('Transaksi sedang diproses; jangan tekan Simpan dua kali.','warning');return null;}
+    opsWriteInFlightV43.add(action);const idem=idemKey(action);beginBusy('Menyimpan…');try{const r=await bridge.call(method,state.token,payload||{},idem);if(r&&r.ok===false)throw new Error(r.message||'Transaksi gagal');localStorage.removeItem('ww_gh_idem_'+action);toast('Berhasil disimpan'+(r&&r.txnId?' · '+r.txnId:''));closeSheet();invalidateDataModules();refreshBootstrapLight().catch(err=>console.warn('[Wills Warehouse] refresh ringan:',err.message));return r}catch(e){toast(e.message);throw e}finally{opsWriteInFlightV43.delete(action);endBusy()}}
   async function reloadDeliveryModule(){const m=await bridge.call('getAppModule',state.token,'delivery');Object.assign(state.data,m||{});state.moduleReady.delivery=true;return m;}
   function upsertFreshDeliveryV1354(d){if(!d||!d.sjId)return;state.data=state.data||{};const list=Array.isArray(state.data.deliveries)?state.data.deliveries:[];const i=list.findIndex(x=>String(x.sjId)===String(d.sjId));if(i>=0)list[i]=d;else list.unshift(d);state.data.deliveries=list;}
   async function writeDeliveryDirect(action,method,payload,sjId){
+    if(opsWriteInFlightV43.has(action)){toast('SJ sedang diproses; jangan tekan Kirim dua kali.','warning');return null;}
+    opsWriteInFlightV43.add(action);
     const idem=idemKey(action),fromKey=currentSheetKey();beginBusy(method==='dispatchDelivery'?'Mengirim Surat Jalan…':'Memproses Surat Jalan…');
     try{
       const r=await bridge.call(method,state.token,payload||{},idem);if(r&&r.ok===false)throw new Error(r.message||'Perintah gagal');localStorage.removeItem('ww_gh_idem_'+action);
@@ -576,7 +581,7 @@
         else toast(label+' sudah DIKIRIM, tetapi feed outlet belum terkirim'+(fs&&fs.error?' • '+fs.error:'')+'. Jangan kirim ulang; gunakan Sinkron SJ / worker.','warning');
       }else toast('Berhasil disimpan'+(r&&r.txnId?' · '+r.txnId:''),'success');
       if(fromKey==='delivery-fulfillment:'+sjId&&sheetHistoryDepth>1){pendingAfterSheetBack=()=>directDeliveryDetail(sjId);closeSheet();}else directDeliveryDetail(sjId);return r;
-    }catch(e){toast(e.message,'error');throw e}finally{endBusy()}
+    }catch(e){toast(e.message,'error');throw e}finally{opsWriteInFlightV43.delete(action);endBusy()}
   }
   async function callDirect(method,...args){return bridge.call(method,state.token,...args)}
   const matByCode=()=>Object.fromEntries(((state.data||{}).materials||[]).map(m=>[m.code,m]));
