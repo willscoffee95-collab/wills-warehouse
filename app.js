@@ -580,7 +580,7 @@
   }
   function directPurchase(){
     const d=state.data||{},sups=d.suppliers||[];
-    sheetHtml('Belanja Bahan',`<div class="role-guide"><b>Guard Harga & Satuan Aktif</b><span>Pilih satuan pembelian yang benar. Untuk UHT tersedia pcs atau karton; 1 karton = 12 pcs.</span><span>Sistem akan memperingatkan jika harga/HPP melonjak tidak wajar sebelum transaksi diposting.</span></div><form id="ghPurchase"><label class="field"><span>Supplier</span><select name="supplierId"><option value="">Supplier sekali pakai</option>${sups.filter(x=>x.active==='YA').map(x=>`<option value="${esc(x.id)}">${esc(x.name)}</option>`).join('')}</select></label><label class="field"><span>Nama supplier sekali pakai</span><input name="supplierName"></label><div class="form-2"><label class="field"><span>Pembayaran</span><select name="paymentStatus"><option>LUNAS</option><option>TEMPO</option></select></label><label class="field"><span>Sumber</span><select name="paymentSource"><option value="CASH">Kas Gudang</option><option value="BANK">Bank</option></select></label></div><div class="form-2"><label class="field"><span>Status nota</span><select name="notaStatus"><option>ADA NOTA</option><option>TANPA NOTA</option><option>NOTA MENYUSUL</option></select></label><label class="field"><span>No Nota</span><input name="invoiceNo"></label></div><label class="field"><span>Jatuh tempo (Tempo)</span><input name="dueDate" type="date"></label><label class="field"><span>Catatan</span><textarea name="note"></textarea></label><div id="ghPurchaseLines"></div><button class="btn btn-soft" type="button" id="ghAddPurchase">+ Tambah item</button><div class="actions"><button class="btn btn-line" type="button" id="ghCancel">Tutup</button><button class="btn btn-primary" type="submit">Review & Posting Belanja</button></div></form>`);
+    sheetHtml('Belanja Bahan',`<div class="role-guide"><b>Guard Harga & Satuan Aktif</b><span>Satuan pembelian mengikuti nota dan profil Master Bahan. Contoh Creamer: 1 karton = 24 box × 500 gr (Rp780.000/karton = Rp32.500/box). UHT: 1 karton = 12 pcs. Jangan masukkan harga karton sebagai harga box.</span><span>Sistem akan memperingatkan jika harga/HPP melonjak tidak wajar sebelum transaksi diposting.</span></div><form id="ghPurchase"><label class="field"><span>Supplier</span><select name="supplierId"><option value="">Supplier sekali pakai</option>${sups.filter(x=>x.active==='YA').map(x=>`<option value="${esc(x.id)}">${esc(x.name)}</option>`).join('')}</select></label><label class="field"><span>Nama supplier sekali pakai</span><input name="supplierName"></label><div class="form-2"><label class="field"><span>Pembayaran</span><select name="paymentStatus"><option>LUNAS</option><option>TEMPO</option></select></label><label class="field"><span>Sumber</span><select name="paymentSource"><option value="CASH">Kas Gudang</option><option value="BANK">Bank</option></select></label></div><div class="form-2"><label class="field"><span>Status nota</span><select name="notaStatus"><option>ADA NOTA</option><option>TANPA NOTA</option><option>NOTA MENYUSUL</option></select></label><label class="field"><span>No Nota</span><input name="invoiceNo"></label></div><label class="field"><span>Jatuh tempo (Tempo)</span><input name="dueDate" type="date"></label><label class="field"><span>Catatan</span><textarea name="note"></textarea></label><div id="ghPurchaseLines"></div><button class="btn btn-soft" type="button" id="ghAddPurchase">+ Tambah item</button><div class="actions"><button class="btn btn-line" type="button" id="ghCancel">Tutup</button><button class="btn btn-primary" type="submit">Review & Posting Belanja</button></div></form>`);
     const box=$('#ghPurchaseLines'),mats=((state.data||{}).materials||[]);
     const unitsFor=m=>Array.isArray(m&&m.purchaseUnits)&&m.purchaseUnits.length?m.purchaseUnits:[{unit:m&&m.receiveUnit||'',multiplier:1,label:m&&m.receiveUnit||''}];
     const add=()=>{
@@ -591,7 +591,53 @@
       code.onchange=refresh;el.querySelector('.line-remove').onclick=()=>el.remove();box.appendChild(el);
     };
     add();$('#ghAddPurchase').onclick=add;$('#ghCancel').onclick=closeSheet;
-    $('#ghPurchase').onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.target),supplierId=fd.get('supplierId'),items=[...box.querySelectorAll('.purchase-line-card')].map(x=>({code:x.querySelector('.code').value,purchaseUnit:x.querySelector('.purchase-unit').value,qtyUnit:x.querySelector('.qty').value,priceUnit:x.querySelector('.price').value}));let guard;await withBusy('Memeriksa satuan & HPP…',async()=>{guard=await callDirect('previewPurchaseGuard',{items})});if(guard&&guard.requiresConfirmation){const details=(guard.warnings||[]).join('\n• ');if(!window.confirm('PERINGATAN BELANJA\n\n• '+details+'\n\nPastikan qty, satuan, dan harga pada nota benar. Tetap posting?'))return;}await writeDirect('purchase','postPurchase',{supplier:supplierId?{id:supplierId}:{name:fd.get('supplierName')},paymentStatus:fd.get('paymentStatus'),paymentSource:fd.get('paymentSource'),notaStatus:fd.get('notaStatus'),invoiceNo:fd.get('invoiceNo'),dueDate:fd.get('dueDate'),note:fd.get('note'),items,guardAccepted:!!(guard&&guard.requiresConfirmation),guardHash:guard&&guard.guardHash||''});};
+    $('#ghPurchase').onsubmit=async e=>{
+      e.preventDefault();
+      const form=e.target, button=e.submitter||form.querySelector('button[type="submit"]');
+      if(form.dataset.wwOpsSubmitting==='1')return;
+      form.dataset.wwOpsSubmitting='1';if(button){button.disabled=true;button.setAttribute('aria-busy','true');}
+      try{
+        const fd=new FormData(form),supplierId=fd.get('supplierId');
+        const items=[...box.querySelectorAll('.purchase-line-card')].map(x=>({
+          code:x.querySelector('.code').value,
+          purchaseUnit:x.querySelector('.purchase-unit').value,
+          qtyUnit:x.querySelector('.qty').value,
+          priceUnit:x.querySelector('.price').value
+        }));
+        if(!items.length)throw new Error('Minimal satu bahan harus dicatat.');
+        if(items.some(x=>!x.code||!x.purchaseUnit||!(Number(x.qtyUnit)>0)||!(Number(x.priceUnit)>0)))throw new Error('Lengkapi bahan, satuan, qty dan harga satuan yang valid.');
+        if(new Set(items.map(x=>x.code)).size!==items.length)throw new Error('Bahan yang sama tidak boleh dicatat dua kali. Gabungkan jumlahnya dalam satu baris.');
+        if(!supplierId&&!String(fd.get('supplierName')||'').trim())throw new Error('Pilih supplier atau isi nama supplier sekali pakai.');
+        const payment=String(fd.get('paymentStatus')||'').toUpperCase();
+        if(payment==='TEMPO'&&!fd.get('dueDate'))throw new Error('Pembelian TEMPO perlu tanggal jatuh tempo.');
+        if(String(fd.get('notaStatus')||'')!=='ADA NOTA'&&!String(fd.get('note')||'').trim())throw new Error('Pembelian tanpa nota/nota menyusul wajib ada alasan di Catatan.');
+        let guard;
+        await withBusy('Memeriksa satuan dan HPP sebelum posting…',async()=>{
+          guard=await callDirect('previewPurchaseGuard',{items});
+        });
+        if(!guard)throw new Error('Hasil review belanja tidak diterima. Tidak ada posting.');
+        const blocked=Array.isArray(guard.blockingErrors)?guard.blockingErrors:[];
+        if(guard.ok===false||blocked.length)throw new Error('BELANJA DIBLOKIR: '+(blocked.join(' | ')||'Periksa kembali harga dan satuan pembelian.'));
+        const warnings=Array.isArray(guard.warnings)?guard.warnings:[];
+        const total=items.reduce((sum,x)=>sum+Number(x.qtyUnit)*Number(x.priceUnit),0);
+        const summary='TOTAL BELANJA '+rp(total)+'\n'+items.length+' bahan · '+payment+'\n\n';
+        if(guard.requiresConfirmation){
+          if(!window.confirm('PERINGATAN REVIEW BELANJA\n\n'+summary+'• '+warnings.join('\n• ')+'\n\nPastikan qty, kemasan dan harga pada nota sudah benar. Tetap posting?'))return;
+        }else if(!window.confirm('KONFIRMASI BELANJA\n\n'+summary+'Posting satu kali ke gudang sekarang?'))return;
+        await writeDirect('purchase','postPurchase',{
+          supplier:supplierId?{id:supplierId}:{name:fd.get('supplierName')},
+          paymentStatus:payment,paymentSource:fd.get('paymentSource'),
+          notaStatus:fd.get('notaStatus'),invoiceNo:fd.get('invoiceNo'),
+          dueDate:fd.get('dueDate'),note:fd.get('note'),items,
+          guardAccepted:!!guard.requiresConfirmation,guardHash:guard.guardHash||''
+        });
+      }catch(err){
+        toast('Belanja belum diposting / perlu dicek: '+String(err&&err.message||err),'warning');
+      }finally{
+        delete form.dataset.wwOpsSubmitting;
+        if(button&&button.isConnected){button.disabled=false;button.removeAttribute('aria-busy');}
+      }
+    };
   }
   function directPacking(){
     const maps=((state.data||{}).mappings||[]).filter(x=>x.kind==='PACKING'&&x.active==='YA'),mats=((state.data||{}).materials||[]),stock=((state.data||{}).stock||[]);
