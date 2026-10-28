@@ -1,4 +1,4 @@
-﻿(() => {
+(() => {
   'use strict';
 
 
@@ -56,6 +56,7 @@
     $('#loginView').classList.add('is-hidden');$('#mainView').classList.remove('is-hidden');
     $('#profileBtn').textContent=initials((state.data.user&&state.data.user.name)||'WW');
     updateNotificationBadge();setPage('home',{pushHistory:false});if(!appHistoryReady)initAppHistory();
+    if(Array.isArray(data.stock)) window.dispatchEvent(new CustomEvent('wills:stock-v41',{detail:{stock:state.data.stock||[],userId:state.data.user&&state.data.user.id||'default',stale:!!fromCache}}));
     if(fromCache){const c=$('#content');if(c)c.dataset.fastSnapshot='1';}
   }
   function isSessionErrorV1360(err){const m=String(err&&err.message||err||'').toLowerCase();return m.includes('sesi')||m.includes('login kembali')||m.includes('user tidak aktif');}
@@ -280,7 +281,7 @@
     const d = state.data || {};
     const dash = d.dashboard || {};
     const displayName = d.user && d.user.name ? d.user.name : 'User';
-    const history = liveHistory();
+
     const requestCount=((d.incomingRequests||[]).filter(x=>!['SELESAI','DIBATALKAN'].includes(String(x.warehouseStatus||''))).length);
     const draftCount=(d.deliveries||[]).filter(x=>String(x.status||'')==='DRAFT').length;
     const financeVisible=dash.financeVisible!==false;
@@ -308,7 +309,7 @@
       </section>
       <div class="kpi-grid">${kpis}</div>
       ${quick.length?`<section class="section"><div class="section-head"><h3>Aksi Cepat</h3><button data-page-jump="transactions">Lihat semua</button></div><div class="quick-grid">${quick.join('')}</div></section>`:''}
-      <section class="section"><div class="section-head"><h3>Aktivitas Terbaru</h3><span>Data terbaru</span></div><div class="list">${history.slice(0,3).map(historyCard).join('') || '<div class="empty">Belum ada transaksi.</div>'}</div></section>`;
+`;
   }
 
 
@@ -468,6 +469,7 @@
     const data=await bridge.call('getAppBootstrap',state.token);
     state.data={...(state.data||{}),...data}; state.moduleReady.stock=true; writeBootstrapSnapshotV1360(state.token,state.data);
     updateNotificationBadge();
+    if(Array.isArray(data.stock)) window.dispatchEvent(new CustomEvent('wills:stock-v41',{detail:{stock:data.stock,userId:state.data.user&&state.data.user.id||'default',stale:false}}));
     if(activePage==='home'||activePage==='stock'){const c=$('#content');if(c){c.innerHTML=pages[activePage]();bindPage();}}
     return state.data;
   }
