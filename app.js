@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  window.WW_FRONTEND_BUILD='2026-10-28.1.5.2.2-ux-outlet-stock-task';
+  window.WW_FRONTEND_BUILD='2026-10-28.1.5.2.3-selector-loading-fix';
 
 
   const $ = (q, root = document) => root.querySelector(q);
@@ -289,7 +289,8 @@
     const d=state.data||{}, dash=d.dashboard||{};
     const role=currentRole(), finance=!inventoryOnlyV1520()&&dash.financeVisible!==false;
     const draftCount=(d.deliveries||[]).filter(x=>String(x.status||'')==='DRAFT').length;
-    const openReq=(d.incomingRequests||[]).filter(x=>!['SELESAI','DIBATALKAN'].includes(String(x.warehouseStatus||''))).length;
+    const bootstrapReady=Object.prototype.hasOwnProperty.call(dash,'activeMaterials');
+    const openReq=bootstrapReady?(d.incomingRequests||[]).filter(x=>!['SELESAI','DIBATALKAN'].includes(String(x.warehouseStatus||''))).length:null;
     const cashReady=dash.financeUnit&&dash.financeUnit.ready;
     const money=v=>v==null?'—':rp(v);
     const qty=v=>v==null?'—':num(v,0);
@@ -302,7 +303,7 @@
     ].join(''):[
       kpiCard('Bahan Aktif',qty(dash.activeMaterials),'Stok fisik Warehouse'),
       kpiCard('Harus Dikirim',qty(openReq),'Permintaan outlet aktif'),
-      kpiCard('Dalam Pengiriman',qty(dash.transitLines)+' item','Status transit'),
+      kpiCard('Dalam Pengiriman',qty(dash.transitLines)+' baris','Status transit'),
       kpiCard('Pemulihan',qty(dash.recoveryPending),Number(dash.recoveryPending||0)?'Perlu perhatian':'Tidak ada proses tertunda')
     ].join('');
     const quick=[];
@@ -318,6 +319,7 @@
     return `<section class="hero ww-as-home-hero">
       <div class="hero-kicker">WILLS COFFEE · ${esc(roleName(role))}</div>
       <h3>${esc(d.warehouseName||'Wills Warehouse')}</h3>
+      ${!bootstrapReady?'<p class="ww-as-loading" role="status">Data operasional sedang dimuat…</p>':''}
       ${Number(dash.recoveryPending||0)>0?'<p class="ww-as-warning">⚠ '+num(dash.recoveryPending,0)+' transaksi dalam antrean pemulihan.</p>':''}
     </section>
     <div class="kpi-grid ww-as-kpi-grid">${kpis}</div>
@@ -407,7 +409,12 @@
     ];
     const modules=visibleModuleRows(all);
     const role=currentRole();
-    const guide='<div class="ww-as-role-guide"><b>Pembagian tugas:</b><br>'+
+    const guide=inventoryOnlyV1520()?
+      '<div class="ww-as-role-guide"><b>Pembagian tugas · Inventory Only</b><br>'+
+      'Admin 1 — belanja bahan, packing, supplier dan harga/HPP. Pembayaran dilakukan di luar Warehouse.<br>'+
+      'Admin 2 — permintaan outlet, penyiapan bahan, Surat Jalan dan pengiriman.<br>'+
+      'Owner — koreksi stok, akun dan audit sistem. Ledger keuangan lama tetap dikarantina.</div>':
+      '<div class="ww-as-role-guide"><b>Pembagian tugas:</b><br>'+
       'Admin 1 Finance — belanja/pemasukan, pengeluaran, pembayaran, supplier & kontrol harga; tanpa koreksi stok.<br>'+
       'Admin 2 Staff Gudang — permintaan outlet, siapkan bahan, Surat Jalan dan pengiriman.<br>'+
       'Owner — satu-satunya role untuk koreksi stok, koreksi saldo, dan pemeriksaan seluruh sistem.</div>';
@@ -924,9 +931,9 @@
     const syncReq=$('#ghSyncReq');if(syncReq)syncReq.onclick=async()=>{try{await withBusy('Memperbarui permintaan…',async()=>{await callDirect('syncOutletMaterialRequestsNowV1250');await reloadDeliveryModule();});toast('Permintaan diperbarui.');directDelivery()}catch(e){toast(e.message)}};
     const syncRec=$('#ghSyncRec');if(syncRec)syncRec.onclick=async()=>{try{let r;await withBusy('Sinkron penerimaan…',async()=>{r=await callDirect('syncOutletReceipts');await reloadDeliveryModule();});toast('Penerimaan disinkronkan'+(r&&r.elapsedMs?' · '+r.elapsedMs+' ms':''));directDelivery()}catch(e){toast(e.message)}};
     const diag=$('#ghDiag');if(diag)diag.onclick=async()=>{try{let r;await withBusy('Menjalankan diagnostik…',async()=>{r=await callDirect('auditReceiptSyncDiagnosticAppV1260')});showDiagnostic(r)}catch(e){toast(e.message)}};
-    $('[data-ww-request-outlet]').forEach(b=>b.onclick=()=>{wwSelectedOutletV1522=b.dataset.wwRequestOutlet;directDelivery();});
-    $('[data-request-id]').forEach(b=>b.addEventListener('click',()=>opsRequestDetailV43(b.dataset.requestId)));
-    $('[data-sjid]').forEach(b=>b.addEventListener('click',()=>directDeliveryDetail(b.dataset.sjid)));
+    $$('[data-ww-request-outlet]').forEach(b=>b.onclick=()=>{wwSelectedOutletV1522=b.dataset.wwRequestOutlet;directDelivery();});
+    $$('[data-request-id]').forEach(b=>b.addEventListener('click',()=>opsRequestDetailV43(b.dataset.requestId)));
+    $$('[data-sjid]').forEach(b=>b.addEventListener('click',()=>directDeliveryDetail(b.dataset.sjid)));
   }
 
   function directDraftPrintList(){
@@ -1108,8 +1115,8 @@
     };
     $('#wwNewUser').onclick=()=>open(null);
     $('#wwCancelUserEdit').onclick=()=>{form.hidden=true;form.dataset.editUserId='';};
-    $('[data-ww-user-edit]').forEach(b=>b.onclick=()=>{const u=users.find(x=>String(x.id)===b.dataset.wwUserEdit);if(u)open(u);});
-    $('[data-ww-user-toggle]').forEach(b=>b.onclick=async()=>{
+    $$('[data-ww-user-edit]').forEach(b=>b.onclick=()=>{const u=users.find(x=>String(x.id)===b.dataset.wwUserEdit);if(u)open(u);});
+    $$('[data-ww-user-toggle]').forEach(b=>b.onclick=async()=>{
       const u=users.find(x=>String(x.id)===b.dataset.wwUserToggle);
       if(!u||String(u.id)===String(((state.data||{}).user||{}).id))return;
       const next=u.active==='YA'?false:true;
@@ -1373,7 +1380,7 @@
 
     const other = [];
     if (Number(dash.recoveryPending || 0) > 0) other.push(`<div class="notice-row"><span class="notice-icon bad">${icons.warning}</span><div class="notice-copy"><b>Pemulihan transaksi</b><small>Ada transaksi yang perlu diperiksa sistem.</small></div><div class="notice-side"><strong>${num(dash.recoveryPending,0)}</strong><span class="badge bad">PERIKSA</span></div></div>`);
-    if (Number(dash.packingWageCount || 0) > 0) other.push(`<div class="notice-row"><span class="notice-icon">${icons.money}</span><div class="notice-copy"><b>Upah packing belum dibayar</b><small>${num(dash.packingWageCount,0)} kewajiban upah masih terbuka.</small></div><div class="notice-side"><strong>${compactRp(dash.packingWageOutstanding)}</strong><span class="badge warn">BELUM LUNAS</span></div></div>`);
+    if (!inventoryOnlyV1520() && Number(dash.packingWageCount || 0) > 0) other.push(`<div class="notice-row"><span class="notice-icon">${icons.money}</span><div class="notice-copy"><b>Upah packing belum dibayar</b><small>${num(dash.packingWageCount,0)} kewajiban upah masih terbuka.</small></div><div class="notice-side"><strong>${compactRp(dash.packingWageOutstanding)}</strong><span class="badge warn">BELUM LUNAS</span></div></div>`);
     const req=((state.data||{}).incomingRequests||[]).filter(x=>!['SELESAI','DIBATALKAN'].includes(String(x.warehouseStatus||'')));
     if(req.length) other.push(`<div class="notice-row"><span class="notice-icon">${icons.truck}</span><div class="notice-copy"><b>Bahan yang Harus Dikirim Sekarang</b><small>${req.slice(0,4).map(x=>esc(x.outletName)+' · '+num(x.itemCount||0)+' bahan').join('<br>')}${req.length>4?'<br>+'+(req.length-4)+' permintaan lainnya':''}</small></div><div class="notice-side"><strong>${req.length}</strong><span class="badge warn">SIAPKAN</span></div></div>`);
 

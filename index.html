@@ -210,6 +210,21 @@
 .ww-task-template-row button{background:#fff6f6;border:1px solid #f0d5d9;border-radius:10px;padding:8px 7px;color:#b12532;font-size:10px;font-weight:800}
 @media(max-width:380px){.ww-task-template-row{grid-template-columns:1fr auto}.ww-task-template-copy{grid-column:1/-1}.ww-task-template-row button{justify-self:stretch}}
 </style>
+
+<style id="ww-v1523-runtime-ux">
+/* Read-only UI polish: labels and descriptions must not concatenate. */
+.sheet .role-guide > b,
+.sheet .role-guide > strong,
+.sheet .role-guide > span,
+.sheet .role-guide > p {display:block;line-height:1.55}
+.sheet .role-guide > b,
+.sheet .role-guide > strong {margin-bottom:6px}
+.sheet .role-guide > span + span,
+.sheet .role-guide > p + p {margin-top:7px}
+.sheet .role-guide > p {margin:5px 0 0}
+.ww-as-loading{display:block;margin:8px 0 0;padding:9px 11px;border:1px solid rgba(255,255,255,.22);border-radius:10px;color:#fff;font-size:11px}
+</style>
+
 </head>
 <body>
   <div class="noise" aria-hidden="true"></div>
@@ -308,8 +323,8 @@
   <script src="config.js?v=0.6.6"></script>
   <script src="bridge.js?v=0.6.6"></script>
   <script src="wills-ui-v41.js?v=1.5.2.2"></script>
-  <script src="app.js?v=1.5.2.2"></script>
-  <script src="feature-v1370.js?v=1.5.2.2"></script>
+  <script src="app.js?v=1.5.2.3"></script>
+  <script src="feature-v1370.js?v=1.5.2.3"></script>
 
 
   <!--
