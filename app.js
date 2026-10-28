@@ -484,6 +484,18 @@
   }
 
 
+  // v4.3: update lightweight dashboard only when staff return to the app.
+  // Never automatically sync remote requests, post payments or touch the ledger.
+  let opsV43LastResumeRefresh=0;
+  document.addEventListener('visibilitychange',()=>{
+    if(document.visibilityState!=='visible'||!state.token||!state.bridgeReady||busyDepth>0)return;
+    if(!$('#mainView')||$('#mainView').classList.contains('is-hidden'))return;
+    if($('#sheetRoot')&&$('#sheetRoot').children.length)return;
+    const now=Date.now();if(now-opsV43LastResumeRefresh<90000)return;
+    opsV43LastResumeRefresh=now;
+    refreshBootstrapLight().catch(err=>console.warn('[Wills Warehouse] refresh saat kembali:',err&&err.message||err));
+  });
+
   async function openFeatureOneTap(action, trigger) {
     if (!state.bridgeReady) return toast('Sedang menyambungkan data terbaru…','warning');
     if (!actionNames[action]) return toast('Fitur tidak dikenali.');
@@ -546,10 +558,15 @@
     $('#sheetClose').onclick=closeSheet; $('#sheetBackdrop').onclick=e=>{if(e.target.id==='sheetBackdrop')closeSheet()};
   }
   function idemKey(action){const k='ww_gh_idem_'+action;let x;try{x=JSON.parse(localStorage.getItem(k)||'null')}catch(_){x=null}if(x&&Date.now()-x.ts<86400000)return x.id;const id=action+':'+Date.now()+':'+Math.random().toString(36).slice(2);localStorage.setItem(k,JSON.stringify({id,ts:Date.now()}));return id}
-  async function writeDirect(action,method,payload){const idem=idemKey(action);beginBusy('Menyimpan…');try{const r=await bridge.call(method,state.token,payload||{},idem);if(r&&r.ok===false)throw new Error(r.message||'Transaksi gagal');localStorage.removeItem('ww_gh_idem_'+action);toast('Berhasil disimpan'+(r&&r.txnId?' · '+r.txnId:''));closeSheet();invalidateDataModules();refreshBootstrapLight().catch(err=>console.warn('[Wills Warehouse] refresh ringan:',err.message));return r}catch(e){toast(e.message);throw e}finally{endBusy()}}
+  const opsWriteInFlightV43=new Set();
+  async function writeDirect(action,method,payload){
+    if(opsWriteInFlightV43.has(action)){toast('Transaksi sedang diproses; jangan tekan Simpan dua kali.','warning');return null;}
+    opsWriteInFlightV43.add(action);const idem=idemKey(action);beginBusy('Menyimpan…');try{const r=await bridge.call(method,state.token,payload||{},idem);if(r&&r.ok===false)throw new Error(r.message||'Transaksi gagal');localStorage.removeItem('ww_gh_idem_'+action);toast('Berhasil disimpan'+(r&&r.txnId?' · '+r.txnId:''));closeSheet();invalidateDataModules();refreshBootstrapLight().catch(err=>console.warn('[Wills Warehouse] refresh ringan:',err.message));return r}catch(e){toast(e.message);throw e}finally{opsWriteInFlightV43.delete(action);endBusy()}}
   async function reloadDeliveryModule(){const m=await bridge.call('getAppModule',state.token,'delivery');Object.assign(state.data,m||{});state.moduleReady.delivery=true;return m;}
   function upsertFreshDeliveryV1354(d){if(!d||!d.sjId)return;state.data=state.data||{};const list=Array.isArray(state.data.deliveries)?state.data.deliveries:[];const i=list.findIndex(x=>String(x.sjId)===String(d.sjId));if(i>=0)list[i]=d;else list.unshift(d);state.data.deliveries=list;}
   async function writeDeliveryDirect(action,method,payload,sjId){
+    if(opsWriteInFlightV43.has(action)){toast('SJ sedang diproses; jangan tekan Kirim dua kali.','warning');return null;}
+    opsWriteInFlightV43.add(action);
     const idem=idemKey(action),fromKey=currentSheetKey();beginBusy(method==='dispatchDelivery'?'Mengirim Surat Jalan…':'Memproses Surat Jalan…');
     try{
       const r=await bridge.call(method,state.token,payload||{},idem);if(r&&r.ok===false)throw new Error(r.message||'Perintah gagal');localStorage.removeItem('ww_gh_idem_'+action);
@@ -564,7 +581,7 @@
         else toast(label+' sudah DIKIRIM, tetapi feed outlet belum terkirim'+(fs&&fs.error?' • '+fs.error:'')+'. Jangan kirim ulang; gunakan Sinkron SJ / worker.','warning');
       }else toast('Berhasil disimpan'+(r&&r.txnId?' · '+r.txnId:''),'success');
       if(fromKey==='delivery-fulfillment:'+sjId&&sheetHistoryDepth>1){pendingAfterSheetBack=()=>directDeliveryDetail(sjId);closeSheet();}else directDeliveryDetail(sjId);return r;
-    }catch(e){toast(e.message,'error');throw e}finally{endBusy()}
+    }catch(e){toast(e.message,'error');throw e}finally{opsWriteInFlightV43.delete(action);endBusy()}
   }
   async function callDirect(method,...args){return bridge.call(method,state.token,...args)}
   const matByCode=()=>Object.fromEntries(((state.data||{}).materials||[]).map(m=>[m.code,m]));
@@ -580,7 +597,7 @@
   }
   function directPurchase(){
     const d=state.data||{},sups=d.suppliers||[];
-    sheetHtml('Belanja Bahan',`<div class="role-guide"><b>Guard Harga & Satuan Aktif</b><span>Pilih satuan pembelian yang benar. Untuk UHT tersedia pcs atau karton; 1 karton = 12 pcs.</span><span>Sistem akan memperingatkan jika harga/HPP melonjak tidak wajar sebelum transaksi diposting.</span></div><form id="ghPurchase"><label class="field"><span>Supplier</span><select name="supplierId"><option value="">Supplier sekali pakai</option>${sups.filter(x=>x.active==='YA').map(x=>`<option value="${esc(x.id)}">${esc(x.name)}</option>`).join('')}</select></label><label class="field"><span>Nama supplier sekali pakai</span><input name="supplierName"></label><div class="form-2"><label class="field"><span>Pembayaran</span><select name="paymentStatus"><option>LUNAS</option><option>TEMPO</option></select></label><label class="field"><span>Sumber</span><select name="paymentSource"><option value="CASH">Kas Gudang</option><option value="BANK">Bank</option></select></label></div><div class="form-2"><label class="field"><span>Status nota</span><select name="notaStatus"><option>ADA NOTA</option><option>TANPA NOTA</option><option>NOTA MENYUSUL</option></select></label><label class="field"><span>No Nota</span><input name="invoiceNo"></label></div><label class="field"><span>Jatuh tempo (Tempo)</span><input name="dueDate" type="date"></label><label class="field"><span>Catatan</span><textarea name="note"></textarea></label><div id="ghPurchaseLines"></div><button class="btn btn-soft" type="button" id="ghAddPurchase">+ Tambah item</button><div class="actions"><button class="btn btn-line" type="button" id="ghCancel">Tutup</button><button class="btn btn-primary" type="submit">Review & Posting Belanja</button></div></form>`);
+    sheetHtml('Belanja Bahan',`<div class="role-guide"><b>Guard Harga & Satuan Aktif</b><span>Satuan pembelian mengikuti nota dan profil Master Bahan. Contoh Creamer: 1 karton = 24 box × 500 gr (Rp780.000/karton = Rp32.500/box). UHT: 1 karton = 12 pcs. Jangan masukkan harga karton sebagai harga box.</span><span>Sistem akan memperingatkan jika harga/HPP melonjak tidak wajar sebelum transaksi diposting.</span></div><form id="ghPurchase"><label class="field"><span>Supplier</span><select name="supplierId"><option value="">Supplier sekali pakai</option>${sups.filter(x=>x.active==='YA').map(x=>`<option value="${esc(x.id)}">${esc(x.name)}</option>`).join('')}</select></label><label class="field"><span>Nama supplier sekali pakai</span><input name="supplierName"></label><div class="form-2"><label class="field"><span>Pembayaran</span><select name="paymentStatus"><option>LUNAS</option><option>TEMPO</option></select></label><label class="field"><span>Sumber</span><select name="paymentSource"><option value="CASH">Kas Gudang</option><option value="BANK">Bank</option></select></label></div><div class="form-2"><label class="field"><span>Status nota</span><select name="notaStatus"><option>ADA NOTA</option><option>TANPA NOTA</option><option>NOTA MENYUSUL</option></select></label><label class="field"><span>No Nota</span><input name="invoiceNo"></label></div><label class="field"><span>Jatuh tempo (Tempo)</span><input name="dueDate" type="date"></label><label class="field"><span>Catatan</span><textarea name="note"></textarea></label><div id="ghPurchaseLines"></div><button class="btn btn-soft" type="button" id="ghAddPurchase">+ Tambah item</button><div class="actions"><button class="btn btn-line" type="button" id="ghCancel">Tutup</button><button class="btn btn-primary" type="submit">Review & Posting Belanja</button></div></form>`);
     const box=$('#ghPurchaseLines'),mats=((state.data||{}).materials||[]);
     const unitsFor=m=>Array.isArray(m&&m.purchaseUnits)&&m.purchaseUnits.length?m.purchaseUnits:[{unit:m&&m.receiveUnit||'',multiplier:1,label:m&&m.receiveUnit||''}];
     const add=()=>{
@@ -591,7 +608,53 @@
       code.onchange=refresh;el.querySelector('.line-remove').onclick=()=>el.remove();box.appendChild(el);
     };
     add();$('#ghAddPurchase').onclick=add;$('#ghCancel').onclick=closeSheet;
-    $('#ghPurchase').onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.target),supplierId=fd.get('supplierId'),items=[...box.querySelectorAll('.purchase-line-card')].map(x=>({code:x.querySelector('.code').value,purchaseUnit:x.querySelector('.purchase-unit').value,qtyUnit:x.querySelector('.qty').value,priceUnit:x.querySelector('.price').value}));let guard;await withBusy('Memeriksa satuan & HPP…',async()=>{guard=await callDirect('previewPurchaseGuard',{items})});if(guard&&guard.requiresConfirmation){const details=(guard.warnings||[]).join('\n• ');if(!window.confirm('PERINGATAN BELANJA\n\n• '+details+'\n\nPastikan qty, satuan, dan harga pada nota benar. Tetap posting?'))return;}await writeDirect('purchase','postPurchase',{supplier:supplierId?{id:supplierId}:{name:fd.get('supplierName')},paymentStatus:fd.get('paymentStatus'),paymentSource:fd.get('paymentSource'),notaStatus:fd.get('notaStatus'),invoiceNo:fd.get('invoiceNo'),dueDate:fd.get('dueDate'),note:fd.get('note'),items,guardAccepted:!!(guard&&guard.requiresConfirmation),guardHash:guard&&guard.guardHash||''});};
+    $('#ghPurchase').onsubmit=async e=>{
+      e.preventDefault();
+      const form=e.target, button=e.submitter||form.querySelector('button[type="submit"]');
+      if(form.dataset.wwOpsSubmitting==='1')return;
+      form.dataset.wwOpsSubmitting='1';if(button){button.disabled=true;button.setAttribute('aria-busy','true');}
+      try{
+        const fd=new FormData(form),supplierId=fd.get('supplierId');
+        const items=[...box.querySelectorAll('.purchase-line-card')].map(x=>({
+          code:x.querySelector('.code').value,
+          purchaseUnit:x.querySelector('.purchase-unit').value,
+          qtyUnit:x.querySelector('.qty').value,
+          priceUnit:x.querySelector('.price').value
+        }));
+        if(!items.length)throw new Error('Minimal satu bahan harus dicatat.');
+        if(items.some(x=>!x.code||!x.purchaseUnit||!(Number(x.qtyUnit)>0)||!(Number(x.priceUnit)>0)))throw new Error('Lengkapi bahan, satuan, qty dan harga satuan yang valid.');
+        if(new Set(items.map(x=>x.code)).size!==items.length)throw new Error('Bahan yang sama tidak boleh dicatat dua kali. Gabungkan jumlahnya dalam satu baris.');
+        if(!supplierId&&!String(fd.get('supplierName')||'').trim())throw new Error('Pilih supplier atau isi nama supplier sekali pakai.');
+        const payment=String(fd.get('paymentStatus')||'').toUpperCase();
+        if(payment==='TEMPO'&&!fd.get('dueDate'))throw new Error('Pembelian TEMPO perlu tanggal jatuh tempo.');
+        if(String(fd.get('notaStatus')||'')!=='ADA NOTA'&&!String(fd.get('note')||'').trim())throw new Error('Pembelian tanpa nota/nota menyusul wajib ada alasan di Catatan.');
+        let guard;
+        await withBusy('Memeriksa satuan dan HPP sebelum posting…',async()=>{
+          guard=await callDirect('previewPurchaseGuard',{items});
+        });
+        if(!guard)throw new Error('Hasil review belanja tidak diterima. Tidak ada posting.');
+        const blocked=Array.isArray(guard.blockingErrors)?guard.blockingErrors:[];
+        if(guard.ok===false||blocked.length)throw new Error('BELANJA DIBLOKIR: '+(blocked.join(' | ')||'Periksa kembali harga dan satuan pembelian.'));
+        const warnings=Array.isArray(guard.warnings)?guard.warnings:[];
+        const total=items.reduce((sum,x)=>sum+Number(x.qtyUnit)*Number(x.priceUnit),0);
+        const summary='TOTAL BELANJA '+rp(total)+'\n'+items.length+' bahan · '+payment+'\n\n';
+        if(guard.requiresConfirmation){
+          if(!window.confirm('PERINGATAN REVIEW BELANJA\n\n'+summary+'• '+warnings.join('\n• ')+'\n\nPastikan qty, kemasan dan harga pada nota sudah benar. Tetap posting?'))return;
+        }else if(!window.confirm('KONFIRMASI BELANJA\n\n'+summary+'Posting satu kali ke gudang sekarang?'))return;
+        await writeDirect('purchase','postPurchase',{
+          supplier:supplierId?{id:supplierId}:{name:fd.get('supplierName')},
+          paymentStatus:payment,paymentSource:fd.get('paymentSource'),
+          notaStatus:fd.get('notaStatus'),invoiceNo:fd.get('invoiceNo'),
+          dueDate:fd.get('dueDate'),note:fd.get('note'),items,
+          guardAccepted:!!guard.requiresConfirmation,guardHash:guard.guardHash||''
+        });
+      }catch(err){
+        toast('Belanja belum diposting / perlu dicek: '+String(err&&err.message||err),'warning');
+      }finally{
+        delete form.dataset.wwOpsSubmitting;
+        if(button&&button.isConnected){button.disabled=false;button.removeAttribute('aria-busy');}
+      }
+    };
   }
   function directPacking(){
     const maps=((state.data||{}).mappings||[]).filter(x=>x.kind==='PACKING'&&x.active==='YA'),mats=((state.data||{}).materials||[]),stock=((state.data||{}).stock||[]);
@@ -617,6 +680,66 @@
     [sel,input,actual,remain,waste].forEach(x=>{x.addEventListener('input',calc);x.addEventListener('change',calc)});calc();$('#ghCancel').onclick=closeSheet;
     form.onsubmit=async e=>{e.preventDefault();const c=calc();if(!c)return toast('Lengkapi data packing.');if(c.status==='CEK'&&String($('#ghPackNote').value||'').trim().length<5)return toast('Variance lebih dari 5 pack. Isi Catatan QC.');const fd=new FormData(form);await writeDirect('packing','postPackingBatch',{mappingId:c.map.id,inputQtyReceive:c.inputQtyReceive,inputQtyBase:c.inputQtyBase,outputQtyUnit:c.actual,remainderQtyBase:c.remainder,wasteQtyBase:c.waste,packer:fd.get('packer'),wageAmount:Number(fd.get('wageAmount')||0),note:fd.get('note')});};
   }
+  // v4.3 · Permintaan outlet: ringkasan dan cetak tanpa mutasi data.
+  function opsRequestV43(requestId) {
+    return ((state.data||{}).incomingRequests||[]).find(x=>String(x.requestId||'')===String(requestId||''))||null;
+  }
+  function opsRequestDetailV43(requestId) {
+    const req=opsRequestV43(requestId);
+    if(!req)return toast('Permintaan tidak ditemukan di snapshot. Tekan Perbarui Permintaan lalu coba lagi.');
+    const items=Array.isArray(req.items)?req.items:[];
+    sheetHtml('Permintaan Bahan Outlet',`<div class="ww-ops-request-meta"><strong>${esc(req.outletName||req.outletCode||'-')}</strong><span>Nomor permintaan: ${esc(req.requestId||'-')}</span><span>Diajukan: ${esc(displayDateShort(req.requestDate||req.createdAt))} · Dibutuhkan: ${esc(displayDateShort(req.needDate))}</span><span>Status: ${esc(req.warehouseStatus||req.sourceStatus||'-')}${req.linkedNoSj?' · SJ '+esc(req.linkedNoSj):''}</span>${req.note?'<span>Catatan: '+esc(req.note)+'</span>':''}</div><div class="direct-list">${items.map((it,i)=>`<div class="direct-card"><b>${i+1}. ${esc(it.name||it.code||'Bahan')}</b><small>${num(Number(it.qtyUnit!=null?it.qtyUnit:(it.qty||0)))} ${esc(it.unit||it.receiveUnit||'')} · ${esc(it.code||'')}</small></div>`).join('')||'<div class="empty">Detail bahan belum tersedia. Perbarui Permintaan untuk memuat ulang.</div>'}</div><div class="actions"><button class="btn btn-line" id="opsV43RequestBack" type="button">Kembali</button><button class="btn btn-soft" id="opsV43RequestThermal" type="button" ${items.length?'':'disabled'}>Cetak Thermal</button><button class="btn btn-primary" id="opsV43RequestPrint" type="button" ${items.length?'':'disabled'}>Cetak A4</button></div>`,{key:'request-detail-v43:'+requestId});
+    const back=$('#opsV43RequestBack');if(back)back.onclick=()=>directDelivery();
+    const print=$('#opsV43RequestPrint');if(print)print.onclick=()=>opsPrintRequestV43(requestId);
+    const thermal=$('#opsV43RequestThermal');if(thermal)thermal.onclick=()=>opsPrintRequestThermalV43(requestId);
+  }
+  function opsPrintRequestThermalV43(requestId) {
+    const req=opsRequestV43(requestId),items=req&&req.items;
+    if(!Array.isArray(items)||!items.length)return toast('Detail bahan kosong. Perbarui permintaan terlebih dahulu.');
+    const width=Number(localStorage.getItem('ww_thermal_width'))===48?48:32,hr='-'.repeat(width),parts=[];
+    parts.push(centerThermal('WILLS COFFEE',width));
+    parts.push(centerThermal('PERMINTAAN OUTLET',width));
+    parts.push(hr);
+    [
+      'Outlet: '+String(req.outletName||req.outletCode||'-'),
+      'No: '+String(req.requestId||'-'),
+      'Diajukan: '+displayDateShort(req.requestDate||req.createdAt),
+      'Dibutuhkan: '+displayDateShort(req.needDate)
+    ].forEach(line=>wrapThermal(line,width).forEach(x=>parts.push(x)));
+    parts.push(hr);
+    items.forEach((item,i)=>{
+      wrapThermal('[ ] '+(i+1)+'. '+String(item.name||item.code||'Bahan'),width).forEach(x=>parts.push(x));
+      wrapThermal('    '+num(Number(item.qtyUnit!=null?item.qtyUnit:(item.qty||0)))+' '+String(item.unit||item.receiveUnit||''),width).forEach(x=>parts.push(x));
+    });
+    parts.push(hr);
+    if(req.note)wrapThermal('Catatan: '+String(req.note),width).forEach(x=>parts.push(x));
+    parts.push('Disiapkan: _____________','Diperiksa:  _____________',hr,'BUKAN BUKTI PENGIRIMAN','','');
+    printRawBt(parts.join('\n'));
+  }
+  function opsPrintRequestV43(requestId) {
+    const req=opsRequestV43(requestId);
+    if(!req||!Array.isArray(req.items)||!req.items.length)return toast('Detail bahan belum lengkap, cetak dibatalkan.');
+    const rows=req.items.map((it,i)=>`<tr><td>${i+1}</td><td>${esc(it.name||it.code||'Bahan')}<small>${esc(it.code||'')}</small></td><td class="right">${num(Number(it.qtyUnit!=null?it.qtyUnit:(it.qty||0)))}</td><td>${esc(it.unit||it.receiveUnit||'')}</td><td class="check">□</td></tr>`).join('');
+    const html=`<!doctype html><html lang="id"><head><meta charset="utf-8"><title>Permintaan Bahan Outlet</title><style>
+      @page{size:A4 portrait;margin:12mm}*{box-sizing:border-box}body{font:11px/1.4 Arial,sans-serif;color:#232323;margin:0}
+      h1{color:#a80f29;font-size:19px;margin:0 0 3px}.sub{font-size:10px;color:#666;margin-bottom:15px}
+      .head{display:flex;justify-content:space-between;gap:16px;border-bottom:2px solid #9e142a;padding-bottom:12px}
+      .meta{margin:14px 0;display:grid;grid-template-columns:1fr 1fr;gap:6px 12px}b{font-weight:700}table{width:100%;border-collapse:collapse}
+      th{background:#f6e8eb;color:#802033;text-align:left}th,td{padding:8px 7px;border:1px solid #d8d8d8;vertical-align:top}
+      td small{display:block;color:#777;margin-top:2px}.right{text-align:right}.check{text-align:center;font-size:17px}
+      .note{margin-top:14px;min-height:44px}.sign{margin-top:28px;display:grid;grid-template-columns:repeat(2,1fr);text-align:center;gap:28px}
+      .sign div{padding-top:52px}.sign span{display:block;border-top:1px solid #999;padding-top:6px}
+      </style></head><body><div class="head"><div><h1>WILLS COFFEE</h1><div class="sub">WAREHOUSE · PERMINTAAN BAHAN OUTLET</div></div><div>Nomor: <b>${esc(req.requestId||'-')}</b><br>Dicetak: ${esc(new Intl.DateTimeFormat('id-ID',{dateStyle:'medium',timeStyle:'short'}).format(new Date()))}</div></div>
+      <div class="meta"><div>Outlet: <b>${esc(req.outletName||req.outletCode||'-')}</b></div><div>Status: <b>${esc(req.warehouseStatus||req.sourceStatus||'-')}</b></div><div>Diajukan: <b>${esc(displayDateShort(req.requestDate||req.createdAt))}</b></div><div>Dibutuhkan: <b>${esc(displayDateShort(req.needDate))}</b></div></div>
+      <table><thead><tr><th>No.</th><th>Nama Bahan</th><th>Jumlah</th><th>Satuan</th><th>Cek</th></tr></thead><tbody>${rows}</tbody></table><div class="note"><b>Catatan Outlet:</b> ${esc(req.note||'-')}</div>
+      <div class="sign"><div><span>Disiapkan oleh Gudang</span></div><div><span>Diperiksa / Diterima Outlet</span></div></div>
+      <p class="sub">Dokumen permintaan, bukan bukti pengiriman. Pengurangan stok hanya melalui Surat Jalan yang dikirim.</p></body></html>`;
+    const win=window.open('','_blank','width=820,height=900');
+    if(!win)return toast('Pop-up cetak diblokir. Izinkan pop-up untuk aplikasi Warehouse.');
+    win.document.open();win.document.write(html);win.document.close();win.focus();
+    setTimeout(()=>{try{win.print();}catch(e){toast('Cetak tidak dapat dibuka: '+e.message);}},200);
+  }
+
   function directDelivery(){
     const d=state.data||{},req=(d.incomingRequests||[]).filter(x=>!['SELESAI','DIBATALKAN'].includes(String(x.warehouseStatus||''))),rows=d.deliveries||[];
     const tools=[];
@@ -624,12 +747,13 @@
     if(roleCan('REQUEST_SYNC'))tools.push('<button class="btn btn-soft" id="ghSyncReq">Perbarui Permintaan</button>');
     if(roleCan('DELIVERY_SYNC'))tools.push('<button class="btn btn-primary" id="ghSyncRec">Sinkron Penerimaan</button>');
     if(canAny('AUDIT_OPERATIONAL','DELIVERY_SYNC'))tools.push('<button class="btn btn-line" id="ghDiag">Diagnostik</button>');
-    sheetHtml('Bahan yang Harus Dikirim Sekarang',`${tools.length?`<div class="direct-toolbar">${tools.join('')}</div>`:''}<h4>Permintaan Aktif</h4><div class="direct-list">${req.map(x=>{const reqDate=displayDateShort(x.requestDate||x.createdAt),needDate=displayDateShort(x.needDate);return `<div class="direct-card"><b>${esc(x.outletName)} · Dibutuhkan ${esc(needDate)}</b><small>Permintaan ${esc(reqDate)} · ${num(x.itemCount||0)} bahan${x.linkedNoSj?' · SJ '+esc(x.linkedNoSj):''}</small><span class="badge warn">${esc(x.warehouseStatus||'')}</span></div>`;}).join('')||'<div class="empty">Tidak ada permintaan aktif.</div>'}</div><h4>Surat Jalan</h4><div class="direct-list">${rows.slice(0,30).map(x=>`<button class="direct-card direct-click" data-sjid="${esc(x.sjId)}"><b>${esc(x.noSj)} · ${esc(x.outletName)}</b><small>${displayDateShort(x.shipDate||x.createdAt)} · ${(x.lines||[]).length} item${x.status==='DRAFT'?' · siap checklist thermal':''}${x.lastError?' · '+esc(x.lastError):''}</small>${deliveryStatusBadge(x.status)}</button>`).join('')||'<div class="empty">Belum ada SJ.</div>'}</div>`,{key:'delivery-list'});
+    sheetHtml('Bahan yang Harus Dikirim Sekarang',`${tools.length?`<div class="direct-toolbar">${tools.join('')}</div>`:''}<h4>Permintaan Aktif</h4><div class="direct-list">${req.map(x=>{const reqDate=displayDateShort(x.requestDate||x.createdAt),needDate=displayDateShort(x.needDate);return `<div class="direct-card"><b>${esc(x.outletName)} · Dibutuhkan ${esc(needDate)}</b><small>Permintaan ${esc(reqDate)} · ${num(x.itemCount||0)} bahan${x.linkedNoSj?' · SJ '+esc(x.linkedNoSj):''}</small><span class="badge warn">${esc(x.warehouseStatus||'')}</span><button class="btn btn-line ww-ops-request-btn" type="button" data-request-id="${esc(x.requestId)}">Rincian & Cetak</button></div>`;}).join('')||'<div class="empty">Tidak ada permintaan aktif.</div>'}</div><h4>Surat Jalan</h4><div class="direct-list">${rows.slice(0,30).map(x=>`<button class="direct-card direct-click" data-sjid="${esc(x.sjId)}"><b>${esc(x.noSj)} · ${esc(x.outletName)}</b><small>${displayDateShort(x.shipDate||x.createdAt)} · ${(x.lines||[]).length} item${x.status==='DRAFT'?' · siap checklist thermal':''}${x.lastError?' · '+esc(x.lastError):''}</small>${deliveryStatusBadge(x.status)}</button>`).join('')||'<div class="empty">Belum ada SJ.</div>'}</div>`,{key:'delivery-list'});
     const newSj=$('#ghNewSj');if(newSj)newSj.onclick=directNewSj;
     const syncReq=$('#ghSyncReq');if(syncReq)syncReq.onclick=async()=>{try{await withBusy('Memperbarui permintaan…',async()=>{await callDirect('syncOutletMaterialRequestsNowV1250');await reloadDeliveryModule();});toast('Permintaan diperbarui.');directDelivery()}catch(e){toast(e.message)}};
     const syncRec=$('#ghSyncRec');if(syncRec)syncRec.onclick=async()=>{try{let r;await withBusy('Sinkron penerimaan…',async()=>{r=await callDirect('syncOutletReceipts');await reloadDeliveryModule();});toast('Penerimaan disinkronkan'+(r&&r.elapsedMs?' · '+r.elapsedMs+' ms':''));directDelivery()}catch(e){toast(e.message)}};
     const diag=$('#ghDiag');if(diag)diag.onclick=async()=>{try{let r;await withBusy('Menjalankan diagnostik…',async()=>{r=await callDirect('auditReceiptSyncDiagnosticAppV1260')});showDiagnostic(r)}catch(e){toast(e.message)}};
-    $$('[data-sjid]').forEach(b=>b.onclick=()=>directDeliveryDetail(b.dataset.sjid));
+    $('[data-request-id]').forEach(b=>b.onclick=()=>opsRequestDetailV43(b.dataset.requestId));
+    $('[data-sjid]').forEach(b=>b.onclick=()=>directDeliveryDetail(b.dataset.sjid));
   }
 
 
@@ -777,7 +901,47 @@
     sheetHtml('Pengguna & Peran',`<div class="role-guide"><b>Pembagian kerja</b><span><strong>Admin 1 Finance</strong> · peran Admin 1: belanja/pemasukan, pengeluaran, pembayaran, supplier & kontrol harga; tanpa koreksi stok</span><span><strong>Admin 2 Staff Gudang</strong> · peran Admin 2: cek pesanan outlet, siapkan bahan, Surat Jalan & pengiriman</span><span><strong>Owner</strong> · satu-satunya role yang boleh koreksi stok dan menetapkan posisi dana Bank/Kas</span></div><form id="ghUser"><label class="field"><span>Nama</span><input name="name" required></label><label class="field"><span>Username</span><input name="username" required></label><label class="field"><span>Role</span><select name="role"><option value="ADMIN_1">Admin 1 Finance</option><option value="ADMIN_2">Admin 2 Staff Gudang</option><option value="OWNER">Owner</option></select></label><label class="field"><span>PIN</span><input name="pin" type="password" inputmode="numeric" required></label><div class="actions"><button class="btn btn-primary">Simpan User</button></div></form><div class="direct-list">${users.map(x=>`<div class="direct-card"><b>${esc(x.name)}</b><small>@${esc(x.username)} · ${esc(roleName(x.role))}${['ADMIN','STAFF_GUDANG'].includes(String(x.role||''))?' · legacy, sebaiknya ubah role':''}</small></div>`).join('')}</div>`);
     $('#ghUser').onsubmit=async e=>{e.preventDefault();await writeDirect('user','saveUser',Object.fromEntries(new FormData(e.target).entries()))};
   }
-  function directAudit(){sheetHtml('Audit Sistem',`<div class="actions"><button class="btn btn-primary" id="ghAudit1260">Audit Warehouse</button><button class="btn btn-line" id="ghAuditReceipt">Diagnostik Penerimaan</button></div><pre id="ghAuditOut" class="audit-pre">Pilih audit.</pre>`);$('#ghAudit1260').onclick=async()=>{try{let r;await withBusy('Menjalankan audit…',async()=>{r=await callDirect('auditWarehouseAppV1260')});$('#ghAuditOut').textContent=JSON.stringify(r,null,2)}catch(e){toast(e.message)}};$('#ghAuditReceipt').onclick=async()=>{try{let r;await withBusy('Memeriksa penerimaan…',async()=>{r=await callDirect('auditReceiptSyncDiagnosticAppV1260')});showDiagnostic(r)}catch(e){toast(e.message)}};}
+  // v4.3 · Integrated audit panel. Explicit user action, read-only backend calls.
+  function directAudit(){
+    const buttons=[
+      ['ghAudit1260','Audit Operasional','auditWarehouseAppV1260',true],
+      ['ghAuditReceipt','Diagnostik Penerimaan','auditReceiptSyncDiagnosticAppV1260',true],
+      ['ghAuditStockV43','Audit Stok & HPP','auditWarehouseStockCanonicalAppV1409',true],
+      ['ghAuditReceivableV43','Audit Piutang SJ','auditWarehouseReceivableCanonicalAppV1405',true],
+      ['ghAuditFinanceV43','Audit Keuangan & Hutang','auditWarehouseFinanceCanonicalAppV1409',roleCan('FINANCE_REPORT')]
+    ];
+    const allowed=buttons.filter(x=>x[3]);
+    sheetHtml('Pusat Pemeriksaan Warehouse',
+      '<div class="role-guide"><b>READ-ONLY · Tidak mengubah saldo atau ledger</b>'+
+      '<span>Pilih audit stok/HPP, piutang Surat Jalan atau keuangan. Hasil audit tidak mengoreksi data. Bila menemukan selisih, hentikan posting koreksi sampai transaksi penyebab tervalidasi.</span></div>'+
+      '<div class="ww-ops-audit-grid">'+allowed.map(x=>'<button class="btn btn-soft" type="button" id="'+x[0]+'">'+esc(x[1])+'</button>').join('')+'</div>'+
+      '<div class="ww-ops-audit-status" id="ghAuditStatus">Belum diperiksa. Pilih salah satu audit.</div>'+
+      '<pre id="ghAuditOut" class="audit-pre">Hasil per audit akan tampil di sini.</pre>'
+    );
+    allowed.forEach(item=>{
+      const btn=$('#'+item[0]);if(!btn)return;
+      btn.onclick=async()=>{
+        const status=$('#ghAuditStatus'),out=$('#ghAuditOut');
+        try{
+          status.textContent='Memeriksa '+item[1]+'…';
+          btn.disabled=true;
+          let result;
+          await withBusy('Audit baca-saja: '+item[1],async()=>{result=await callDirect(item[2]);});
+          if(!result||result.readOnly!==true)throw new Error('Audit tidak mengonfirmasi status read-only, hasil tidak digunakan.');
+          const n=Array.isArray(result.issues)?result.issues.length:0;
+          const warning=Array.isArray(result.warnings)?result.warnings.length:0;
+          status.textContent=item[1]+' · '+(result.ok===false?'PERLU TINDAK LANJUT':n?'ADA MASALAH':'Hasil audit tersedia')+
+            ' · '+n+' isu · '+warning+' peringatan · TIDAK ADA POSTING';
+          const raw=JSON.stringify(result,null,2);
+          out.textContent=raw.length>80000?raw.slice(0,80000)+'\n\n… Detail panjang, hasil dipotong untuk menjaga performa HP.':raw;
+        }catch(err){
+          status.textContent=item[1]+' · GAGAL DIBACA, DATA TIDAK DIUBAH';
+          out.textContent=String(err&&err.message||err);
+          toast('Audit belum selesai: '+String(err&&err.message||err),'warning');
+        }finally{btn.disabled=false;}
+      };
+    });
+  }
   function directRecovery(){const dash=(state.data||{}).dashboard||{};sheetHtml('Antrean Pemulihan',`<div class="demo-box"><b>${num(dash.recoveryPending||0)}</b> transaksi menunggu pemulihan. Recovery engine tetap berjalan di backend dan tidak boleh dihapus manual.</div>`)}
   async function directFinanceActualV1300(){
     let r;await withBusy('Membaca posisi dana…',async()=>{r=await callDirect('getFinancialPositionActualV1300')});const a=r.actual||null,d=r.currentDifference||null,stale=r.actualStale,canWrite=!!r.canWrite;const badge=(v)=>Math.abs(Number(v||0))<0.5?'<span class="badge ok">Rp0 · SESUAI</span>':`<span class="badge bad">Selisih ${rp(v)}</span>`;
