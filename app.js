@@ -883,7 +883,7 @@
 
   let wwSelectedOutletV1522='';
   function wwRequestOutletV1522(x){
-    const code=String(x.outletCode||'').trim().toUpperCase();
+    const code=String(x.outletCode||x.code||'').trim().toUpperCase();
     return code==='TGM'?'TM':(code||'LAINNYA');
   }
   function directDelivery(){
@@ -894,10 +894,11 @@
     if(roleCan('DELIVERY_SYNC'))tools.push('<button class="btn btn-primary" id="ghSyncRec">Sinkron Penerimaan</button>');
     if(canAny('AUDIT_OPERATIONAL','DELIVERY_SYNC'))tools.push('<button class="btn btn-line" id="ghDiag">Diagnostik</button>');
     const grouped=new Map();
+    (d.outlets||[]).filter(x=>x.active==='YA').forEach(x=>{const code=wwRequestOutletV1522(x);if(!grouped.has(code))grouped.set(code,{name:x.name||code,rows:[]});});
     req.forEach(x=>{const code=wwRequestOutletV1522(x);if(!grouped.has(code))grouped.set(code,{name:x.outletName||code,rows:[]});grouped.get(code).rows.push(x);});
     const order=['RB','TM','UPI','CPK','CPS'];
     const keys=[...grouped.keys()].sort((a,b)=>{const ia=order.indexOf(a),ib=order.indexOf(b);return (ia<0?99:ia)-(ib<0?99:ib)||a.localeCompare(b);});
-    if(!grouped.has(wwSelectedOutletV1522))wwSelectedOutletV1522=keys[0]||'';
+    if(!grouped.has(wwSelectedOutletV1522))wwSelectedOutletV1522=keys.find(k=>grouped.get(k).rows.length>0)||keys[0]||'';
     const menu=keys.map(k=>'<button type="button" class="ww-request-tab '+(k===wwSelectedOutletV1522?'is-active':'')+'" data-ww-request-outlet="'+esc(k)+'" aria-pressed="'+(k===wwSelectedOutletV1522)+'">'+
       '<span>'+esc(k)+'</span><b>'+num(grouped.get(k).rows.length,0)+'</b></button>').join('');
     const selected=grouped.get(wwSelectedOutletV1522);
