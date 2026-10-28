@@ -484,6 +484,18 @@
   }
 
 
+  // v4.3: update lightweight dashboard only when staff return to the app.
+  // Never automatically sync remote requests, post payments or touch the ledger.
+  let opsV43LastResumeRefresh=0;
+  document.addEventListener('visibilitychange',()=>{
+    if(document.visibilityState!=='visible'||!state.token||!state.bridgeReady||busyDepth>0)return;
+    if(!$('#mainView')||$('#mainView').classList.contains('is-hidden'))return;
+    if($('#sheetRoot')&&$('#sheetRoot').children.length)return;
+    const now=Date.now();if(now-opsV43LastResumeRefresh<90000)return;
+    opsV43LastResumeRefresh=now;
+    refreshBootstrapLight().catch(err=>console.warn('[Wills Warehouse] refresh saat kembali:',err&&err.message||err));
+  });
+
   async function openFeatureOneTap(action, trigger) {
     if (!state.bridgeReady) return toast('Sedang menyambungkan data terbaru…','warning');
     if (!actionNames[action]) return toast('Fitur tidak dikenali.');
