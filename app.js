@@ -1,5 +1,6 @@
 (() => {
   'use strict';
+  window.WW_FRONTEND_BUILD='2026-10-28.4.5.0-fast-status';
 
 
   const $ = (q, root = document) => root.querySelector(q);
@@ -583,6 +584,26 @@
     dispatchUpdateIfVisibleV44(id);
     return true;
   }
+  // v4.5: canonical read-only status refresh for stale drafts and pending dispatch.
+  const wwFreshChecksV45=new Map();
+  function dispatchMaybeRefreshFreshV45(id){
+    const key=String(id),now=Date.now(),prev=wwFreshChecksV45.get(key);
+    if(prev&&(prev.running||now-prev.at<15000))return;
+    wwFreshChecksV45.set(key,{running:true,at:now});
+    bridge.call('getDeliveryDetailFreshV1354',state.token,id).then(fresh=>{
+      if(!fresh||String(fresh.sjId||'')!==key)return;
+      const old=((state.data||{}).deliveries||[]).find(x=>String(x.sjId)===key);
+      const fields=['status','dispatchTxnId','updatedAt','lastSync'];
+      const changed=!old||fields.some(k=>String(old[k]||'')!==String(fresh[k]||''));
+      if(!changed&&!dispatchPendingV44(id))return;
+      if(!dispatchApplyStatusV44(id,fresh)){
+        // DRAFT cannot prove no dispatch; do not clear a pending guard.
+        upsertFreshDeliveryV1354(fresh);
+        dispatchUpdateIfVisibleV44(id);
+      }
+    }).catch(e=>console.warn('[Warehouse v4.5] Fresh SJ read failed:',e&&e.message||e))
+      .finally(()=>wwFreshChecksV45.set(key,{running:false,at:Date.now()}));
+  }
   async function dispatchCheckStatusV44(id){
     if(opsWriteInFlightV43.has('status_'+id))return;
     opsWriteInFlightV43.add('status_'+id);
@@ -614,7 +635,8 @@
     }
     const feed=response.feedSyncV1354||response.feedSyncV1353||null;
     if(feed&&feed.ok)toast((fresh.noSj||'SJ')+' · '+fresh.status+' · Feed outlet berhasil.','success');
-    else toast((fresh.noSj||'SJ')+' · '+fresh.status+' tercatat. Feed outlet belum terkonfirmasi; gunakan Sinkron SJ setelah memeriksa status.','warning',12000);
+    else if(feed&&['QUEUED','PENDING_WORKER','SCHEDULED'].includes(String(feed.status||'').toUpperCase()))toast((fresh.noSj||'SJ')+' · '+fresh.status+' tercatat. Feed outlet menunggu worker; JANGAN Kirim ulang.','warning',12000);
+    else toast((fresh.noSj||'SJ')+' · '+fresh.status+' tercatat. Feed outlet belum terkonfirmasi; periksa status sinkronisasi.','warning',12000);
     // The module refresh must never block the dispatch confirmation UI.
     reloadDeliveryModule().then(()=>dispatchUpdateIfVisibleV44(id)).catch(e=>console.warn('[Warehouse] Refresh setelah kirim:',e.message));
   }
@@ -868,6 +890,7 @@
     const check=$('#ghCheckSjStatus');if(check)check.onclick=()=>dispatchCheckStatusV44(id);
     const k=$('#ghSendSj');if(k)k.onclick=()=>confirm('Hanya qty yang sudah disiapkan/disetujui yang akan mengurangi stok. Barang benar-benar siap dikirim?')&&writeDeliveryDirect('dispatch_'+id,'dispatchDelivery',{sjId:id},id);
     const y=$('#ghSyncSj');if(y)y.onclick=async()=>{try{let r;await withBusy('Sinkron SJ…',async()=>{r=await callDirect('syncOutletReceiptForDelivery',{sjId:id});if(!r.ok)throw new Error(r.error||'Sinkron gagal.');await reloadDeliveryModule();});toast('Penerimaan SJ diperbarui · '+r.elapsedMs+' ms');directDeliveryDetail(id)}catch(e){toast(e.message)}};
+    if(String(d.status||'').toUpperCase()==='DRAFT'||pendingDispatch)dispatchMaybeRefreshFreshV45(id);
   }
 
 
