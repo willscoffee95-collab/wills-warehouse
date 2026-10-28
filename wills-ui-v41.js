@@ -22,7 +22,7 @@
     if(!node){node=document.createElement('div');node.id='wwV41EventToast';node.className='ww-v41-event-toast';
       node.setAttribute('role','status');node.setAttribute('aria-live','polite');document.body.appendChild(node);}
     node.innerHTML='<b>'+escapeHtml(title)+'</b><small>'+escapeHtml(detail)+'</small>';
-    node.hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>{node.hidden=true;},9500);
+    node.hidden=false;clearTimeout(toastTimer);const hide=()=>{clearTimeout(toastTimer);node.hidden=true;};if(window.wwAttachSwipeToastV1522)window.wwAttachSwipeToastV1522(node,hide);toastTimer=setTimeout(hide,9500);
   }
   function ticker(){
     const track=q('#wwV41TickerTrack');if(!track)return;
