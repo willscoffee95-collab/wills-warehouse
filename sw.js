@@ -1,6 +1,6 @@
-﻿const CACHE = 'wills-warehouse-shell-v0.6.9-payment-guard';
+const CACHE = 'wills-warehouse-shell-v4.1.0-elegant-red';
 const ASSETS = [
-  './','./index.html','./app.css?v=0.6.6','./config.js?v=0.6.6','./bridge.js?v=0.6.6','./app.js?v=0.6.9',
+  './','./index.html','./app.css?v=0.6.6','./config.js?v=0.6.6','./bridge.js?v=0.6.6','./wills-ui-v41.js?v=4.1.0','./app.js?v=4.1.0','./wills-ui-v41.css?v=4.1.0',
   './feature-v1370.js?v=1.3.7.0','./manifest.webmanifest',
   './logo.png','./icon-192.png','./icon-512.png','./maskable-512.png','./apple-touch-icon.png','./favicon-64.png'
 ];
@@ -24,7 +24,7 @@ self.addEventListener('fetch', event => {
   if (url.origin !== self.location.origin) return;
   const req = event.request;
   const isNavigation = req.mode === 'navigate';
-  const isCoreAsset = /\/(app\.js|bridge\.js|config\.js|app\.css|feature-v1370\.js)(\?|$)/.test(url.pathname + url.search);
+  const isCoreAsset = /\/(app\.js|bridge\.js|config\.js|app\.css|feature-v1370\.js|wills-ui-v41\.js|wills-ui-v41\.css)(\?|$)/.test(url.pathname + url.search);
   if (isNavigation || isCoreAsset) {
     event.respondWith(
       fetch(req)
