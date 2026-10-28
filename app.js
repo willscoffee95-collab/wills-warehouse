@@ -860,7 +860,47 @@
     sheetHtml('Pengguna & Peran',`<div class="role-guide"><b>Pembagian kerja</b><span><strong>Admin 1 Finance</strong> · peran Admin 1: belanja/pemasukan, pengeluaran, pembayaran, supplier & kontrol harga; tanpa koreksi stok</span><span><strong>Admin 2 Staff Gudang</strong> · peran Admin 2: cek pesanan outlet, siapkan bahan, Surat Jalan & pengiriman</span><span><strong>Owner</strong> · satu-satunya role yang boleh koreksi stok dan menetapkan posisi dana Bank/Kas</span></div><form id="ghUser"><label class="field"><span>Nama</span><input name="name" required></label><label class="field"><span>Username</span><input name="username" required></label><label class="field"><span>Role</span><select name="role"><option value="ADMIN_1">Admin 1 Finance</option><option value="ADMIN_2">Admin 2 Staff Gudang</option><option value="OWNER">Owner</option></select></label><label class="field"><span>PIN</span><input name="pin" type="password" inputmode="numeric" required></label><div class="actions"><button class="btn btn-primary">Simpan User</button></div></form><div class="direct-list">${users.map(x=>`<div class="direct-card"><b>${esc(x.name)}</b><small>@${esc(x.username)} · ${esc(roleName(x.role))}${['ADMIN','STAFF_GUDANG'].includes(String(x.role||''))?' · legacy, sebaiknya ubah role':''}</small></div>`).join('')}</div>`);
     $('#ghUser').onsubmit=async e=>{e.preventDefault();await writeDirect('user','saveUser',Object.fromEntries(new FormData(e.target).entries()))};
   }
-  function directAudit(){sheetHtml('Audit Sistem',`<div class="actions"><button class="btn btn-primary" id="ghAudit1260">Audit Warehouse</button><button class="btn btn-line" id="ghAuditReceipt">Diagnostik Penerimaan</button></div><pre id="ghAuditOut" class="audit-pre">Pilih audit.</pre>`);$('#ghAudit1260').onclick=async()=>{try{let r;await withBusy('Menjalankan audit…',async()=>{r=await callDirect('auditWarehouseAppV1260')});$('#ghAuditOut').textContent=JSON.stringify(r,null,2)}catch(e){toast(e.message)}};$('#ghAuditReceipt').onclick=async()=>{try{let r;await withBusy('Memeriksa penerimaan…',async()=>{r=await callDirect('auditReceiptSyncDiagnosticAppV1260')});showDiagnostic(r)}catch(e){toast(e.message)}};}
+  // v4.3 · Integrated audit panel. Explicit user action, read-only backend calls.
+  function directAudit(){
+    const buttons=[
+      ['ghAudit1260','Audit Operasional','auditWarehouseAppV1260',true],
+      ['ghAuditReceipt','Diagnostik Penerimaan','auditReceiptSyncDiagnosticAppV1260',true],
+      ['ghAuditStockV43','Audit Stok & HPP','auditWarehouseStockCanonicalAppV1409',true],
+      ['ghAuditReceivableV43','Audit Piutang SJ','auditWarehouseReceivableCanonicalAppV1405',true],
+      ['ghAuditFinanceV43','Audit Keuangan & Hutang','auditWarehouseFinanceCanonicalAppV1409',roleCan('FINANCE_REPORT')]
+    ];
+    const allowed=buttons.filter(x=>x[3]);
+    sheetHtml('Pusat Pemeriksaan Warehouse',
+      '<div class="role-guide"><b>READ-ONLY · Tidak mengubah saldo atau ledger</b>'+
+      '<span>Pilih audit stok/HPP, piutang Surat Jalan atau keuangan. Hasil audit tidak mengoreksi data. Bila menemukan selisih, hentikan posting koreksi sampai transaksi penyebab tervalidasi.</span></div>'+
+      '<div class="ww-ops-audit-grid">'+allowed.map(x=>'<button class="btn btn-soft" type="button" id="'+x[0]+'">'+esc(x[1])+'</button>').join('')+'</div>'+
+      '<div class="ww-ops-audit-status" id="ghAuditStatus">Belum diperiksa. Pilih salah satu audit.</div>'+
+      '<pre id="ghAuditOut" class="audit-pre">Hasil per audit akan tampil di sini.</pre>'
+    );
+    allowed.forEach(item=>{
+      const btn=$('#'+item[0]);if(!btn)return;
+      btn.onclick=async()=>{
+        const status=$('#ghAuditStatus'),out=$('#ghAuditOut');
+        try{
+          status.textContent='Memeriksa '+item[1]+'…';
+          btn.disabled=true;
+          let result;
+          await withBusy('Audit baca-saja: '+item[1],async()=>{result=await callDirect(item[2]);});
+          if(!result||result.readOnly!==true)throw new Error('Audit tidak mengonfirmasi status read-only, hasil tidak digunakan.');
+          const n=Array.isArray(result.issues)?result.issues.length:0;
+          const warning=Array.isArray(result.warnings)?result.warnings.length:0;
+          status.textContent=item[1]+' · '+(result.ok===false?'PERLU TINDAK LANJUT':n?'ADA MASALAH':'Hasil audit tersedia')+
+            ' · '+n+' isu · '+warning+' peringatan · TIDAK ADA POSTING';
+          const raw=JSON.stringify(result,null,2);
+          out.textContent=raw.length>80000?raw.slice(0,80000)+'\n\n… Detail panjang, hasil dipotong untuk menjaga performa HP.':raw;
+        }catch(err){
+          status.textContent=item[1]+' · GAGAL DIBACA, DATA TIDAK DIUBAH';
+          out.textContent=String(err&&err.message||err);
+          toast('Audit belum selesai: '+String(err&&err.message||err),'warning');
+        }finally{btn.disabled=false;}
+      };
+    });
+  }
   function directRecovery(){const dash=(state.data||{}).dashboard||{};sheetHtml('Antrean Pemulihan',`<div class="demo-box"><b>${num(dash.recoveryPending||0)}</b> transaksi menunggu pemulihan. Recovery engine tetap berjalan di backend dan tidak boleh dihapus manual.</div>`)}
   async function directFinanceActualV1300(){
     let r;await withBusy('Membaca posisi dana…',async()=>{r=await callDirect('getFinancialPositionActualV1300')});const a=r.actual||null,d=r.currentDifference||null,stale=r.actualStale,canWrite=!!r.canWrite;const badge=(v)=>Math.abs(Number(v||0))<0.5?'<span class="badge ok">Rp0 · SESUAI</span>':`<span class="badge bad">Selisih ${rp(v)}</span>`;
