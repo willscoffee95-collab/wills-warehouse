@@ -1072,21 +1072,41 @@
 
 
   let busyShowTimer = null;
-  function beginBusy(label = 'Memuat…') {
-    busyDepth += 1;
-    const text = $('#busyText'); if (text) text.textContent = label;
+  // v4.4: in-bar activity indicator; no fullscreen spinner overlay.
+  function busyInlineV44(label) {
+    const inSheet=$('#sheetRoot .sheet-backdrop:last-child .sheet-head');
+    const target=inSheet||$('#mainView:not(.is-hidden) .topbar')||$('#loginView .auth-card');
+    if(!target)return false;
+    let el=$('#wwInlineBusyV44');
+    if(!el){
+      el=document.createElement('span');el.id='wwInlineBusyV44';el.className='ww-inline-busy-v44';
+      el.setAttribute('role','status');el.setAttribute('aria-live','polite');
+      const spin=document.createElement('span');spin.className='ww-inline-spinner-v44';spin.setAttribute('aria-hidden','true');
+      const text=document.createElement('span');text.className='ww-inline-label-v44';
+      el.append(spin,text);
+    }
+    if(el.parentElement!==target)target.appendChild(el);
+    el.querySelector('.ww-inline-label-v44').textContent=String(label||'Memproses…');
+    return true;
+  }
+  function beginBusy(label='Memuat…') {
+    busyDepth+=1;
+    const text=$('#busyText');if(text)text.textContent=label;
     clearTimeout(busyShowTimer);
     busyShowTimer=setTimeout(()=>{
       if(busyDepth<=0)return;
-      const root=$('#busyRoot');if(root)root.classList.remove('is-hidden');
-      document.documentElement.classList.add('app-busy');
+      const placed=busyInlineV44(label);
+      const root=$('#busyRoot');
+      if(root)root.classList.toggle('is-hidden',placed);
+      // Deliberately do NOT set app-busy or block the whole screen.
     },180);
   }
   function endBusy() {
-    busyDepth = Math.max(0, busyDepth - 1);
-    if (busyDepth > 0) return;
+    busyDepth=Math.max(0,busyDepth-1);
+    if(busyDepth>0)return;
     clearTimeout(busyShowTimer);busyShowTimer=null;
-    const root = $('#busyRoot'); if (root) root.classList.add('is-hidden');
+    const chip=$('#wwInlineBusyV44');if(chip)chip.remove();
+    const root=$('#busyRoot');if(root)root.classList.add('is-hidden');
     document.documentElement.classList.remove('app-busy');
   }
   async function withBusy(label, fn) { beginBusy(label); try { return await fn(); } finally { endBusy(); } }
