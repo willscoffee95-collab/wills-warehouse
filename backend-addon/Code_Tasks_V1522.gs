@@ -94,3 +94,78 @@ function ww1522TaskAdminAuditReadOnly() {
   Logger.log('WW1522_TASK_ADMIN_AUDIT_READONLY '+JSON.stringify(out));
   return out;
 }
+
+
+/**
+ * OWNER-only master template catalog. This controls the existing
+ * "Template Tugas Gudang" tab, NOT historical "Tugas Gudang" rows.
+ * Inactivation is a soft archive (Aktif=TIDAK).
+ */
+function listWarehouseTaskTemplatesV1522(token) {
+  const ss=warehouseSs_(),user=requireSessionReadOnlyFastV1360_(ss,token);
+  if(user.role!=='OWNER')throw new Error('Hanya Owner yang dapat mengelola template tugas.');
+  const sh=ss.getSheetByName('Template Tugas Gudang');
+  if(!sh||sh.getLastColumn()<11)throw new Error('Master Template Tugas Gudang belum tersedia/lengkap.');
+  const rows=sh.getLastRow()<2?[]:sh.getRange(2,1,sh.getLastRow()-1,11).getValues();
+  return {ok:true,readOnly:true,templates:rows.filter(r=>String(r[0]||'')).map(r=>({
+    id:String(r[0]),group:String(r[1]),name:String(r[2]),deadline:String(r[3]||''),
+    requiredClosing:String(r[4]||'TIDAK'),active:String(r[5]||'TIDAK'),
+    order:Number(r[6]||0),picRole:String(r[7]||'STAFF GUDANG'),note:String(r[10]||'')
+  }))};
+}
+
+/**
+ * CREATE / UPDATE / ARCHIVE / RESTORE an existing task template.
+ * No physical delete. Every write is Owner-only and auditable.
+ * Existing daily task rows and warehouse ledgers are untouched.
+ */
+function saveWarehouseTaskTemplateV1522(token,payload,idem) {
+  return withWriteLock_(function(){
+    const ss=warehouseSs_(),owner=requireRole_(ss,token,['OWNER']);
+    assertIdem_(idem);payload=payload||{};
+    const action=String(payload.action||'').trim().toUpperCase();
+    if(['CREATE','UPDATE','ARCHIVE','RESTORE'].indexOf(action)<0)throw new Error('Aksi template tidak valid.');
+    const sh=ss.getSheetByName('Template Tugas Gudang');
+    if(!sh||sh.getLastColumn()<11)throw new Error('Master Template Tugas Gudang belum tersedia/lengkap.');
+    let rowNo=0,before=null,values=null;
+    const now=new Date();
+    if(action==='CREATE'){
+      const id='WHTPL-1522-'+sha256Hex_(String(idem)).slice(0,14).toUpperCase();
+      const found=findRowByExact_(sh,1,id);
+      if(found)return{ok:true,id:id,idempotent:true};
+      values=[id,'','','','TIDAK','YA',0,'STAFF GUDANG',now,now,''];
+    }else{
+      const id=cleanText_(payload.id,100);
+      if(!id)throw new Error('Template ID wajib ada.');
+      rowNo=findRowByExact_(sh,1,id);
+      if(!rowNo)throw new Error('Template tidak ditemukan.');
+      values=sh.getRange(rowNo,1,1,11).getValues()[0];
+      before={id:String(values[0]),group:String(values[1]),name:String(values[2]),active:String(values[5]),picRole:String(values[7])};
+    }
+    if(action==='ARCHIVE'||action==='RESTORE'){
+      values[5]=action==='RESTORE'?'YA':'TIDAK';
+    }else{
+      const group=String(payload.group||'').toUpperCase();
+      const picRole=String(payload.picRole||'').toUpperCase();
+      const name=cleanText_(payload.name,150);
+      const deadline=cleanText_(payload.deadline,50);
+      const note=cleanText_(payload.note,500);
+      const order=Number(payload.order||0);
+      const requiredClosing=String(payload.requiredClosing||'TIDAK').toUpperCase();
+      if(['OPENING','OPERASIONAL','CLOSING'].indexOf(group)<0)throw new Error('Kelompok template tidak valid.');
+      if(['STAFF GUDANG','FINANCE'].indexOf(picRole)<0)throw new Error('PIC Role template tidak valid.');
+      if(name.length<3)throw new Error('Nama tugas minimal 3 karakter.');
+      if(!Number.isSafeInteger(order)||order<0||order>99999)throw new Error('Urutan harus bilangan bulat 0–99999.');
+      if(['YA','TIDAK'].indexOf(requiredClosing)<0)throw new Error('Wajib Closing tidak valid.');
+      values[1]=group;values[2]=name;values[3]=deadline;values[4]=requiredClosing;
+      values[6]=order;values[7]=picRole;values[10]=note;
+    }
+    values[9]=now;
+    if(rowNo)sh.getRange(rowNo,1,1,11).setValues([values]);else sh.getRange(sh.getLastRow()+1,1,1,11).setValues([values]);
+    SpreadsheetApp.flush();
+    const after={id:String(values[0]),group:String(values[1]),name:String(values[2]),active:String(values[5]),picRole:String(values[7])};
+    auditLog_(ss,owner,'TEMPLATE_TUGAS_GUDANG',action,after.id,'SUCCESS',before,after,
+      'Master tugas, tanpa mengubah stok/SJ/ledger atau tugas historis.');
+    return{ok:true,id:after.id,action:action,active:after.active};
+  });
+}
