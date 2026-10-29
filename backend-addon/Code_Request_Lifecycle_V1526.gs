@@ -47,7 +47,7 @@ function getWarehouseRequestLifecycleV1526(token) {
     rows.push({
       requestId:req.requestId,outletCode:req.outletCode,outletName:req.outletName,
       requestDate:req.requestDate,needDate:req.needDate,createdAt:req.createdAt,
-      itemCount:req.itemCount,note:req.note,sourceStatus:req.sourceStatus,
+      itemCount:req.itemCount,note:req.note,sourceStatus:req.sourceStatus,items:req.items||[],
       sjId:d?d.sjId:linkedId,noSj:d?d.noSj:linkedNo,
       sjStatus:d?d.status:'MISSING_SJ',warehouseStatus:phase.stage,group:phase.group,
       reviewed:reviewed,printRequested:!!printEvent,
