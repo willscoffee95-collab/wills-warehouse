@@ -975,11 +975,12 @@
   function opsPrintRequestThermalV43(requestId) {
     const req=opsRequestV43(requestId),lines=wwPickingPrintLinesV1525(requestId);
     if(!req||!lines)return;
+    const report=wwPickingReportForPrintV1525(requestId);
     const width=Number(localStorage.getItem('ww_thermal_width'))===48?48:32,hr='-'.repeat(width),parts=[];
     parts.push(centerThermal('WILLS COFFEE',width),centerThermal('CEK KETERSEDIAAN OUTLET',width),hr);
     ['Outlet: '+(req.outletName||req.outletCode||'-'),
      'Permintaan: '+(req.requestId||'-'),
-     'SJ DRAFT: '+(req.linkedNoSj||'-'),
+     'SJ DRAFT: '+(report.noSj||req.linkedNoSj||'-'),
      'Dibutuhkan: '+displayDateShort(req.needDate)].forEach(line=>
         wrapThermal(line,width).forEach(x=>parts.push(x)));
     parts.push(hr);
