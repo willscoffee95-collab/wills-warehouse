@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  window.WW_FRONTEND_BUILD='2026-10-29.1.5.2.5-request-stock-preprint';
+  window.WW_FRONTEND_BUILD='2026-10-29.1.5.2.6-request-lifecycle-price-ui';
 
 
   const $ = (q, root = document) => root.querySelector(q);
@@ -290,7 +290,8 @@
     const role=currentRole(), finance=!inventoryOnlyV1520()&&dash.financeVisible!==false;
     const draftCount=(d.deliveries||[]).filter(x=>String(x.status||'')==='DRAFT').length;
     const bootstrapReady=Object.prototype.hasOwnProperty.call(dash,'activeMaterials');
-    const openReq=bootstrapReady?(d.incomingRequests||[]).filter(x=>!['SELESAI','DIBATALKAN'].includes(String(x.warehouseStatus||''))).length:null;
+    const openReq=wwQueueV1526&&wwQueueV1526.counts?Number(wwQueueV1526.counts.PREPARE||0):
+      bootstrapReady?(d.incomingRequests||[]).filter(x=>String(x.warehouseStatus||'')==='MENUNGGU DISIAPKAN').length:null;
     const cashReady=dash.financeUnit&&dash.financeUnit.ready;
     const money=v=>v==null?'—':rp(v);
     const qty=v=>v==null?'—':num(v,0);
@@ -1081,7 +1082,7 @@
     setTimeout(()=>{try{win.print()}catch(err){toast('Gagal membuka cetak: '+err.message)}},200);return true;
   }
 
-  let wwSelectedOutletV1522='',wwQueueV1526=null,wwQueuePromiseV1526=null,wwQueueErrorV1526='';
+  let wwSelectedOutletV1522='',wwQueueV1526=null,wwQueuePromiseV1526=null,wwQueueErrorV1526='',wwQueueFetchedAtV1526=0;
   function wwRequestOutletV1522(x){
     const code=String(x.outletCode||x.code||'').trim().toUpperCase();
     return code==='TGM'?'TM':(code||'LAINNYA');
@@ -1097,7 +1098,7 @@
     wwQueuePromiseV1526=withBusy('Menyinkronkan status permintaan & Surat Jalan…',async()=>{
       const out=await bridge.call('getWarehouseRequestLifecycleV1526',state.token);
       if(!out||out.ok!==true||!Array.isArray(out.rows))throw Error('Daftar status canonical belum tersedia.');
-      wwQueueV1526=out;wwQueueErrorV1526='';
+      wwQueueV1526=out;wwQueueErrorV1526='';wwQueueFetchedAtV1526=Date.now();
       return out;
     }).catch(err=>{wwQueueErrorV1526=String(err&&err.message||err);throw err;}).finally(()=>{
       wwQueuePromiseV1526=null;
@@ -1200,7 +1201,8 @@
     $$('[data-ww-progress-id]').forEach(b=>b.onclick=()=>wwRequestLifecycleDetailV1526(b.dataset.wwProgressId));
     $$('[data-sjid]').forEach(b=>b.onclick=()=>directDeliveryDetail(b.dataset.sjid));
     const retry=$('#wwQueueRetryV1526');if(retry)retry.onclick=()=>wwReloadQueueV1526(true).catch(e=>toast(e.message,'warning'));
-    if(load&&!canonical&&!wwQueuePromiseV1526)wwReloadQueueV1526().catch(e=>toast('Status canonical belum tersedia: '+e.message,'warning'));
+    if(load&&(!canonical||Date.now()-wwQueueFetchedAtV1526>30000)&&!wwQueuePromiseV1526)
+      wwReloadQueueV1526(true).catch(e=>toast('Status canonical belum tersedia: '+e.message,'warning'));
   }
 
   function directDraftPrintList(){
@@ -1617,8 +1619,8 @@
     const dash = state.data && state.data.dashboard || {};
     let count = stockAlerts().length;
     if (Number(dash.recoveryPending || 0) > 0) count += 1;
-    if (Number(dash.packingWageCount || 0) > 0) count += 1;
-    const req=((state.data||{}).incomingRequests||[]).filter(x=>!['SELESAI','DIBATALKAN'].includes(String(x.warehouseStatus||'')));
+    if (!inventoryOnlyV1520() && Number(dash.packingWageCount || 0) > 0) count += 1;
+    const req=(wwQueueV1526&&wwQueueV1526.rows||[]).filter(x=>x.group==='PREPARE');
     if(req.length) count += 1;
     return count;
   }
@@ -1648,10 +1650,14 @@
     const other = [];
     if (Number(dash.recoveryPending || 0) > 0) other.push(`<div class="notice-row"><span class="notice-icon bad">${icons.warning}</span><div class="notice-copy"><b>Pemulihan transaksi</b><small>Ada transaksi yang perlu diperiksa sistem.</small></div><div class="notice-side"><strong>${num(dash.recoveryPending,0)}</strong><span class="badge bad">PERIKSA</span></div></div>`);
     if (!inventoryOnlyV1520() && Number(dash.packingWageCount || 0) > 0) other.push(`<div class="notice-row"><span class="notice-icon">${icons.money}</span><div class="notice-copy"><b>Upah packing belum dibayar</b><small>${num(dash.packingWageCount,0)} kewajiban upah masih terbuka.</small></div><div class="notice-side"><strong>${compactRp(dash.packingWageOutstanding)}</strong><span class="badge warn">BELUM LUNAS</span></div></div>`);
-    const req=((state.data||{}).incomingRequests||[]).filter(x=>!['SELESAI','DIBATALKAN'].includes(String(x.warehouseStatus||'')));
+    const req=(wwQueueV1526&&wwQueueV1526.rows||[]).filter(x=>x.group==='PREPARE');
     if(req.length) other.push(`<div class="notice-row"><span class="notice-icon">${icons.truck}</span><div class="notice-copy"><b>Bahan yang Harus Dikirim Sekarang</b><small>${req.slice(0,4).map(x=>esc(x.outletName)+' · '+num(x.itemCount||0)+' bahan').join('<br>')}${req.length>4?'<br>+'+(req.length-4)+' permintaan lainnya':''}</small></div><div class="notice-side"><strong>${req.length}</strong><span class="badge warn">SIAPKAN</span></div></div>`);
 
 
+    if(wwQueueV1526&&wwQueueV1526.counts){
+      const n=wwQueueV1526.counts;
+      if(Number(n.IN_TRANSIT||0)>0)other.push('<div class="notice-row"><span class="notice-icon">'+icons.truck+'</span><div class="notice-copy"><b>Pengiriman / Penerimaan Outlet</b><small>'+num(n.IN_TRANSIT,0)+' permintaan sedang diproses. Penerimaan mengikuti catatan barista di outlet.</small></div></div>');
+    }
     sheetHtml('Pemberitahuan',`<div class="notice-section"><div class="notice-heading"><b>Bahan yang perlu dibelanja</b><span>${alerts.length} bahan</span></div><div class="notice-list">${stockHtml}</div></div>${other.length ? `<div class="notice-section"><div class="notice-heading"><b>Perlu perhatian</b><span>${other.length} pemberitahuan</span></div><div class="notice-list">${other.join('')}</div></div>` : ''}<div class="notice-summary">Daftar belanja mengikuti status stok <b>Kritis</b> dan <b>Menipis</b> dari sistem gudang. Nama bahan dan jumlah stok ditampilkan langsung agar Admin bisa menindaklanjuti tanpa menebak itemnya.</div>`,{key:'notifications'});
   }
 
