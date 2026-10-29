@@ -926,9 +926,13 @@
       result.textContent='Memeriksa stok terbaru…';
       try{
         // Read-only module call, never postStockAdjustment/dispatchDelivery.
-        const data=await bridge.call('getAppModule',state.token,'stock');
+        let data=await bridge.call('getAppModule',state.token,'stock');
+        // Some backend builds return partial stock modules. Fall back to the
+        // full read-only bootstrap instead of trusting cached material units.
         if(!data||!Array.isArray(data.stock)||!Array.isArray(data.materials))
-          throw new Error('Modul stok tidak menyediakan data lengkap; cetak tetap terkunci.');
+          data=await bridge.call('getAppBootstrap',state.token);
+        if(!data||!Array.isArray(data.stock)||!Array.isArray(data.materials))
+          throw new Error('Backend belum mengirim stok dan satuan terbaru secara lengkap; cetak tetap terkunci.');
         if(!opsRequestV43(requestId)||wwRequestFingerprintV1525(opsRequestV43(requestId))!==wwRequestFingerprintV1525(req))
           throw new Error('Permintaan berubah. Buka ulang rincian terlebih dahulu.');
         const rows=wwRequestCompareStocksV1525(req,data.stock,data.materials);
