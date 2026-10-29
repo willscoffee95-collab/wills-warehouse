@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  window.WW_FRONTEND_BUILD='2026-10-28.1.5.2.4-outlet-requests-first';
+  window.WW_FRONTEND_BUILD='2026-10-29.1.5.2.5-request-stock-preprint';
 
 
   const $ = (q, root = document) => root.querySelector(q);
@@ -832,16 +832,134 @@
   function opsRequestV43(requestId) {
     return ((state.data||{}).incomingRequests||[]).find(x=>String(x.requestId||'')===String(requestId||''))||null;
   }
+  // V1.5.2.5 — Mandatory read-only inventory check BEFORE printing an outlet request.
+  // This is a picking aid, NOT stock reservation, dispatch, or an inventory mutation.
+  const wwRequestChecksV1525=new Map();
+  const WW_REQUEST_CHECK_TTL_V1525=120000;
+  function wwRequestFingerprintV1525(req){
+    return JSON.stringify({
+      id:String(req.requestId||''),status:String(req.warehouseStatus||req.sourceStatus||''),
+      items:(Array.isArray(req.items)?req.items:[]).map(it=>[
+        String(it.code||''),String(it.qtyUnit!=null?it.qtyUnit:(it.qty||'')),
+        String(it.unit||it.receiveUnit||'')
+      ])
+    });
+  }
+  function wwRequestPrintReadyV1525(requestId){
+    const req=opsRequestV43(requestId),check=wwRequestChecksV1525.get(String(requestId));
+    return !!(req&&check&&check.fingerprint===wwRequestFingerprintV1525(req)&&
+      Date.now()-check.checkedAt<WW_REQUEST_CHECK_TTL_V1525&&
+      check.rows.length>0&&check.rows.every((r,i)=>r.ok&&check.confirmed.has(i)));
+  }
+  function wwRequestCompareStocksV1525(req,stock,materials){
+    const matMap=new Map(materials.map(m=>[String(m.code||''),m]));
+    const stockMap=new Map(stock.map(st=>[String(st.code||''),st]));
+    const remaining=new Map();
+    const normalize=v=>String(v||'').trim().toLowerCase().replace(/\s+/g,'');
+    return req.items.map((it,i)=>{
+      const code=String(it.code||''),m=matMap.get(code),st=stockMap.get(code);
+      const wanted=Number(it.qtyUnit!=null?it.qtyUnit:it.qty),unit=String(it.unit||it.receiveUnit||(m&&m.receiveUnit)||'');
+      const actualUnit=normalize(unit),receiveUnit=normalize(m&&m.receiveUnit),baseUnit=normalize(m&&m.baseUnit);
+      const factor=Number(m&&m.factor||1);
+      let reason='',baseFactor=0;
+      if(!code||!m||!st)reason='Bahan tidak ditemukan pada stok terbaru.';
+      else if(!Number.isFinite(wanted)||wanted<=0)reason='Jumlah permintaan tidak valid.';
+      else if(!Number.isFinite(Number(st.qty))||Number(st.qty)<0)reason='Jumlah stok tidak valid.';
+      else if(!Number.isFinite(factor)||factor<=0)reason='Konversi satuan bahan tidak valid.';
+      else if(actualUnit&&actualUnit===receiveUnit)baseFactor=factor;
+      else if(actualUnit&&actualUnit===baseUnit)baseFactor=1;
+      else reason='Satuan permintaan tidak cocok dengan Master Bahan; perlu diperiksa.';
+      const availableBase=st?(remaining.has(code)?remaining.get(code):Math.max(0,Number(st.qty)||0)):0;
+      const available=baseFactor?availableBase/baseFactor:null;
+      const ok=!!baseFactor&&!reason&&availableBase+0.000001>=wanted*baseFactor;
+      if(baseFactor&&!reason)remaining.set(code,Math.max(0,availableBase-wanted*baseFactor));
+      if(!reason&&!ok)reason='Stok gudang tidak mencukupi.';
+      return {index:i,code,name:String(it.name||(m&&m.name)||code||'Bahan'),unit,wanted,
+        available,ok,reason,status:ok?'CUKUP':reason==='Stok gudang tidak mencukupi.'?'KURANG':'PERLU CEK'};
+    });
+  }
   function opsRequestDetailV43(requestId) {
     const req=opsRequestV43(requestId);
     if(!req)return toast('Permintaan tidak ditemukan di snapshot. Tekan Perbarui Permintaan lalu coba lagi.');
     const items=Array.isArray(req.items)?req.items:[];
-    sheetHtml('Permintaan Bahan Outlet',`<div class="ww-ops-request-meta"><strong>${esc(req.outletName||req.outletCode||'-')}</strong><span>Nomor permintaan: ${esc(req.requestId||'-')}</span><span>Diajukan: ${esc(displayDateShort(req.requestDate||req.createdAt))} · Dibutuhkan: ${esc(displayDateShort(req.needDate))}</span><span>Status: ${esc(req.warehouseStatus||req.sourceStatus||'-')}${req.linkedNoSj?' · SJ '+esc(req.linkedNoSj):''}</span>${req.note?'<span>Catatan: '+esc(req.note)+'</span>':''}</div><div class="direct-list">${items.map((it,i)=>`<div class="direct-card"><b>${i+1}. ${esc(it.name||it.code||'Bahan')}</b><small>${num(Number(it.qtyUnit!=null?it.qtyUnit:(it.qty||0)))} ${esc(it.unit||it.receiveUnit||'')} · ${esc(it.code||'')}</small></div>`).join('')||'<div class="empty">Detail bahan belum tersedia. Perbarui Permintaan untuk memuat ulang.</div>'}</div><div class="actions"><button class="btn btn-line" id="opsV43RequestBack" type="button">Kembali</button><button class="btn btn-soft" id="opsV43RequestThermal" type="button" ${items.length?'':'disabled'}>Cetak Thermal</button><button class="btn btn-primary" id="opsV43RequestPrint" type="button" ${items.length?'':'disabled'}>Cetak A4</button></div>`,{key:'request-detail-v43:'+requestId});
-    const back=$('#opsV43RequestBack');if(back)back.onclick=()=>directDelivery();
-    const print=$('#opsV43RequestPrint');if(print)print.onclick=()=>opsPrintRequestV43(requestId);
-    const thermal=$('#opsV43RequestThermal');if(thermal)thermal.onclick=()=>opsPrintRequestThermalV43(requestId);
+    const key=String(requestId);
+    // Always require a new check when the request detail is reopened.
+    wwRequestChecksV1525.delete(key);
+    const cards=items.map((it,i)=>'<div class="direct-card"><b>'+
+      (i+1)+'. '+esc(it.name||it.code||'Bahan')+'</b><small>'+
+      num(Number(it.qtyUnit!=null?it.qtyUnit:(it.qty||0)))+' '+
+      esc(it.unit||it.receiveUnit||'')+' · '+esc(it.code||'')+'</small></div>').join('');
+    sheetHtml('Permintaan Bahan Outlet',
+      '<div class="ww-ops-request-meta"><strong>'+esc(req.outletName||req.outletCode||'-')+'</strong>'+
+      '<span>Nomor permintaan: '+esc(req.requestId||'-')+'</span>'+
+      '<span>Diajukan: '+esc(displayDateShort(req.requestDate||req.createdAt))+
+      ' · Dibutuhkan: '+esc(displayDateShort(req.needDate))+'</span>'+
+      '<span>Status: '+esc(req.warehouseStatus||req.sourceStatus||'-')+
+      (req.linkedNoSj?' · SJ '+esc(req.linkedNoSj):'')+'</span>'+
+      (req.note?'<span>Catatan: '+esc(req.note)+'</span>':'')+'</div>'+
+      '<div class="direct-list">'+(cards||'<div class="empty">Detail bahan belum tersedia. Perbarui Permintaan terlebih dahulu.</div>')+'</div>'+
+      '<section class="ww-preprint-check"><div class="ww-preprint-head"><b>1. Cek Ketersediaan Bahan Gudang</b>'+
+      '<span>Wajib sebelum mencetak struk</span></div>'+
+      '<p>Bandingkan jumlah yang diminta dengan stok terbaru, kemudian centang setiap bahan setelah dicek fisik. Pengecekan ini tidak memotong atau memesan stok.</p>'+
+      '<button id="wwReqCheckStockV1525" type="button" class="btn btn-soft" '+(items.length?'':'disabled')+'>Perbarui & Cek Stok Gudang</button>'+
+      '<div id="wwReqStockResultsV1525" class="ww-preprint-results" role="status" aria-live="polite">Belum diperiksa. Cetak terkunci sampai semua bahan dikonfirmasi.</div>'+
+      '</section>'+
+      '<div class="ww-preprint-head"><b>2. Cetak Permintaan Bahan</b><span>Setelah pengecekan lengkap</span></div>'+
+      '<div class="actions"><button class="btn btn-line" id="opsV43RequestBack" type="button">Kembali</button>'+
+      '<button class="btn btn-soft" id="opsV43RequestThermal" type="button" disabled>Cetak Thermal</button>'+
+      '<button class="btn btn-primary" id="opsV43RequestPrint" type="button" disabled>Cetak A4</button></div>',
+      {key:'request-detail-v43:'+requestId});
+    const back=$('#opsV43RequestBack'),print=$('#opsV43RequestPrint'),thermal=$('#opsV43RequestThermal'),
+      checkButton=$('#wwReqCheckStockV1525'),result=$('#wwReqStockResultsV1525');
+    if(back)back.onclick=()=>directDelivery();
+    if(print)print.onclick=()=>opsPrintRequestV43(requestId);
+    if(thermal)thermal.onclick=()=>opsPrintRequestThermalV43(requestId);
+    const updateButtons=()=>{
+      const ready=wwRequestPrintReadyV1525(requestId);
+      if(print)print.disabled=!ready;
+      if(thermal)thermal.disabled=!ready;
+    };
+    if(checkButton)checkButton.onclick=async()=>{
+      if(checkButton.disabled||checkButton.dataset.loading==='1')return;
+      checkButton.dataset.loading='1';checkButton.disabled=true;
+      wwRequestChecksV1525.delete(key);updateButtons();
+      result.textContent='Memeriksa stok terbaru…';
+      try{
+        // Read-only module call, never postStockAdjustment/dispatchDelivery.
+        const data=await bridge.call('getAppModule',state.token,'stock');
+        if(!data||!Array.isArray(data.stock)||!Array.isArray(data.materials))
+          throw new Error('Modul stok tidak menyediakan data lengkap; cetak tetap terkunci.');
+        if(!opsRequestV43(requestId)||wwRequestFingerprintV1525(opsRequestV43(requestId))!==wwRequestFingerprintV1525(req))
+          throw new Error('Permintaan berubah. Buka ulang rincian terlebih dahulu.');
+        const rows=wwRequestCompareStocksV1525(req,data.stock,data.materials);
+        if(!rows.length)throw new Error('Permintaan tidak memiliki rincian bahan.');
+        const check={checkedAt:Date.now(),fingerprint:wwRequestFingerprintV1525(req),rows,confirmed:new Set()};
+        wwRequestChecksV1525.set(key,check);
+        const allSufficient=rows.every(x=>x.ok);
+        result.innerHTML='<div class="ww-preprint-summary">'+
+          (allSufficient?'Stok sistem mencukupi. Centang bahan setelah dicek fisik.':'Ada kekurangan atau satuan belum cocok. Cetak belum dapat dilakukan.')+
+          '</div>'+rows.map((it,i)=>'<label class="ww-preprint-item '+(it.ok?'is-ok':'is-short')+'">'+
+          '<input type="checkbox" data-ww-request-checked="'+i+'" '+(it.ok?'':'disabled')+'>'+
+          '<span><b>'+esc(it.name)+'</b><small>Diminta '+num(it.wanted)+' '+esc(it.unit)+
+          ' · Tersedia '+(it.available==null?'belum dapat dihitung':num(it.available)+' '+esc(it.unit))+
+          '</small>'+(it.reason?'<small class="ww-preprint-reason">'+esc(it.reason)+'</small>':'')+'</span>'+
+          '<strong>'+esc(it.status)+'</strong></label>').join('')+
+          '<div class="ww-preprint-caption">Stok diperiksa dari sistem saat tombol ditekan. Validitas konfirmasi 2 menit; cek ulang jika kedaluwarsa atau stok berubah. Pengiriman tetap mengikuti verifikasi SJ.</div>';
+        $$('[data-ww-request-checked]',result).forEach(box=>box.addEventListener('change',()=>{
+          const i=Number(box.dataset.wwRequestChecked);
+          if(box.checked)check.confirmed.add(i);else check.confirmed.delete(i);
+          updateButtons();
+        }));
+        updateButtons();
+      }catch(err){
+        wwRequestChecksV1525.delete(key);updateButtons();
+        result.textContent='Pemeriksaan gagal: '+String(err&&err.message||err)+'. Cetak tetap terkunci.';
+        toast('Stok belum berhasil diperiksa. Coba lagi.','warning');
+      }finally{checkButton.dataset.loading='';checkButton.disabled=false;}
+    };
   }
   function opsPrintRequestThermalV43(requestId) {
+    if(!wwRequestPrintReadyV1525(requestId))return toast('Cek dan konfirmasi stok gudang sebelum mencetak struk.','warning');
     const req=opsRequestV43(requestId),items=req&&req.items;
     if(!Array.isArray(items)||!items.length)return toast('Detail bahan kosong. Perbarui permintaan terlebih dahulu.');
     const width=Number(localStorage.getItem('ww_thermal_width'))===48?48:32,hr='-'.repeat(width),parts=[];
@@ -865,6 +983,7 @@
     printRawBt(parts.join('\n'));
   }
   function opsPrintRequestV43(requestId) {
+    if(!wwRequestPrintReadyV1525(requestId))return toast('Cek dan konfirmasi stok gudang sebelum mencetak struk.','warning');
     const req=opsRequestV43(requestId);
     if(!req||!Array.isArray(req.items)||!req.items.length)return toast('Detail bahan belum lengkap, cetak dibatalkan.');
     const rows=req.items.map((it,i)=>`<tr><td>${i+1}</td><td>${esc(it.name||it.code||'Bahan')}<small>${esc(it.code||'')}</small></td><td class="right">${num(Number(it.qtyUnit!=null?it.qtyUnit:(it.qty||0)))}</td><td>${esc(it.unit||it.receiveUnit||'')}</td><td class="check">□</td></tr>`).join('');
