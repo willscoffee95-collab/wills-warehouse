@@ -830,7 +830,8 @@
   }
   // v4.3 · Permintaan outlet: ringkasan dan cetak tanpa mutasi data.
   function opsRequestV43(requestId) {
-    return ((state.data||{}).incomingRequests||[]).find(x=>String(x.requestId||'')===String(requestId||''))||null;
+    return ((wwQueueV1526&&wwQueueV1526.rows)||[]).find(x=>String(x.requestId)===String(requestId))||
+      ((state.data||{}).incomingRequests||[]).find(x=>String(x.requestId||'')===String(requestId||''))||null;
   }
   // V1.5.2.5 — staff verifies actual availability, INCLUDING zero,
   // then saves audited availability to the linked DRAFT SJ before printing.
@@ -1035,13 +1036,60 @@
     setTimeout(()=>{try{win.print()}catch(err){toast('Gagal membuka cetak: '+err.message)}},200);
   }
 
-  let wwSelectedOutletV1522='';
+  let wwSelectedOutletV1522='',wwQueueV1526=null,wwQueuePromiseV1526=null,wwQueueErrorV1526='';
   function wwRequestOutletV1522(x){
     const code=String(x.outletCode||x.code||'').trim().toUpperCase();
     return code==='TGM'?'TM':(code||'LAINNYA');
   }
-  function directDelivery(){
-    const d=state.data||{},req=(d.incomingRequests||[]).filter(x=>!['SELESAI','DIBATALKAN'].includes(String(x.warehouseStatus||''))),rows=d.deliveries||[];
+  function wwRequestStageV1526(req){
+    const s=String(req&&req.sjStatus||'').toUpperCase();
+    if(s==='DRAFT'||!s)return 'PREPARE';
+    return ['SELESAI','DIBATALKAN'].includes(s)?'HISTORY':'IN_TRANSIT';
+  }
+  function wwReloadQueueV1526(force=false){
+    if(wwQueuePromiseV1526)return wwQueuePromiseV1526;
+    if(!force&&wwQueueV1526)return Promise.resolve(wwQueueV1526);
+    wwQueuePromiseV1526=withBusy('Menyinkronkan status permintaan & Surat Jalan…',async()=>{
+      const out=await bridge.call('getWarehouseRequestLifecycleV1526',state.token);
+      if(!out||out.ok!==true||!Array.isArray(out.rows))throw Error('Daftar status canonical belum tersedia.');
+      wwQueueV1526=out;wwQueueErrorV1526='';
+      return out;
+    }).catch(err=>{wwQueueErrorV1526=String(err&&err.message||err);throw err;}).finally(()=>{
+      wwQueuePromiseV1526=null;
+      if(currentSheetKey()==='delivery-list')directDelivery(false);
+    });
+    return wwQueuePromiseV1526;
+  }
+  function wwRequestProgressCardV1526(x){
+    const g=x.group||wwRequestStageV1526(x);
+    return '<button type="button" class="direct-card direct-click ww-request-item" data-ww-progress-id="'+esc(x.requestId)+'">'+
+      '<b>'+esc(x.outletName||x.outletCode||'-')+' · '+esc(x.noSj||x.linkedNoSj||'-')+'</b>'+
+      '<small>'+esc(displayDateShort(x.requestDate||x.createdAt))+' · '+num(x.itemCount||0,0)+' bahan</small>'+
+      '<span class="badge '+(g==='HISTORY'?'ok':'warn')+'">'+esc(x.warehouseStatus||x.sjStatus||'-')+'</span></button>';
+  }
+  function wwRequestLifecycleDetailV1526(requestId){
+    const x=(wwQueueV1526&&wwQueueV1526.rows||[]).find(t=>String(t.requestId)===String(requestId));
+    if(!x)return toast('Riwayat permintaan belum tersedia. Perbarui permintaan.','warning');
+    const st=String(x.sjStatus||''),labels=['DRAFT','DIKIRIM','DITERIMA','SELESAI'],done=st==='SELESAI'?3:
+      st==='DITERIMA'?2:st==='DITERIMA_SEBAGIAN'?2:
+      ['DIKIRIM','SELISIH'].includes(st)?1:0;
+    const steps=labels.map((label,i)=>'<div class="ww-life-step '+(i<=done?'done':'')+'"><span>'+
+      (i<=done?'✓':String(i+1))+'</span><b>'+label+'</b></div>').join('');
+    sheetHtml('Status Permintaan Outlet',
+      '<div class="ww-ops-request-meta"><strong>'+esc(x.outletName||x.outletCode)+'</strong>'+
+      '<span>Permintaan '+esc(x.requestId)+' · SJ '+esc(x.noSj||'-')+'</span>'+
+      '<span>'+esc(displayDateShort(x.requestDate))+' · '+esc(x.warehouseStatus||st)+'</span></div>'+
+      '<div class="ww-life-track">'+steps+'</div>'+
+      '<div class="ww-preprint-summary">Status Surat Jalan canonical: <b>'+esc(st||'BELUM ADA SJ')+
+      '</b>. Tidak semua status berarti penerimaan selesai. SELISIH dan DIBATALKAN memerlukan pemeriksaan tersendiri.</div>'+
+      '<button class="btn btn-line" id="wwLifeBackV1526">Kembali ke Permintaan</button>',{key:'request-lifecycle:'+requestId});
+    $('#wwLifeBackV1526').onclick=directDelivery;
+  }
+  function directDelivery(load=true){
+    const d=state.data||{},canonical=wwQueueV1526&&Array.isArray(wwQueueV1526.rows),
+      all=canonical?wwQueueV1526.rows:[],req=all.filter(x=>x.group==='PREPARE'),
+      progress=all.filter(x=>x.group==='IN_TRANSIT'),
+      history=all.filter(x=>x.group==='HISTORY'),rows=d.deliveries||[];
     const tools=[];
     if(roleCan('DELIVERY_CREATE'))tools.push('<button class="btn btn-primary" id="ghNewSj">+ SJ Manual</button>');
     if(roleCan('REQUEST_SYNC'))tools.push('<button class="btn btn-soft" id="ghSyncReq">Perbarui Permintaan</button>');
@@ -1053,35 +1101,61 @@
     const order=['RB','TM','UPI','CPK','CPS'];
     const keys=[...grouped.keys()].sort((a,b)=>{const ia=order.indexOf(a),ib=order.indexOf(b);return (ia<0?99:ia)-(ib<0?99:ib)||a.localeCompare(b);});
     if(!grouped.has(wwSelectedOutletV1522))wwSelectedOutletV1522=keys.find(k=>grouped.get(k).rows.length>0)||keys[0]||'';
-    const menu=keys.map(k=>'<button type="button" class="ww-request-tab '+(k===wwSelectedOutletV1522?'is-active':'')+'" data-ww-request-outlet="'+esc(k)+'" aria-pressed="'+(k===wwSelectedOutletV1522)+'">'+
+    const menu=keys.map(k=>'<button type="button" class="ww-request-tab '+(k===wwSelectedOutletV1522?'is-active':'')+
+      '" data-ww-request-outlet="'+esc(k)+'" aria-pressed="'+(k===wwSelectedOutletV1522)+'">'+
       '<span>'+esc(k)+'</span><b>'+num(grouped.get(k).rows.length,0)+'</b></button>').join('');
-    const selected=grouped.get(wwSelectedOutletV1522);
-    const entries=selected?selected.rows:[];
-    const requests=entries.map(x=>'<button class="direct-card direct-click ww-ops-request-card ww-request-item" type="button" data-request-id="'+esc(x.requestId)+'">'+
-      '<b>'+esc(x.outletName||x.outletCode||'-')+' · '+esc(displayDateShort(x.needDate))+'</b>'+
-      '<small>'+esc(displayDateShort(x.requestDate||x.createdAt))+' · '+num(x.itemCount||0,0)+' bahan'+(x.linkedNoSj?' · SJ '+esc(x.linkedNoSj):'')+'</small>'+
-      '<span class="badge warn">'+esc(x.warehouseStatus||'PERLU PROSES')+'</span><span class="ww-request-item-link">Rincian & Cetak ›</span></button>').join('');
-    const sj=rows.slice(0,30).map(x=>'<button class="direct-card direct-click" data-sjid="'+esc(x.sjId)+'"><b>'+
-      esc(x.noSj)+' · '+esc(x.outletName)+'</b><small>'+esc(displayDateShort(x.shipDate||x.createdAt))+' · '+(x.lines||[]).length+' item'+
-      (x.status==='DRAFT'?(dispatchPendingV44(x.sjId)?' · PERLU CEK STATUS KIRIM':' · siap checklist thermal'):'')+
-      (x.lastError?' · '+esc(x.lastError):'')+'</small>'+deliveryStatusBadge(x.status)+'</button>').join('');
+    const selected=grouped.get(wwSelectedOutletV1522),entries=selected?selected.rows:[],
+      requests=entries.map(x=>'<button class="direct-card direct-click ww-ops-request-card ww-request-item" type="button" data-request-id="'+esc(x.requestId)+'">'+
+        '<b>'+esc(x.outletName||x.outletCode||'-')+' · '+esc(displayDateShort(x.needDate))+'</b>'+
+        '<small>'+esc(displayDateShort(x.requestDate||x.createdAt))+' · '+num(x.itemCount||0,0)+' bahan · '+
+        esc(x.noSj||x.linkedNoSj||'-')+'</small><span class="badge warn">'+
+        esc(x.warehouseStatus||'MENUNGGU DISIAPKAN')+'</span>'+
+        '<span class="ww-request-item-link">Periksa Bahan ›</span></button>').join(''),
+      sj=rows.slice(0,30).map(x=>'<button class="direct-card direct-click" data-sjid="'+esc(x.sjId)+'"><b>'+
+        esc(x.noSj)+' · '+esc(x.outletName)+'</b><small>'+esc(displayDateShort(x.shipDate||x.createdAt))+
+        ' · '+(x.lines||[]).length+' item'+
+        (x.status==='DRAFT'?(dispatchPendingV44(x.sjId)?' · PERLU CEK STATUS KIRIM':' · siap checklist thermal'):'')+
+        '</small>'+deliveryStatusBadge(x.status)+'</button>').join('');
+    const loader=!canonical?'<div class="ww-queue-loading"><span class="ww-spin-v1526" aria-hidden="true"></span><span>'+
+      (wwQueueErrorV1526?'Status terbaru belum terbaca: '+esc(wwQueueErrorV1526)+' · ketuk Muat Ulang':'Menyinkronkan status Surat Jalan terbaru…')+
+      '</span><button class="btn btn-soft" id="wwQueueRetryV1526" type="button">Muat Ulang</button></div>':'';
+    const n=wwQueueV1526&&wwQueueV1526.counts||{};
     sheetHtml('Bahan yang Harus Dikirim Sekarang',
-      // Primary screen content: requests first, no action toolbar above it.
-      '<div class="ww-request-top"><b>Permintaan Bahan Outlet</b><span>'+num(req.length,0)+' permintaan aktif</span></div>'+
-      '<div class="ww-request-tabs" role="group" aria-label="Pilih outlet">'+(menu||'<span>Belum ada permintaan</span>')+'</div>'+
-      '<div class="ww-request-section"><div class="ww-request-section-head"><b>'+esc(selected?selected.name:'Tidak ada permintaan')+'</b><span>'+num(entries.length,0)+' permintaan</span></div>'+
-      '<div class="ww-request-scroll">'+(requests||'<div class="empty">Tidak ada permintaan aktif untuk outlet ini.</div>')+'</div></div>'+
-      (tools.length?'<details class="ww-sj-collapse ww-request-actions"><summary>Aksi Gudang <span>Sinkronisasi · Surat Jalan manual · Diagnostik</span></summary><div class="direct-toolbar">'+tools.join('')+'</div></details>':'')+
+      '<div class="ww-request-top"><b>Permintaan Bahan Outlet</b><span>'+
+      (canonical?num(req.length,0)+' perlu disiapkan':'Memuat status…')+'</span></div>'+
+      loader+
+      '<div class="ww-request-tabs" role="group" aria-label="Pilih outlet">'+(menu||'Belum ada outlet aktif')+'</div>'+
+      '<div class="ww-request-section"><div class="ww-request-section-head"><b>'+esc(selected?selected.name:'Tidak ada permintaan')+
+      '</b><span>'+num(entries.length,0)+' permintaan</span></div><div class="ww-request-scroll">'+
+      (canonical?(requests||'<div class="empty">Tidak ada permintaan DRAFT untuk outlet ini.</div>'):
+        '<div class="empty">Sedang memastikan status berdasarkan Surat Jalan terbaru…</div>')+'</div></div>'+
+      '<div class="ww-life-note">Alur: DRAFT / Cek Barang → DIKIRIM → DITERIMA OUTLET → SELESAI. Status hanya berubah saat tahap terkait tercatat.</div>'+
+      '<details class="ww-sj-collapse"><summary>Dalam Pengiriman / Penerimaan <span>'+num(n.IN_TRANSIT||0,0)+' permintaan</span></summary>'+
+      '<div class="direct-list">'+progress.map(wwRequestProgressCardV1526).join('')+'</div></details>'+
+      '<details class="ww-sj-collapse"><summary>Riwayat Selesai / Batal <span>'+num(n.HISTORY||0,0)+' permintaan</span></summary>'+
+      '<div class="direct-list">'+history.map(wwRequestProgressCardV1526).join('')+
+      '<small>Menampilkan 60 riwayat terbaru. Data lama tetap tersimpan.</small></div></details>'+
+      (tools.length?'<details class="ww-sj-collapse ww-request-actions"><summary>Aksi Gudang <span>Sinkronisasi · Surat Jalan manual · Diagnostik</span></summary>'+
+        '<div class="direct-toolbar">'+tools.join('')+'</div></details>':'')+
       '<details class="ww-sj-collapse"><summary>Surat Jalan Terbaru <span>'+num(rows.length,0)+' SJ · ketuk untuk membuka</span></summary>'+
       '<div class="direct-list">'+(sj||'<div class="empty">Belum ada SJ.</div>')+'</div></details>',
       {key:'delivery-list'});
     const newSj=$('#ghNewSj');if(newSj)newSj.onclick=directNewSj;
-    const syncReq=$('#ghSyncReq');if(syncReq)syncReq.onclick=async()=>{try{await withBusy('Memperbarui permintaan…',async()=>{await callDirect('syncOutletMaterialRequestsNowV1250');await reloadDeliveryModule();});toast('Permintaan diperbarui.');directDelivery()}catch(e){toast(e.message)}};
-    const syncRec=$('#ghSyncRec');if(syncRec)syncRec.onclick=async()=>{try{let r;await withBusy('Sinkron penerimaan…',async()=>{r=await callDirect('syncOutletReceipts');await reloadDeliveryModule();});toast('Penerimaan disinkronkan'+(r&&r.elapsedMs?' · '+r.elapsedMs+' ms':''));directDelivery()}catch(e){toast(e.message)}};
-    const diag=$('#ghDiag');if(diag)diag.onclick=async()=>{try{let r;await withBusy('Menjalankan diagnostik…',async()=>{r=await callDirect('auditReceiptSyncDiagnosticAppV1260')});showDiagnostic(r)}catch(e){toast(e.message)}};
-    $$('[data-ww-request-outlet]').forEach(b=>b.onclick=()=>{wwSelectedOutletV1522=b.dataset.wwRequestOutlet;directDelivery();});
-    $$('[data-request-id]').forEach(b=>b.addEventListener('click',()=>opsRequestDetailV43(b.dataset.requestId)));
-    $$('[data-sjid]').forEach(b=>b.addEventListener('click',()=>directDeliveryDetail(b.dataset.sjid)));
+    const syncReq=$('#ghSyncReq');if(syncReq)syncReq.onclick=async()=>{
+      try{await withBusy('Memperbarui permintaan…',async()=>{await callDirect('syncOutletMaterialRequestsNowV1250');await reloadDeliveryModule();wwQueueV1526=null;await wwReloadQueueV1526(true)});toast('Permintaan disinkronkan.');}
+      catch(e){toast(e.message,'warning')}
+    };
+    const syncRec=$('#ghSyncRec');if(syncRec)syncRec.onclick=async()=>{
+      try{await withBusy('Sinkron penerimaan…',async()=>{await callDirect('syncOutletReceipts');await reloadDeliveryModule();wwQueueV1526=null;await wwReloadQueueV1526(true)});toast('Penerimaan diperbarui.')}
+      catch(e){toast(e.message,'warning')}
+    };
+    const diag=$('#ghDiag');if(diag)diag.onclick=async()=>{try{const z=await withBusy('Diagnostik…',()=>callDirect('auditReceiptSyncDiagnosticAppV1260'));showDiagnostic(z)}catch(e){toast(e.message,'warning')}};
+    $$('[data-ww-request-outlet]').forEach(b=>b.onclick=()=>{wwSelectedOutletV1522=b.dataset.wwRequestOutlet;directDelivery(false)});
+    $$('[data-request-id]').forEach(b=>b.onclick=()=>opsRequestDetailV43(b.dataset.requestId));
+    $$('[data-ww-progress-id]').forEach(b=>b.onclick=()=>wwRequestLifecycleDetailV1526(b.dataset.wwProgressId));
+    $$('[data-sjid]').forEach(b=>b.onclick=()=>directDeliveryDetail(b.dataset.sjid));
+    const retry=$('#wwQueueRetryV1526');if(retry)retry.onclick=()=>wwReloadQueueV1526(true).catch(e=>toast(e.message,'warning'));
+    if(load&&!canonical&&!wwQueuePromiseV1526)wwReloadQueueV1526().catch(e=>toast('Status canonical belum tersedia: '+e.message,'warning'));
   }
 
   function directDraftPrintList(){
