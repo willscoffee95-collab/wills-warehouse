@@ -45,13 +45,12 @@ function getWarehouseRequestLifecycleV1526(token) {
   reqs.forEach(function(req) {
     const linkedId=String(req.linkedSjId||''),linkedNo=String(req.linkedNoSj||''),
       d=byId[linkedId]||byNo[linkedNo]||null;
-    let reviewed=false;
+    let reviewInfo=null,reviewed=false;
     if(d&&d.status==='DRAFT'){
-      try{reviewed=ww1525ReadReview_(ss,ww1525FindRequestDraft_(ss,req.requestId)).checked}
-      catch(e){reviewed=false;}
+      try{reviewInfo=ww1525ReadReview_(ss,ww1525FindRequestDraft_(ss,req.requestId));reviewed=!!reviewInfo.checked}
+      catch(e){reviewInfo=null;reviewed=false;}
     }
     const recordedEvent=d?printEvents[d.noSj]||null:null,
-      reviewInfo=d&&d.status==='DRAFT'?ww1525ReadReview_(ss,ww1525FindRequestDraft_(ss,req.requestId)):null,
       printEvent=recordedEvent&&reviewInfo&&reviewInfo.checked&&recordedEvent.reviewId===reviewInfo.reviewId?recordedEvent:null,
       terminalSource=['DIBATALKAN','SELESAI'].includes(String(req.sourceStatus||'').toUpperCase()),
       phase=d?ww1526Stage_(d,reviewed,printEvent):
