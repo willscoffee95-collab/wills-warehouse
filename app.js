@@ -320,7 +320,7 @@
     return `<section class="hero ww-as-home-hero">
       <div class="hero-kicker">WILLS COFFEE · ${esc(roleName(role))}</div>
       <h3>${esc(d.warehouseName||'Wills Warehouse')}</h3>
-      ${!bootstrapReady?'<p class="ww-as-loading" role="status">Data operasional sedang dimuat…</p>':''}
+      ${!bootstrapReady?'<p class="ww-as-loading" role="status"><span class="ww-spin-v1526" aria-hidden="true"></span>Data operasional sedang dimuat…</p>':''}
       ${Number(dash.recoveryPending||0)>0?'<p class="ww-as-warning">⚠ '+num(dash.recoveryPending,0)+' transaksi dalam antrean pemulihan.</p>':''}
     </section>
     <div class="kpi-grid ww-as-kpi-grid">${kpis}</div>
@@ -1197,7 +1197,7 @@
     };
     const diag=$('#ghDiag');if(diag)diag.onclick=async()=>{try{const z=await withBusy('Diagnostik…',()=>callDirect('auditReceiptSyncDiagnosticAppV1260'));showDiagnostic(z)}catch(e){toast(e.message,'warning')}};
     $$('[data-ww-request-outlet]').forEach(b=>b.onclick=()=>{wwSelectedOutletV1522=b.dataset.wwRequestOutlet;directDelivery(false)});
-    $$('[data-request-id]').forEach(b=>b.onclick=()=>opsRequestDetailV43(b.dataset.requestId));
+    $$('[data-request-id]').forEach(b=>b.onclick=()=>{const x=(wwQueueV1526&&wwQueueV1526.rows||[]).find(q=>String(q.requestId)===b.dataset.requestId);if(x&&x.sjStatus==='MISSING_SJ')wwRequestLifecycleDetailV1526(x.requestId);else opsRequestDetailV43(b.dataset.requestId)});
     $$('[data-ww-progress-id]').forEach(b=>b.onclick=()=>wwRequestLifecycleDetailV1526(b.dataset.wwProgressId));
     $$('[data-sjid]').forEach(b=>b.onclick=()=>directDeliveryDetail(b.dataset.sjid));
     const retry=$('#wwQueueRetryV1526');if(retry)retry.onclick=()=>wwReloadQueueV1526(true).catch(e=>toast(e.message,'warning'));
