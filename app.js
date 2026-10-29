@@ -954,10 +954,11 @@
       status.textContent='Menyimpan keputusan ketersediaan ke DRAFT SJ…';
       try{
         // The server validates every SJ line, role, idempotency and DRAFT status.
+        const safePickAction='pick_'+Array.from(id).reduce((h,c)=>Math.imul(h^c.charCodeAt(0),16777619)>>>0,2166136261).toString(16)+'_'+id.length;
         const result=await bridge.call('saveWarehouseRequestAvailabilityV1525',state.token,
-          {requestId:id,sjId:source.sjId,items:items},idemKey('pick_'+id));
+          {requestId:id,sjId:source.sjId,items:items},idemKey(safePickAction));
         if(!result||result.ok!==true)throw new Error('Simpan pemeriksaan belum terkonfirmasi.');
-        localStorage.removeItem('ww_gh_idem_pick_'+id);
+        localStorage.removeItem('ww_gh_idem_'+safePickAction);
         const fresh=await bridge.call('getWarehouseRequestAvailabilityV1525',state.token,id);
         if(!fresh||!fresh.checked)throw new Error('Sudah tersimpan tetapi pemeriksaan terbaru belum terverifikasi. Buka ulang rincian.');
         render(fresh);
