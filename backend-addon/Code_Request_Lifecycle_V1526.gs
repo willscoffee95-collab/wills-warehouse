@@ -17,7 +17,10 @@ function ww1526RequestPrintEvents_(ss) {
   rows.forEach(function(row) {
     if(String(row[5]||'')!=='REQUEST_PICKING_PRINT_ISSUED')return;
     const sj=String(row[6]||'');
-    result[sj]={eventAt:serializeDateTime_(row[0]),user:String(row[2]||''),format:String(row[10]||'').indexOf('THERMAL')>=0?'THERMAL':'A4'};
+    let meta={};try{meta=JSON.parse(String(row[9]||'{}'))||{}}catch(e){}
+    result[sj]={eventAt:serializeDateTime_(row[0]),user:String(row[2]||''),
+      reviewId:String(meta.reviewId||''),
+      format:String(row[10]||'').indexOf('THERMAL')>=0?'THERMAL':'A4'};
   });
   return result;
 }
@@ -47,7 +50,9 @@ function getWarehouseRequestLifecycleV1526(token) {
       try{reviewed=ww1525ReadReview_(ss,ww1525FindRequestDraft_(ss,req.requestId)).checked}
       catch(e){reviewed=false;}
     }
-    const printEvent=d?printEvents[d.noSj]||null:null,
+    const recordedEvent=d?printEvents[d.noSj]||null:null,
+      reviewInfo=d&&d.status==='DRAFT'?ww1525ReadReview_(ss,ww1525FindRequestDraft_(ss,req.requestId)):null,
+      printEvent=recordedEvent&&reviewInfo&&reviewInfo.checked&&recordedEvent.reviewId===reviewInfo.reviewId?recordedEvent:null,
       terminalSource=['DIBATALKAN','SELESAI'].includes(String(req.sourceStatus||'').toUpperCase()),
       phase=d?ww1526Stage_(d,reviewed,printEvent):
         terminalSource?{stage:String(req.sourceStatus).toUpperCase(),group:'HISTORY'}:
@@ -106,16 +111,17 @@ function markWarehousePickingPrintRequestedV1526(token,payload,idem) {
     const req=ww1525FindRequestDraft_(ss,payload.requestId),d=req.delivery;
     if(d.status!=='DRAFT'||String(payload.sjId||'')!==d.sjId)
       throw new Error('Surat Jalan sudah berubah; cetak ditolak.');
-    if(!ww1525ReadReview_(ss,req).checked)
-      throw new Error('Cek ketersediaan belum disimpan.');
+    const checked=ww1525ReadReview_(ss,req);
+    if(!checked.checked||!checked.reviewId||checked.reviewId!==String(payload.reviewId||''))
+      throw new Error('Versi hasil cek sudah berubah. Buka kembali rincian, simpan dan cetak ulang.');
     const fmt=String(payload.format||'').toUpperCase();
     if(fmt!=='THERMAL'&&fmt!=='A4')throw new Error('Format cetak tidak valid.');
     const existing=ww1526RequestPrintEvents_(ss)[d.noSj];
     // One acknowledged print request is enough to move the UI status; subsequent
     // reprints are allowed, without incorrectly resetting the SJ lifecycle.
-    if(!existing) {
+    if(!existing||existing.reviewId!==checked.reviewId) {
       auditLog_(ss,user,'DISTRIBUTION','REQUEST_PICKING_PRINT_ISSUED',d.noSj,
-        'SUCCESS',null,{requestId:req.requestId,sjId:d.sjId,format:fmt},
+        'SUCCESS',null,{requestId:req.requestId,sjId:d.sjId,format:fmt,reviewId:checked.reviewId},
         'PERINTAH_CETAK_'+fmt+'; BUKAN KONFIRMASI_CETAK_FISIK');
     }
     return {ok:true,requestId:req.requestId,sjId:d.sjId,noSj:d.noSj,
