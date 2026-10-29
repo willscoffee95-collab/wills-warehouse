@@ -897,7 +897,7 @@
       if(issued===false)return;
       try{
         await withBusy('Mencatat perintah cetak…',()=>bridge.call('markWarehousePickingPrintRequestedV1526',state.token,
-          {requestId:id,sjId:source&&source.sjId,format},idemKey('print_'+format+'_'+id.length+'_'+id.slice(-9))));
+          {requestId:id,sjId:source&&source.sjId,reviewId:source&&source.reviewId,format},idemKey('print_'+format+'_'+id.length+'_'+id.slice(-9))));
         wwQueueV1526=null;
         status.textContent='Perintah cetak '+format+' telah dicatat. Surat Jalan tetap DRAFT sampai dikonfirmasi Kirim.';
       }catch(err){toast('Perintah cetak terbuka, tetapi status cetak belum tercatat: '+err.message,'warning')}
