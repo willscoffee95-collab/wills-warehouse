@@ -42,12 +42,20 @@ function getWarehouseRequestLifecycleV1526(token) {
   reqs.forEach(function(req) {
     const linkedId=String(req.linkedSjId||''),linkedNo=String(req.linkedNoSj||''),
       d=byId[linkedId]||byNo[linkedNo]||null;
-    const reviewed=d&&d.status==='DRAFT'?ww1525ReadReview_(ss,ww1525FindRequestDraft_(ss,req.requestId)).checked:false;
-    const printEvent=d?printEvents[d.noSj]||null:null,phase=ww1526Stage_(d,reviewed,printEvent);
+    let reviewed=false;
+    if(d&&d.status==='DRAFT'){
+      try{reviewed=ww1525ReadReview_(ss,ww1525FindRequestDraft_(ss,req.requestId)).checked}
+      catch(e){reviewed=false;}
+    }
+    const printEvent=d?printEvents[d.noSj]||null:null,
+      terminalSource=['DIBATALKAN','SELESAI'].includes(String(req.sourceStatus||'').toUpperCase()),
+      phase=d?ww1526Stage_(d,reviewed,printEvent):
+        terminalSource?{stage:String(req.sourceStatus).toUpperCase(),group:'HISTORY'}:
+        ww1526Stage_(d,false,null);
     rows.push({
       requestId:req.requestId,outletCode:req.outletCode,outletName:req.outletName,
       requestDate:req.requestDate,needDate:req.needDate,createdAt:req.createdAt,
-      itemCount:req.itemCount,note:req.note,sourceStatus:req.sourceStatus,items:req.items||[],
+      itemCount:req.itemCount,note:req.note,sourceStatus:req.sourceStatus,items:phase.group==='PREPARE'?req.items||[]:[],
       sjId:d?d.sjId:linkedId,noSj:d?d.noSj:linkedNo,
       sjStatus:d?d.status:'MISSING_SJ',warehouseStatus:phase.stage,group:phase.group,
       reviewed:reviewed,printRequested:!!printEvent,
