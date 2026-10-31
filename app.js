@@ -609,6 +609,57 @@
     dispatchUpdateIfVisibleV44(id);
     return true;
   }
+
+  // V1.5.2.7: Recovery pengunci HP, hanya dua SJ yang telah diaudit dari ledger canonical.
+  // Read-only backend check. NO dispatch, NO ledger posting, NO status mutation.
+  const WW_RECOVERY_SJ_V1527=Object.freeze({
+    'SJID-20261029-234354-7996FA2573':'SJ-20261029-0003',
+    'SJID-20261031-061351-DB8DACB09F':'SJ-20261031-0002'
+  });
+  const wwRecoveryBusyV1527=new Set();
+  function sjRecoveryEligibleV1527(id,d){
+    return currentRole()==='OWNER' && !!dispatchPendingV44(id) &&
+      String((d||{}).noSj||'')===String(WW_RECOVERY_SJ_V1527[id]||'') &&
+      !!WW_RECOVERY_SJ_V1527[id];
+  }
+  async function recoverSjLocalV1527(id){
+    const current=((state.data||{}).deliveries||[]).find(x=>String(x.sjId)===String(id));
+    if(!sjRecoveryEligibleV1527(id,current)||wwRecoveryBusyV1527.has(id))return;
+    const pending=dispatchPendingV44(id);
+    if(!pending || String(pending.sjId)!==String(id) ||
+      !Number.isFinite(Number(pending.startedAt)) ||
+      Date.now()-Number(pending.startedAt)<300000){
+      toast('Percobaan Kirim belum cukup lama / tidak valid. Pengunci tetap aktif.','warning');return;
+    }
+    wwRecoveryBusyV1527.add(id);beginBusy('Mengecek bukti SJ (read-only)…');
+    try{
+      const expected=WW_RECOVERY_SJ_V1527[id];
+      const valid=x=>x&&String(x.sjId||'')===String(id)&&
+        String(x.noSj||'')===expected&&String(x.status||'').toUpperCase()==='DRAFT'&&
+        !String(x.dispatchTxnId||'').trim();
+      const first=await bridge.call('getDeliveryDetailFreshV1354',state.token,id);
+      if(!valid(first))throw new Error('SJ bukan DRAFT bersih; jangan buka pengunci.');
+      const second=await bridge.call('getDeliveryDetailFreshV1354',state.token,id);
+      if(!valid(second)||String(first.updatedAt||'')!==String(second.updatedAt||''))
+        throw new Error('Pembacaan backend berubah/tidak konsisten.');
+      const typed=window.prompt('Audit ledger Warehouse sebelumnya tidak menemukan dispatch POSTED untuk '+expected+'. '+
+        'Status backend masih DRAFT. Membuka pengunci LOKAL saja, tanpa mengirim/stok. '+
+        'Pastikan tidak ada proses Kirim dari HP lain. Ketik nomor SJ untuk melanjutkan:','');
+      if(String(typed||'').trim()!==expected){toast('Nomor SJ tidak sesuai.','warning');return;}
+      if(!window.confirm('Lepas pengunci lokal '+expected+'? Tidak akan menekan Kirim atau mengubah ledger.'))return;
+      const third=await bridge.call('getDeliveryDetailFreshV1354',state.token,id);
+      if(!valid(third)||String(third.updatedAt||'')!==String(second.updatedAt||''))
+        throw new Error('Status SJ berubah saat konfirmasi.');
+      const latest=dispatchPendingV44(id);
+      if(!latest||String(latest.idem)!==String(pending.idem))
+        throw new Error('Identitas percobaan Kirim berubah.');
+      dispatchClearPendingV44(id);upsertFreshDeliveryV1354(third);
+      toast('Pengunci '+expected+' dilepas. Tidak ada pengiriman baru.','success',12000);
+      dispatchUpdateIfVisibleV44(id);
+    }catch(e){
+      toast('Recovery tertahan: '+String(e&&e.message||e)+'. Tidak ada data gudang yang diubah.','warning',12000);
+    }finally{wwRecoveryBusyV1527.delete(id);endBusy();}
+  }
   // v4.5: canonical read-only status refresh for stale drafts and pending dispatch.
   const wwFreshChecksV45=new Map();
   function dispatchMaybeRefreshFreshV45(id){
@@ -1222,11 +1273,12 @@
     const dateMeta=`<div class="delivery-date-meta"><b>Tanggal Surat Jalan</b><span>${esc(sjDate)}</span></div>`;
     const receiptLabel=!receiptLast?(receiptCount>0?'Sudah diterima · tanggal belum tercatat':'Belum diterima'):receiptFirst&&receiptFirst!==receiptLast?`${displayDateShort(receiptFirst)} – ${displayDateShort(receiptLast)}`:displayDateShort(receiptLast);
     const receiptMeta=`<div class="delivery-date-meta"><b>Tanggal Diterima Outlet</b><span>${esc(receiptLabel)}</span></div>`;
-    sheetHtml(d.noSj,`<p><b>${esc(d.outletName)}</b> · ${deliveryStatusBadge(d.status)}${d.createdBy?' · dibuat '+esc(d.createdBy):''}</p>${dateMeta}${requestMeta}${receiptMeta}${pendingDispatch?'<div class="ww-dispatch-pending-note" role="status"><b>Status pengiriman belum pasti.</b> Jangan tekan Kirim lagi. Gunakan Cek Status Kirim untuk membaca status backend. Stok mungkin sudah berkurang.</div>':''}<div class="direct-list">${(d.lines||[]).map(l=>{const requested=Number(l.requestedQtyUnit!=null?l.requestedQtyUnit:(l.qtyUnit||0)),approved=Number(l.qtyUnit||0),received=Number(l.receivedBase||0)/Number(l.factor||1),fulfillment=l.fulfillmentStatus||'DIPENUHI',fc=fulfillment==='DIPENUHI'?'ok':fulfillment==='TIDAK TERSEDIA'?'bad':'warn';return `<div class="direct-card"><b>${esc(l.name)}</b><small>Diminta ${num(requested)} · disiapkan ${num(approved)} ${esc(l.sendUnit)}${d.status!=='DRAFT'?' · diterima '+num(received):''}</small>${l.fulfillmentReason?`<small>Alasan: ${esc(l.fulfillmentReason)}</small>`:''}<span class="badge ${fc}">${esc(fulfillment)}</span></div>`}).join('')}</div><div class="actions">${d.status!=='DIBATALKAN'&&actionAllowed('draftPrint')?'<button class="btn btn-thermal" id="ghPrintSj">Cetak Thermal</button>':''}${d.status==='DRAFT'&&canPrepare?'<button class="btn btn-soft" id="ghAdjustSj">Atur Ketersediaan</button>':''}${d.status==='DRAFT'&&canCancel?'<button class="btn btn-line" id="ghCancelSj">Batalkan</button>':''}${d.status==='DRAFT'&&canDispatch&&!pendingDispatch?'<button class="btn btn-primary" id="ghSendSj">Konfirmasi Kirim</button>':''}${pendingDispatch?'<button class="btn btn-soft" id="ghCheckSjStatus">Cek Status Kirim</button>':''}${!['DRAFT','DIBATALKAN'].includes(d.status)&&canSync?'<button class="btn btn-soft" id="ghSyncSj">Sinkron SJ Ini</button>':''}</div>`,{key:'delivery-detail:'+id});
+    sheetHtml(d.noSj,`<p><b>${esc(d.outletName)}</b> · ${deliveryStatusBadge(d.status)}${d.createdBy?' · dibuat '+esc(d.createdBy):''}</p>${dateMeta}${requestMeta}${receiptMeta}${pendingDispatch?'<div class="ww-dispatch-pending-note" role="status"><b>Status pengiriman belum pasti.</b> Jangan tekan Kirim lagi. Gunakan Cek Status Kirim untuk membaca status backend. Stok mungkin sudah berkurang. Cetak Thermal tetap dapat digunakan tanpa mengirim barang.</div>':''}<div class="direct-list">${(d.lines||[]).map(l=>{const requested=Number(l.requestedQtyUnit!=null?l.requestedQtyUnit:(l.qtyUnit||0)),approved=Number(l.qtyUnit||0),received=Number(l.receivedBase||0)/Number(l.factor||1),fulfillment=l.fulfillmentStatus||'DIPENUHI',fc=fulfillment==='DIPENUHI'?'ok':fulfillment==='TIDAK TERSEDIA'?'bad':'warn';return `<div class="direct-card"><b>${esc(l.name)}</b><small>Diminta ${num(requested)} · disiapkan ${num(approved)} ${esc(l.sendUnit)}${d.status!=='DRAFT'?' · diterima '+num(received):''}</small>${l.fulfillmentReason?`<small>Alasan: ${esc(l.fulfillmentReason)}</small>`:''}<span class="badge ${fc}">${esc(fulfillment)}</span></div>`}).join('')}</div><div class="actions">${d.status!=='DIBATALKAN'&&actionAllowed('draftPrint')?'<button class="btn btn-thermal" id="ghPrintSj">Cetak Thermal</button>':''}${d.status==='DRAFT'&&canPrepare?'<button class="btn btn-soft" id="ghAdjustSj">Atur Ketersediaan</button>':''}${d.status==='DRAFT'&&canCancel?'<button class="btn btn-line" id="ghCancelSj">Batalkan</button>':''}${d.status==='DRAFT'&&canDispatch&&!pendingDispatch?'<button class="btn btn-primary" id="ghSendSj">Konfirmasi Kirim</button>':''}${pendingDispatch?'<button class="btn btn-soft" id="ghCheckSjStatus">Cek Status Kirim</button>':''}${sjRecoveryEligibleV1527(id,d)?'<button class="btn btn-line" id="ghRecoveryLocalSJ" type="button">Audit Recovery Owner</button>':''}${!['DRAFT','DIBATALKAN'].includes(d.status)&&canSync?'<button class="btn btn-soft" id="ghSyncSj">Sinkron SJ Ini</button>':''}</div>`,{key:'delivery-detail:'+id});
     const p=$('#ghPrintSj');if(p)p.onclick=()=>directPrintDeliveryDraft(id);
     const a=$('#ghAdjustSj');if(a)a.onclick=()=>directFulfillment(id);
     const c=$('#ghCancelSj');if(c)c.onclick=()=>writeDeliveryDirect('cancel_'+id,'cancelDeliveryDraft',{sjId:id,reason:'Dibatalkan dari GitHub PWA'},id);
     const check=$('#ghCheckSjStatus');if(check)check.onclick=()=>dispatchCheckStatusV44(id);
+    const recovery=$('#ghRecoveryLocalSJ');if(recovery)recovery.onclick=()=>recoverSjLocalV1527(id);
     const k=$('#ghSendSj');if(k)k.onclick=()=>confirm('Hanya qty yang sudah disiapkan/disetujui yang akan mengurangi stok. Barang benar-benar siap dikirim?')&&writeDeliveryDirect('dispatch_'+id,'dispatchDelivery',{sjId:id},id);
     const y=$('#ghSyncSj');if(y)y.onclick=async()=>{try{let r;await withBusy('Sinkron SJ…',async()=>{r=await callDirect('syncOutletReceiptForDelivery',{sjId:id});if(!r.ok)throw new Error(r.error||'Sinkron gagal.');await reloadDeliveryModule();});toast('Penerimaan SJ diperbarui · '+r.elapsedMs+' ms');directDeliveryDetail(id)}catch(e){toast(e.message)}};
     if(String(d.status||'').toUpperCase()==='DRAFT'||pendingDispatch)dispatchMaybeRefreshFreshV45(id);
