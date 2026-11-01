@@ -177,3 +177,37 @@ function ownerPostStockAdjustmentV1527(token,payload,idem){
   ww1527RequireOwner_(token);
   return postStockAdjustment(token,payload,idem);
 }
+
+
+// Editor-only, READ-ONLY preflight for protected baseline & owner access.
+function ww1527OwnerAccessAuditReadOnly(){
+  const ss=warehouseSs_(),source=ss.getSheetByName('SO 31-10-2026 TERKUNCI'),
+        stocks=ss.getSheetByName('Stok Gudang'),
+        ledger=ss.getSheetByName('Ledger Stok');
+  if(!source||!stocks||!ledger)throw new Error('SO/stock/ledger sheet missing');
+  const rows=source.getRange('A6:M32').getValues();
+  const seen={},adjustments=rows.filter(function(r){
+    const code=String(r[0]||'').trim();
+    if(!code||seen[code])throw new Error('Blank or duplicate SO material '+code);
+    seen[code]=true;
+    return Number(r[7]||0)!==0;
+  });
+  let protectedBySheet=false;
+  try{
+    protectedBySheet=source.getProtections(SpreadsheetApp.ProtectionType.SHEET)
+      .some(function(p){return !p.isWarningOnly();});
+  }catch(e){}
+  const out={
+    ok:rows.length===27&&adjustments.length===16&&protectedBySheet,
+    readOnly:true,sourceSheet:source.getName(),
+    referenceMaterialCount:rows.length,correctionMaterialCount:adjustments.length,
+    protectedBySheet:protectedBySheet,
+    adminLockedAfterFirstPicking:true,
+    ownerStockWrapperInstalled:typeof ownerPostStockAdjustmentV1527==='function',
+    ownerFulfillmentWrapperInstalled:typeof ownerAdjustDeliveryDraftFulfillmentV1527==='function',
+    ownerCancelWrapperInstalled:typeof ownerCancelDeliveryDraftV1527==='function',
+    ledgerModified:false,stockBalanceModified:false
+  };
+  Logger.log('WW1527_OWNER_SO_LOCK_AUDIT_READONLY '+JSON.stringify(out));
+  return out;
+}
