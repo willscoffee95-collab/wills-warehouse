@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  window.WW_FRONTEND_BUILD='2026-11-01.1.5.2.8-request-refresh';
+  window.WW_FRONTEND_BUILD='2026-11-01.1.5.2.9-so-owner-admin-lock';
 
 
   const $ = (q, root = document) => root.querySelector(q);
@@ -962,7 +962,7 @@
     };
     let source=null,loading=false;
     const render=report=>{
-      source=report;
+      source=report;const adminLocked=!!report.lockedForStaff&&currentRole()!=='OWNER';
       if(report.status!=='DRAFT'){
         root.textContent='Surat Jalan sudah berstatus '+report.status+'. Pemeriksaan tidak boleh diubah setelah pengiriman.';
         save.disabled=true;return;
@@ -982,11 +982,13 @@
           '<small class="ww-pick-row-status">'+esc(wwPickingStatusV1525(l))+'</small></div>';
       }).join('');
       root.innerHTML='<div class="ww-preprint-summary">'+
+        (adminLocked?'<b>HASIL CEK DIKUNCI</b> · Admin dapat mencetak ulang. Jika ada selisih setelah disimpan, laporkan kepada Owner untuk koreksi.<br>':'')+
         (pricing&&pricing.hasMissing?'<b>Perhatian: Ada harga SJ belum diatur. Cetak bernilai terkunci jika barang tersebut disiapkan.</b><br>':'')+
         (pricing&&pricing.hasChanged?'<small>Harga supplier/Pusat terbaru berbeda dari snapshot SJ. Tidak ada penggantian harga otomatis pada SJ lama.</small><br>':'')+
         (report.checked?'Hasil pemeriksaan sebelumnya ditemukan; boleh dicetak atau diperbarui.':'Belum ada pemeriksaan tersimpan. Sesuaikan jumlah nyata lalu simpan.')+
         '</div>'+notes;
-      save.disabled=!report.lines.length;
+      save.disabled=adminLocked||!report.lines.length;
+      if(adminLocked)$$('.ww-pick-qty,.ww-pick-reason',root).forEach(input=>{input.disabled=true;input.setAttribute('aria-readonly','true')});
       const update=()=>{
         if(wwPickingReportV1525.has(id)){
           wwPickingReportV1525.delete(id);togglePrint();
@@ -1027,6 +1029,7 @@
     form.onsubmit=async e=>{
       e.preventDefault();
       if(loading||!source||source.status!=='DRAFT')return;
+      if(source.lockedForStaff&&currentRole()!=='OWNER')return toast('Hasil cek sudah dikunci. Admin tidak bisa merevisi. Hubungi Owner.','warning');
       const rows=$$('[data-ww-pick-line]',root);
       if(!rows.length)return toast('Belum ada bahan untuk diperiksa.','warning');
       const items=[],errors=[];
@@ -1062,7 +1065,7 @@
         status.textContent='Belum berhasil dikonfirmasi: '+String(err&&err.message||err)+
           '. Jangan klik simpan ulang jika status tidak pasti. Buka ulang rincian & periksa hasilnya.';
         toast('Simpan belum terverifikasi; cetak tetap terkunci.','warning');
-      }finally{loading=false;save.disabled=false;endBusy();}
+      }finally{loading=false;save.disabled=!!(source&&source.lockedForStaff&&currentRole()!=='OWNER');endBusy();}
     };
   }
   function opsPrintRequestThermalV43(requestId) {
@@ -1303,16 +1306,16 @@
   function directReverse(txnId){const reason=prompt('Alasan pembatalan / reversal transaksi '+txnId+':');if(!reason)return;writeDirect('reverse_'+txnId,'reverseTransaction',{txnId:txnId,reason:reason}).catch(()=>{});}
   function directDeliveryDetail(id){
     const d=((state.data||{}).deliveries||[]).find(x=>x.sjId===id);if(!d)return toast('SJ tidak ditemukan.');
-    const canPrepare=roleCan('DELIVERY_PREPARE'),canCancel=roleCan('DELIVERY_CANCEL'),canDispatch=roleCan('DELIVERY_DISPATCH'),canSync=roleCan('DELIVERY_SYNC');
+    const canPrepare=roleCan('DELIVERY_PREPARE'),canCorrect=roleCan('OWNER_ONLY'),canCancel=roleCan('OWNER_ONLY'),canDispatch=roleCan('DELIVERY_DISPATCH'),canSync=roleCan('DELIVERY_SYNC');
     const pendingDispatch=dispatchPendingV44(id),req=findRequestForDelivery(d),sjDate=displayDateTimeShort(d.dispatchedAt||d.shipDate||d.createdAt),receiptFirst=String(d.outletReceiptFirstDate||''),receiptLast=String(d.outletReceiptLastDate||''),receiptCount=Number(d.outletReceiptCount||0);
     const requestMeta=req?`<div class="delivery-request-meta"><b>Permintaan Outlet · ${esc(displayDateShort(req.requestDate||req.createdAt))}</b><span>${req.needDate?'Dibutuhkan '+esc(displayDateShort(req.needDate)):''}${req.itemCount?' · '+num(req.itemCount,0)+' bahan':''}</span></div>`:'';
     const dateMeta=`<div class="delivery-date-meta"><b>Tanggal Surat Jalan</b><span>${esc(sjDate)}</span></div>`;
     const receiptLabel=!receiptLast?(receiptCount>0?'Sudah diterima · tanggal belum tercatat':'Belum diterima'):receiptFirst&&receiptFirst!==receiptLast?`${displayDateShort(receiptFirst)} – ${displayDateShort(receiptLast)}`:displayDateShort(receiptLast);
     const receiptMeta=`<div class="delivery-date-meta"><b>Tanggal Diterima Outlet</b><span>${esc(receiptLabel)}</span></div>`;
-    sheetHtml(d.noSj,`<p><b>${esc(d.outletName)}</b> · ${deliveryStatusBadge(d.status)}${d.createdBy?' · dibuat '+esc(d.createdBy):''}</p>${dateMeta}${requestMeta}${receiptMeta}${pendingDispatch?'<div class="ww-dispatch-pending-note" role="status"><b>Status pengiriman belum pasti.</b> Jangan tekan Kirim lagi. Gunakan Cek Status Kirim untuk membaca status backend. Stok mungkin sudah berkurang. Cetak Thermal tetap dapat digunakan tanpa mengirim barang.</div>':''}<div class="direct-list">${(d.lines||[]).map(l=>{const requested=Number(l.requestedQtyUnit!=null?l.requestedQtyUnit:(l.qtyUnit||0)),approved=Number(l.qtyUnit||0),received=Number(l.receivedBase||0)/Number(l.factor||1),fulfillment=l.fulfillmentStatus||'DIPENUHI',fc=fulfillment==='DIPENUHI'?'ok':fulfillment==='TIDAK TERSEDIA'?'bad':'warn';return `<div class="direct-card"><b>${esc(l.name)}</b><small>Diminta ${num(requested)} · disiapkan ${num(approved)} ${esc(l.sendUnit)}${d.status!=='DRAFT'?' · diterima '+num(received):''}</small>${l.fulfillmentReason?`<small>Alasan: ${esc(l.fulfillmentReason)}</small>`:''}<span class="badge ${fc}">${esc(fulfillment)}</span></div>`}).join('')}</div><div class="actions">${d.status!=='DIBATALKAN'&&actionAllowed('draftPrint')?'<button class="btn btn-thermal" id="ghPrintSj">Cetak Thermal</button>':''}${d.status==='DRAFT'&&canPrepare?'<button class="btn btn-soft" id="ghAdjustSj">Atur Ketersediaan</button>':''}${d.status==='DRAFT'&&canCancel?'<button class="btn btn-line" id="ghCancelSj">Batalkan</button>':''}${d.status==='DRAFT'&&canDispatch&&!pendingDispatch?'<button class="btn btn-primary" id="ghSendSj">Konfirmasi Kirim</button>':''}${pendingDispatch?'<button class="btn btn-soft" id="ghCheckSjStatus">Cek Status Kirim</button>':''}${sjRecoveryEligibleV1527(id,d)?'<button class="btn btn-line" id="ghRecoveryLocalSJ" type="button">Audit Recovery Owner</button>':''}${!['DRAFT','DIBATALKAN'].includes(d.status)&&canSync?'<button class="btn btn-soft" id="ghSyncSj">Sinkron SJ Ini</button>':''}</div>`,{key:'delivery-detail:'+id});
+    sheetHtml(d.noSj,`<p><b>${esc(d.outletName)}</b> · ${deliveryStatusBadge(d.status)}${d.createdBy?' · dibuat '+esc(d.createdBy):''}</p>${dateMeta}${requestMeta}${receiptMeta}${pendingDispatch?'<div class="ww-dispatch-pending-note" role="status"><b>Status pengiriman belum pasti.</b> Jangan tekan Kirim lagi. Gunakan Cek Status Kirim untuk membaca status backend. Stok mungkin sudah berkurang. Cetak Thermal tetap dapat digunakan tanpa mengirim barang.</div>':''}<div class="direct-list">${(d.lines||[]).map(l=>{const requested=Number(l.requestedQtyUnit!=null?l.requestedQtyUnit:(l.qtyUnit||0)),approved=Number(l.qtyUnit||0),received=Number(l.receivedBase||0)/Number(l.factor||1),fulfillment=l.fulfillmentStatus||'DIPENUHI',fc=fulfillment==='DIPENUHI'?'ok':fulfillment==='TIDAK TERSEDIA'?'bad':'warn';return `<div class="direct-card"><b>${esc(l.name)}</b><small>Diminta ${num(requested)} · disiapkan ${num(approved)} ${esc(l.sendUnit)}${d.status!=='DRAFT'?' · diterima '+num(received):''}</small>${l.fulfillmentReason?`<small>Alasan: ${esc(l.fulfillmentReason)}</small>`:''}<span class="badge ${fc}">${esc(fulfillment)}</span></div>`}).join('')}</div><div class="actions">${d.status!=='DIBATALKAN'&&actionAllowed('draftPrint')?'<button class="btn btn-thermal" id="ghPrintSj">Cetak Thermal</button>':''}${d.status==='DRAFT'&&canCorrect?'<button class="btn btn-soft" id="ghAdjustSj">Koreksi Pemenuhan (Owner)</button>':''}${d.status==='DRAFT'&&canCancel?'<button class="btn btn-line" id="ghCancelSj">Batalkan</button>':''}${d.status==='DRAFT'&&canDispatch&&!pendingDispatch?'<button class="btn btn-primary" id="ghSendSj">Konfirmasi Kirim</button>':''}${pendingDispatch?'<button class="btn btn-soft" id="ghCheckSjStatus">Cek Status Kirim</button>':''}${sjRecoveryEligibleV1527(id,d)?'<button class="btn btn-line" id="ghRecoveryLocalSJ" type="button">Audit Recovery Owner</button>':''}${!['DRAFT','DIBATALKAN'].includes(d.status)&&canSync?'<button class="btn btn-soft" id="ghSyncSj">Sinkron SJ Ini</button>':''}</div>`,{key:'delivery-detail:'+id});
     const p=$('#ghPrintSj');if(p)p.onclick=()=>directPrintDeliveryDraft(id);
     const a=$('#ghAdjustSj');if(a)a.onclick=()=>directFulfillment(id);
-    const c=$('#ghCancelSj');if(c)c.onclick=()=>writeDeliveryDirect('cancel_'+id,'cancelDeliveryDraft',{sjId:id,reason:'Dibatalkan dari GitHub PWA'},id);
+    const c=$('#ghCancelSj');if(c)c.onclick=()=>writeDeliveryDirect('cancel_'+id,'ownerCancelDeliveryDraftV1527',{sjId:id,reason:'Dibatalkan dari GitHub PWA'},id);
     const check=$('#ghCheckSjStatus');if(check)check.onclick=()=>dispatchCheckStatusV44(id);
     const recovery=$('#ghRecoveryLocalSJ');if(recovery)recovery.onclick=()=>recoverSjLocalV1527(id);
     const k=$('#ghSendSj');if(k)k.onclick=()=>confirm('Hanya qty yang sudah disiapkan/disetujui yang akan mengurangi stok. Barang benar-benar siap dikirim?')&&writeDeliveryDirect('dispatch_'+id,'dispatchDelivery',{sjId:id},id);
@@ -1355,7 +1358,7 @@
   }
 
 
-  function directFulfillment(id){const d=((state.data||{}).deliveries||[]).find(x=>x.sjId===id);if(!d||d.status!=='DRAFT')return toast('SJ bukan DRAFT.');sheetHtml('Atur Ketersediaan',`<p>Permintaan asli outlet tidak diubah. Isi 0 jika tidak tersedia; alasan wajib jika qty dikurangi.</p><form id="ghFulfillment"><div class="direct-list">${(d.lines||[]).map(l=>{const req=Number(l.requestedQtyUnit!=null?l.requestedQtyUnit:(l.qtyUnit||0));return `<div class="direct-card" data-ful-line="${l.lineNo}"><b>${esc(l.name)}</b><small>Diminta ${num(req)} ${esc(l.sendUnit)}</small><label class="field"><span>Qty disetujui</span><input class="approved" type="number" min="0" max="${req}" step="0.000001" value="${Number(l.qtyUnit||0)}" required></label><label class="field"><span>Alasan jika kurang / kosong</span><textarea class="reason">${esc(l.fulfillmentReason||'')}</textarea></label></div>`}).join('')}</div><div class="actions"><button class="btn btn-line" type="button" id="ghBackSj">Kembali</button><button class="btn btn-primary">Simpan</button></div></form>`,{key:'delivery-fulfillment:'+id});$('#ghBackSj').onclick=closeSheet;$('#ghFulfillment').onsubmit=async e=>{e.preventDefault();const items=$$('[data-ful-line]').map(x=>({lineNo:Number(x.dataset.fulLine),approvedQtyUnit:x.querySelector('.approved').value,reason:x.querySelector('.reason').value}));await writeDeliveryDirect('fulfillment_'+id,'adjustDeliveryDraftFulfillment',{sjId:id,items},id)};}
+  function directFulfillment(id){if(currentRole()!=='OWNER')return toast('Perubahan data pemenuhan hanya dapat dilakukan Owner. Admin wajib melaporkan selisih.','warning');const d=((state.data||{}).deliveries||[]).find(x=>x.sjId===id);if(!d||d.status!=='DRAFT')return toast('SJ bukan DRAFT.');sheetHtml('Atur Ketersediaan',`<p>Permintaan asli outlet tidak diubah. Isi 0 jika tidak tersedia; alasan wajib jika qty dikurangi.</p><form id="ghFulfillment"><div class="direct-list">${(d.lines||[]).map(l=>{const req=Number(l.requestedQtyUnit!=null?l.requestedQtyUnit:(l.qtyUnit||0));return `<div class="direct-card" data-ful-line="${l.lineNo}"><b>${esc(l.name)}</b><small>Diminta ${num(req)} ${esc(l.sendUnit)}</small><label class="field"><span>Qty disetujui</span><input class="approved" type="number" min="0" max="${req}" step="0.000001" value="${Number(l.qtyUnit||0)}" required></label><label class="field"><span>Alasan jika kurang / kosong</span><textarea class="reason">${esc(l.fulfillmentReason||'')}</textarea></label></div>`}).join('')}</div><div class="actions"><button class="btn btn-line" type="button" id="ghBackSj">Kembali</button><button class="btn btn-primary">Simpan</button></div></form>`,{key:'delivery-fulfillment:'+id});$('#ghBackSj').onclick=closeSheet;$('#ghFulfillment').onsubmit=async e=>{e.preventDefault();const items=$$('[data-ful-line]').map(x=>({lineNo:Number(x.dataset.fulLine),approvedQtyUnit:x.querySelector('.approved').value,reason:x.querySelector('.reason').value}));await writeDeliveryDirect('fulfillment_'+id,'ownerAdjustDeliveryDraftFulfillmentV1527',{sjId:id,items},id)};}
   function showDiagnostic(r){sheetHtml('Diagnostik Sinkron Penerimaan',`<p>Audit ini hanya membaca data outlet dan Surat Jalan.</p><div class="direct-list">${((r||{}).diagnostics||[]).map(x=>`<div class="direct-card"><b>${esc(x.noSj)} · ${esc(x.outletName||x.outletCode||'')}</b><small>${x.matched}/${x.receiptCount} receipt cocok · alias ${x.aliasMatched||0}</small><span class="badge ${x.ok?'ok':'bad'}">${x.ok?'COCOK':'PERLU CEK'}</span>${x.issues&&x.issues.length?`<div class="direct-issues">${x.issues.map(i=>esc((i.code||i.name)+' · '+i.reason+(i.expectedUnit?' · '+i.baseUnit+'→'+i.expectedUnit:''))).join('<br>')}</div>`:''}</div>`).join('')||'<div class="empty">Belum ada receipt yang cocok dengan SJ aktif.</div>'}</div>`)}
   // v1.2.9.1.1 — Fix HTML number step Pembayaran Outlet: Rupiah bulat/desimal 2 digit valid, max tetap sisa piutang per SJ.
   function directOutletPayment(){
@@ -1411,7 +1414,110 @@
   }
   function directExpense(){const cats=(state.data||{}).expenseCategories||[];sheetHtml('Pengeluaran Operasional',`<form id="ghExp"><label class="field"><span>Kategori</span><select name="category">${cats.map(x=>`<option value="${esc(x.code)}">${esc(x.label)}</option>`).join('')}</select></label><div class="form-2"><label class="field"><span>Sumber</span><select name="paymentSource"><option value="CASH">Kas Gudang</option><option value="BANK">Bank</option></select></label><label class="field"><span>Nominal</span><input name="amount" type="number" min="1" required></label></div><label class="field"><span>Referensi</span><input name="reference"></label><label class="field"><span>Catatan</span><textarea name="note"></textarea></label><div class="actions"><button class="btn btn-line" type="button" id="ghCancel">Tutup</button><button class="btn btn-primary">Posting</button></div></form>`);$('#ghCancel').onclick=closeSheet;$('#ghExp').onsubmit=async e=>{e.preventDefault();await writeDirect('expense','postOperationalExpense',Object.fromEntries(new FormData(e.target).entries()))};}
   function directSupplierPayment(){const rows=((state.data||{}).payables||[]).filter(x=>x.outstanding>0);sheetHtml('Bayar Supplier',`<form id="ghPaySup"><label class="field"><span>Sumber</span><select name="paymentSource"><option value="CASH">Kas Gudang</option><option value="BANK">Bank</option></select></label><div class="direct-list">${rows.map(x=>`<label class="direct-card"><b>${esc(x.supplier)}</b><small>${esc(x.purchaseTxnId)} · ${rp(x.outstanding)}</small><input class="spck" type="checkbox" data-id="${esc(x.purchaseTxnId)}" data-sup="${esc(x.supplierId)}"><input class="spamt" data-id="${esc(x.purchaseTxnId)}" type="number" value="${x.outstanding}" min="0.01" max="${x.outstanding}"></label>`).join('')||'<div class="empty">Tidak ada hutang.</div>'}</div><label class="field"><span>Catatan</span><textarea name="note"></textarea></label><div class="actions"><button class="btn btn-line" type="button" id="ghCancel">Tutup</button><button class="btn btn-primary">Posting</button></div></form>`);$('#ghCancel').onclick=closeSheet;$('#ghPaySup').onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.target),cks=$$('.spck:checked'),sup=[...new Set(cks.map(x=>x.dataset.sup))];if(!cks.length)return toast('Pilih hutang.');if(sup.length>1)return toast('Pilih satu supplier.');await writeDirect('supplierPayment','postSupplierPayment',{paymentSource:fd.get('paymentSource'),note:fd.get('note'),allocations:cks.map(x=>({purchaseTxnId:x.dataset.id,amount:$(`.spamt[data-id="${CSS.escape(x.dataset.id)}"]`).value}))})};}
-  function directAdjustment(){if(currentRole()!=='OWNER')return toast('Penyesuaian stok hanya dapat dilakukan Owner.');sheetHtml('Opname / Koreksi',`<form id="ghAdj"><label class="field"><span>Alasan</span><select name="reason"><option value="SELISIH_OPNAME">Selisih opname</option><option value="STOK_AWAL_TERLEWAT">Stok awal terlewat</option><option value="BARANG_DITEMUKAN">Barang ditemukan</option><option value="BARANG_RUSAK">Barang rusak</option><option value="BARANG_HILANG">Barang hilang</option><option value="KESALAHAN_PENCATATAN">Kesalahan pencatatan</option><option value="KOREKSI_INVESTIGASI">Koreksi investigasi</option><option value="LAINNYA">Lainnya</option></select></label><div id="ghAdjLines"></div><button class="btn btn-soft" type="button" id="ghAddAdj">+ Tambah bahan</button><label class="field"><span>Catatan</span><textarea name="note"></textarea></label><div class="actions"><button class="btn btn-line" type="button" id="ghCancel">Tutup</button><button class="btn btn-primary">Posting Koreksi</button></div></form>`);const box=$('#ghAdjLines'),add=()=>{const el=document.createElement('div');el.className='direct-line';el.innerHTML=`<select class="code"><option value="">Pilih bahan</option>${matOpts(false)}</select><input class="physical" type="number" min="0" step="0.000001" placeholder="Stok fisik unit"><input class="cost" type="number" min="0" step="0.01" placeholder="Modal/unit jika perlu"><button class="line-remove" type="button">×</button>`;el.querySelector('.line-remove').onclick=()=>el.remove();box.appendChild(el)};add();$('#ghAddAdj').onclick=add;$('#ghCancel').onclick=closeSheet;$('#ghAdj').onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.target),mm=matByCode(),items=[...box.querySelectorAll('.direct-line')].map(x=>{const m=mm[x.querySelector('.code').value],physical=Number(x.querySelector('.physical').value||0),cost=x.querySelector('.cost').value;return{code:m.code,physicalQtyBase:physical*Number(m.factor||1),unitCostBase:cost===''?'':Number(cost)/Number(m.factor||1)}});await writeDirect('adjustment','postStockAdjustment',{reason:fd.get('reason'),note:fd.get('note'),items})};}
+  // SO fisik 31 Oktober 2026 (before the first 1 Nov dispatch).
+  // Only the 16 discrepancies are posted through the existing canonical stock adjustment.
+  // Source: protected tab "SO 31-10-2026 TERKUNCI"; never overwrite Stok Gudang cells.
+  const WW_SO3110_DELTA_V1527=Object.freeze([
+    ['B01',-5000],['B03',-1000],['B04',-1950],['B05',-6000],
+    ['B06',-2000],['B09',-112],['B07',-2370],['B08',1200],
+    ['B12',-1001],['B15',-100],['B20',-7],['B22',-20],
+    ['B-LMN',-300],['WH-STIK-MIXER-HAND',2],['B-SAR',-990],
+    ['WH-BATERAI-AAA',-2]
+  ]);
+  const WW_SO3110_POST_KEY_V1527='SO3110_2026_STOCK_BASELINE_OWNER_LOCKED_ONCE_V1527';
+  async function directSO3110V1527(){
+    if(currentRole()!=='OWNER')return toast('Hanya Owner yang boleh koreksi saldo stok.','warning');
+    let fresh;
+    try{
+      fresh=await withBusy('Membaca stok live sebelum rekonsiliasi…',async()=>{
+        const result=await bridge.call('getAppBootstrap',state.token);
+        if(!result||!Array.isArray(result.stock)||!Array.isArray(result.materials))
+          throw Error('Data stok dan konversi master belum lengkap; posting ditahan.');
+        return result;
+      });
+    }catch(e){return toast(e.message,'warning')}
+    const materials=new Map(fresh.materials.map(m=>[m.code,m])),
+      stock=new Map(fresh.stock.map(st=>[st.code,st]));
+    let bad=[],prepared=[];
+    for(const [code,delta] of WW_SO3110_DELTA_V1527){
+      const m=materials.get(code),st=stock.get(code);
+      if(!m||!st||!(Number(m.factor)>0)) {bad.push(code+': master / stok belum sinkron');continue;}
+      const current=Number(st.qty),target=current+delta,
+        cost=Number(st.avgCost||0);
+      if(!Number.isFinite(current)||!Number.isFinite(target)||target<0)
+        {bad.push(code+': target koreksi tidak valid');continue;}
+      prepared.push({code,name:m.name,unit:m.receiveUnit||m.baseUnit,factor:Number(m.factor),
+        current,currentUnit:current/Number(m.factor),target,targetUnit:target/Number(m.factor),
+        delta,deltaUnit:delta/Number(m.factor),cost});
+    }
+    if(bad.length)return toast('Koreksi ditahan: '+bad.join(' · '),'error');
+    const cards=prepared.map(x=>'<div class="direct-card" data-so-code="'+esc(x.code)+'">'+
+      '<b>'+esc(x.name)+'</b><small>'+esc(x.code)+' · '+esc(x.unit)+'</small>'+
+      '<small>Stok sistem saat ini: '+num(x.currentUnit)+' → Target setelah koreksi: <b>'+num(x.targetUnit)+
+      '</b> (selisih '+num(x.deltaUnit)+')</small>'+
+      (x.delta>0?'<label class="field"><span>Modal pembelian per '+esc(x.unit)+' (wajib untuk stok bertambah)</span>'+
+        '<input class="ww-so-cost" type="number" min="0.01" step="0.01" placeholder="Rp, sesuai bukti pembelian" value="'+
+        (x.cost>0?String(Math.round(x.cost*x.factor*100)/100):'')+'"></label>':'')+
+      '</div>').join('');
+    sheetHtml('Rekonsiliasi SO · Owner',
+      '<div class="ww-preprint-summary"><b>SO Fisik 31 Oktober 2026</b> · saldo awal 1 Nov sebelum pengiriman.'+
+      '<p>Sistem 1 November telah bertransaksi. Koreksi yang diposting adalah <b>selisih SO</b> terhadap stok live, bukan menulis ulang angka fisik awal.</p>'+
+      '<p><b>16 bahan selisih</b> · 11 bahan telah cocok · 27 bahan dicatat pada tab SO terkunci.</p>'+
+      '<p>Pastikan seluruh mutasi pengiriman, purchase dan packing sudah masuk sebelum posting. '+
+      'Dua tambahan stok memerlukan modal yang benar agar valuasi tidak keliru.</p></div>'+
+      '<div class="direct-list">'+cards+'</div>'+
+      '<div class="actions"><button class="btn btn-line" id="wwSoBack" type="button">Kembali</button>'+
+      '<button class="btn btn-primary" id="wwSoPost" type="button">Review & Posting Koreksi (Owner)</button></div>',
+      {key:'ww-so3110-owner'});
+    $('#wwSoBack').onclick=closeSheet;
+    $('#wwSoPost').onclick=async()=>{
+      if(currentRole()!=='OWNER')return toast('Hanya Owner.');
+      const costs=new Map();let invalid=[];
+      for(const x of prepared.filter(x=>x.delta>0)){
+        const el=$('[data-so-code="'+x.code+'"] .ww-so-cost');
+        const cost=Number(el&&el.value);
+        if(!Number.isFinite(cost)||cost<=0)invalid.push(x.name+' memerlukan modal/unit');
+        else costs.set(x.code,cost/x.factor);
+      }
+      if(invalid.length)return toast(invalid.join(' · '),'warning');
+      // Re-read immediately: never post based on an older preview.
+      const button=$('#wwSoPost');button.disabled=true;button.setAttribute('aria-busy','true');
+      try {
+        const output=await withBusy('Memverifikasi stok terbaru & posting koreksi SO…',async()=>{
+          const recent=await bridge.call('getAppBootstrap',state.token);
+          const recentStock=new Map((recent.stock||[]).map(x=>[x.code,x])),
+            recentMaterials=new Map((recent.materials||[]).map(x=>[x.code,x]));
+          const items=[];
+          for(const [code,delta] of WW_SO3110_DELTA_V1527) {
+            const st=recentStock.get(code),m=recentMaterials.get(code);
+            if(!st||!m||!(Number(m.factor)>0))throw Error('Material/stock berubah: '+code);
+            const base=Number(st.qty||0)+delta;
+            if(!Number.isFinite(base)||base<0)throw Error('Target fisik negatif: '+code);
+            const unitCostBase=delta>0?costs.get(code):'';
+            if(delta>0&&!(unitCostBase>0))throw Error('Modal bahan belum valid: '+code);
+            items.push({code,physicalQtyBase:base,unitCostBase});
+          }
+          const approved=confirm('KOREKSI STOK SO 31 OKTOBER\n\n'+
+            '16 bahan akan disesuaikan dengan selisih SO terhadap sistem.\n'+
+            'Pengiriman/purchase/packing 1 November dipertahankan.\n'+
+            'Posting hanya sekali, tidak dapat diulangi tanpa audit Owner.\n\n'+
+            'Konfirmasi POSTING koreksi stok?');
+          if(!approved)return null;
+          return await bridge.call('ownerPostStockAdjustmentV1527',state.token,{
+            reason:'SELISIH_OPNAME',
+            note:'SO31-10-2026 LOCKED | snapshot fisik sebelum kirim 01-11 | 16 koreksi | idempotent owner posting',
+            items},WW_SO3110_POST_KEY_V1527);
+        });
+        if(!output)return;
+        if(output.ok===false)throw Error(output.error||'Posting koreksi ditolak backend');
+        toast('Koreksi SO telah dikirim ke backend canonical. Verifikasi Ledger Stok dan transaksi adjustment sebelum menyatakan selesai.','success');
+      }catch(err){
+        toast('Status posting belum pasti: '+(err.message||err)+'. Periksa Ledger Stok dahulu, jangan mengulang secara manual.','warning',14000);
+      }finally{button.disabled=false;button.removeAttribute('aria-busy')}
+    };
+  }
+
+  function directAdjustment(){if(currentRole()!=='OWNER')return toast('Penyesuaian stok hanya dapat dilakukan Owner.');sheetHtml('Opname / Koreksi',`<button type="button" class="btn btn-soft" id="wwSo3110Open">Rekonsiliasi SO Fisik 31 Oktober · Owner</button><div class="ww-life-note">Referensi SO telah diproteksi. Koreksi harus dicatat lewat Ledger Stok, tidak boleh menimpa tabel stok.</div><form id="ghAdj"><label class="field"><span>Alasan</span><select name="reason"><option value="SELISIH_OPNAME">Selisih opname</option><option value="STOK_AWAL_TERLEWAT">Stok awal terlewat</option><option value="BARANG_DITEMUKAN">Barang ditemukan</option><option value="BARANG_RUSAK">Barang rusak</option><option value="BARANG_HILANG">Barang hilang</option><option value="KESALAHAN_PENCATATAN">Kesalahan pencatatan</option><option value="KOREKSI_INVESTIGASI">Koreksi investigasi</option><option value="LAINNYA">Lainnya</option></select></label><div id="ghAdjLines"></div><button class="btn btn-soft" type="button" id="ghAddAdj">+ Tambah bahan</button><label class="field"><span>Catatan</span><textarea name="note"></textarea></label><div class="actions"><button class="btn btn-line" type="button" id="ghCancel">Tutup</button><button class="btn btn-primary">Posting Koreksi</button></div></form>`);const box=$('#ghAdjLines'),add=()=>{const el=document.createElement('div');el.className='direct-line';el.innerHTML=`<select class="code"><option value="">Pilih bahan</option>${matOpts(false)}</select><input class="physical" type="number" min="0" step="0.000001" placeholder="Stok fisik unit"><input class="cost" type="number" min="0" step="0.01" placeholder="Modal/unit jika perlu"><button class="line-remove" type="button">×</button>`;el.querySelector('.line-remove').onclick=()=>el.remove();box.appendChild(el)};add();$('#ghAddAdj').onclick=add;$('#wwSo3110Open').onclick=directSO3110V1527;$('#ghCancel').onclick=closeSheet;$('#ghAdj').onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.target),mm=matByCode(),items=[...box.querySelectorAll('.direct-line')].map(x=>{const m=mm[x.querySelector('.code').value],physical=Number(x.querySelector('.physical').value||0),cost=x.querySelector('.cost').value;return{code:m.code,physicalQtyBase:physical*Number(m.factor||1),unitCostBase:cost===''?'':Number(cost)/Number(m.factor||1)}});await writeDirect('adjustment','ownerPostStockAdjustmentV1527',{reason:fd.get('reason'),note:fd.get('note'),items})};}
   function directPackingWage(){const rows=((state.data||{}).packingWages||[]).filter(x=>x.outstanding>0);sheetHtml('Bayar Upah Packing',`<form id="ghPw"><label class="field"><span>Sumber</span><select name="paymentSource"><option value="CASH">Kas Gudang</option><option value="BANK">Bank</option></select></label><div class="direct-list">${rows.map(x=>`<label class="direct-card"><b>${esc(x.packer)}</b><small>${esc(x.batchId)} · ${rp(x.outstanding)}</small><input class="pwck" type="checkbox" data-id="${esc(x.batchId)}" data-packer="${esc(x.packer)}"><input class="pwamt" data-id="${esc(x.batchId)}" type="number" value="${x.outstanding}" min="0.01" max="${x.outstanding}"></label>`).join('')||'<div class="empty">Tidak ada upah terhutang.</div>'}</div><label class="field"><span>Catatan</span><textarea name="note"></textarea></label><div class="actions"><button class="btn btn-line" type="button" id="ghCancel">Tutup</button><button class="btn btn-primary">Posting</button></div></form>`);$('#ghCancel').onclick=closeSheet;$('#ghPw').onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.target),cks=$$('.pwck:checked'),pack=[...new Set(cks.map(x=>x.dataset.packer))];if(!cks.length)return toast('Pilih upah.');if(pack.length>1)return toast('Pilih satu packer.');await writeDirect('packingWage','postPackingWagePayment',{paymentSource:fd.get('paymentSource'),note:fd.get('note'),allocations:cks.map(x=>({batchId:x.dataset.id,amount:$(`.pwamt[data-id="${CSS.escape(x.dataset.id)}"]`).value}))})};}
 
 

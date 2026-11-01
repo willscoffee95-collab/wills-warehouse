@@ -58,6 +58,7 @@ function getWarehouseRequestAvailabilityV1525(token,requestId) {
   const linked=ww1525FindRequestDraft_(ss,requestId),review=ww1525ReadReview_(ss,linked);
   return {ok:true,readOnly:true,build:WW1525_PICK_BUILD,
     requestId:linked.requestId,outletCode:linked.outletCode,sjId:linked.delivery.sjId,
+    lockedForStaff:ww1527HasPickingAdjustment_(ss,linked.delivery.sjId),
     noSj:linked.delivery.noSj,status:linked.delivery.status,
     checked:review.checked,reviewId:review.reviewId,reviewedAt:review.reviewedAt,reviewedBy:review.reviewedBy,
     lines:linked.lines.map(function(l){return{
@@ -66,6 +67,19 @@ function getWarehouseRequestAvailabilityV1525(token,requestId) {
       status:l.fulfillmentStatus||'DIPENUHI',reason:l.fulfillmentReason||''
     };})};
 }
+// Owner control V1.5.2.7 — once warehouse availability was submitted,
+// only Owner may revise it, even if the SJ remains DRAFT.
+// This is a server-side gate; frontend hiding a control is NOT sufficient.
+function ww1527HasPickingAdjustment_(ss,sjId){
+  const sh=ss.getSheetByName(WW.S.FULFILLMENT_ADJUSTMENTS);
+  if(!sh||sh.getLastRow()<2)return false;
+  const rows=sh.getRange(2,1,sh.getLastRow()-1,4).getValues();
+  return rows.some(function(r){
+    const eventId=String(r[0]||'');
+    return String(r[3]||'')===String(sjId)&&
+      (eventId.indexOf('FCHK-')===0||eventId.indexOf('FADJ-')===0);
+  });
+}
 function saveWarehouseRequestAvailabilityV1525(token,payload,idem) {
   return withWriteLock_(function() {
     const ss=warehouseSs_(),user=requirePermission_(ss,token,'DELIVERY_PREPARE');
@@ -73,6 +87,8 @@ function saveWarehouseRequestAvailabilityV1525(token,payload,idem) {
     payload=payload||{};
     const linked=ww1525FindRequestDraft_(ss,payload.requestId),d=linked.delivery,lines=linked.lines;
     if(d.status!=='DRAFT')throw new Error('Pemeriksaan hanya bisa disimpan untuk SJ DRAFT. Status: '+d.status);
+    if(String(user.role||'').toUpperCase()!=='OWNER'&&ww1527HasPickingAdjustment_(ss,d.sjId))
+      throw new Error('Hasil pengecekan sudah dikunci. Admin tidak dapat merevisi selisih; hubungi Owner.');
     if(cleanText_(payload.sjId,100)!==d.sjId)throw new Error('SJ berubah. Muat ulang pemeriksaan.');
     const inputs=Array.isArray(payload.items)?payload.items:[];
     if(inputs.length!==lines.length||inputs.length>50)
@@ -137,4 +153,61 @@ function ww1525PickingAuditReadOnly(){
     physicalPickingCanRecordZero:true,allZeroDispatchCoreGuard:true,
     financeLedgerChanged:false,stockLedgerChanged:false,workerChanged:false};
   Logger.log('WW1525_PICKING_AUDIT_READONLY '+JSON.stringify(out));return out;
+}
+
+
+// V1.5.2.7 — Owner-only wrappers for sensitive legacy methods.
+// In the production Bridge allowlist, remove the three unguarded legacy
+// public routes, replace them with ONLY the owner wrappers below.
+function ww1527RequireOwner_(token){
+  const ss=warehouseSs_(),user=requireSessionReadOnlyFastV1360_(ss,token);
+  if(String(user&&user.role||'').toUpperCase()!=='OWNER')
+    throw new Error('Akses koreksi stok / revisi Surat Jalan hanya untuk Owner.');
+  return user;
+}
+function ownerAdjustDeliveryDraftFulfillmentV1527(token,payload,idem){
+  ww1527RequireOwner_(token);
+  return adjustDeliveryDraftFulfillment(token,payload,idem);
+}
+function ownerCancelDeliveryDraftV1527(token,payload,idem){
+  ww1527RequireOwner_(token);
+  return cancelDeliveryDraft(token,payload,idem);
+}
+function ownerPostStockAdjustmentV1527(token,payload,idem){
+  ww1527RequireOwner_(token);
+  return postStockAdjustment(token,payload,idem);
+}
+
+
+// Editor-only, READ-ONLY preflight for protected baseline & owner access.
+function ww1527OwnerAccessAuditReadOnly(){
+  const ss=warehouseSs_(),source=ss.getSheetByName('SO 31-10-2026 TERKUNCI'),
+        stocks=ss.getSheetByName('Stok Gudang'),
+        ledger=ss.getSheetByName('Ledger Stok');
+  if(!source||!stocks||!ledger)throw new Error('SO/stock/ledger sheet missing');
+  const rows=source.getRange('A6:M32').getValues();
+  const seen={},adjustments=rows.filter(function(r){
+    const code=String(r[0]||'').trim();
+    if(!code||seen[code])throw new Error('Blank or duplicate SO material '+code);
+    seen[code]=true;
+    return Number(r[7]||0)!==0;
+  });
+  let protectedBySheet=false;
+  try{
+    protectedBySheet=source.getProtections(SpreadsheetApp.ProtectionType.SHEET)
+      .some(function(p){return !p.isWarningOnly();});
+  }catch(e){}
+  const out={
+    ok:rows.length===27&&adjustments.length===16&&protectedBySheet,
+    readOnly:true,sourceSheet:source.getName(),
+    referenceMaterialCount:rows.length,correctionMaterialCount:adjustments.length,
+    protectedBySheet:protectedBySheet,
+    adminLockedAfterFirstPicking:true,
+    ownerStockWrapperInstalled:typeof ownerPostStockAdjustmentV1527==='function',
+    ownerFulfillmentWrapperInstalled:typeof ownerAdjustDeliveryDraftFulfillmentV1527==='function',
+    ownerCancelWrapperInstalled:typeof ownerCancelDeliveryDraftV1527==='function',
+    ledgerModified:false,stockBalanceModified:false
+  };
+  Logger.log('WW1527_OWNER_SO_LOCK_AUDIT_READONLY '+JSON.stringify(out));
+  return out;
 }
