@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  window.WW_FRONTEND_BUILD='2026-10-29.1.5.2.6-request-lifecycle-price-ui';
+  window.WW_FRONTEND_BUILD='2026-11-01.1.5.2.8-request-refresh';
 
 
   const $ = (q, root = document) => root.querySelector(q);
@@ -536,7 +536,8 @@
     beginBusy('Membuka ' + actionNames[action] + '…');
     try {
       const moduleName=ACTION_DATA_MODULE[action]||'';
-      if(moduleName)await ensureModule(moduleName);
+      if(moduleName)await ensureModule(moduleName,action==='delivery');
+      if(action==='delivery')wwSelectedOutletV1522='ALL';
       openDirectSheet(action);
     } catch (err) {
       toast(err && err.message ? err.message : 'Fitur belum dapat dibuka.');
@@ -1182,9 +1183,42 @@
       '<button class="btn btn-line" id="wwLifeBackV1526">Kembali ke Permintaan</button>',{key:'request-lifecycle:'+requestId});
     $('#wwLifeBackV1526').onclick=directDelivery;
   }
+
+  // v1.5.2.8: merge read-only canonical queue and fresh delivery module; no writes.
+  function wwVisibleQueueV1528(){
+    const canonical=Array.isArray(wwQueueV1526&&wwQueueV1526.rows)?wwQueueV1526.rows:[];
+    const group=x=>{
+      const st=String(x.sjStatus||'').toUpperCase();
+      if(st==='DRAFT'||st==='MISSING_SJ')return 'PREPARE';
+      if(['SELESAI','DIBATALKAN'].includes(st))return 'HISTORY';
+      if(st&&st!=='UNKNOWN')return 'IN_TRANSIT';
+      return ['PREPARE','IN_TRANSIT','HISTORY'].includes(String(x.group||'').toUpperCase())?String(x.group).toUpperCase():'IN_TRANSIT';
+    };
+    const all=new Map();
+    canonical.forEach(r=>{if(r&&r.requestId)all.set(String(r.requestId),{...r,group:group(r)});});
+    const data=state.data||{},deliveries=data.deliveries||[];
+    const byId=new Map(),byNo=new Map();
+    deliveries.forEach(x=>{if(x.sjId)byId.set(String(x.sjId),x);if(x.noSj)byNo.set(String(x.noSj),x);});
+    (data.incomingRequests||[]).forEach(r=>{
+      if(!r||!r.requestId||all.has(String(r.requestId)))return;
+      const k=String(r.needDate||r.requestDate||'').slice(0,10);
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(k) || k<new Date(Date.now()-12*86400000).toISOString().slice(0,10))return;
+      const linkedId=String(r.linkedSjId||''),linkedNo=String(r.linkedNoSj||'');
+      const sj=byId.get(linkedId)||byNo.get(linkedNo);
+      const st=sj?String(sj.status||'').toUpperCase():(linkedId||linkedNo?'UNKNOWN':'MISSING_SJ');
+      if(['UNKNOWN','SELESAI','DIBATALKAN'].includes(st))return;
+      const row={...r,sjStatus:st,noSj:(sj&&sj.noSj)||linkedNo,group:group({sjStatus:st})};
+      all.set(String(r.requestId),row);
+    });
+    const dateKey=x=>{
+      const v=String(x.needDate||x.requestDate||x.createdAt||'');
+      return /^\d{4}-\d{2}-\d{2}/.test(v)?v.slice(0,10).replaceAll('-',''):/^\d{2}\/\d{2}\/\d{4}/.test(v)?v.slice(6,10)+v.slice(3,5)+v.slice(0,2):'';
+    };
+    return [...all.values()].sort((a,b)=>dateKey(b).localeCompare(dateKey(a))||String(b.createdAt||'').localeCompare(String(a.createdAt||'')));
+  }
   function directDelivery(load=true){
     const d=state.data||{},canonical=wwQueueV1526&&Array.isArray(wwQueueV1526.rows),
-      all=canonical?wwQueueV1526.rows:[],req=all.filter(x=>x.group==='PREPARE'),
+      all=wwVisibleQueueV1528(),visible=canonical||all.length>0,req=all.filter(x=>x.group==='PREPARE'),
       progress=all.filter(x=>x.group==='IN_TRANSIT'),
       history=all.filter(x=>x.group==='HISTORY'),rows=d.deliveries||[];
     const tools=[];
@@ -1195,9 +1229,10 @@
     const grouped=new Map();
     (d.outlets||[]).filter(x=>x.active==='YA').forEach(x=>{const code=wwRequestOutletV1522(x);if(!grouped.has(code))grouped.set(code,{name:x.name||code,rows:[]});});
     req.forEach(x=>{const code=wwRequestOutletV1522(x);if(!grouped.has(code))grouped.set(code,{name:x.outletName||code,rows:[]});grouped.get(code).rows.push(x);});
-    const order=['RB','TM','UPI','CPK','CPS'];
+    grouped.set('ALL',{name:'Semua Outlet',rows:req});
+    const order=['ALL','RB','TM','UPI','CPK','CPS'];
     const keys=[...grouped.keys()].sort((a,b)=>{const ia=order.indexOf(a),ib=order.indexOf(b);return (ia<0?99:ia)-(ib<0?99:ib)||a.localeCompare(b);});
-    if(!grouped.has(wwSelectedOutletV1522))wwSelectedOutletV1522=keys.find(k=>grouped.get(k).rows.length>0)||keys[0]||'';
+    if(!grouped.has(wwSelectedOutletV1522))wwSelectedOutletV1522='ALL';
     const menu=keys.map(k=>'<button type="button" class="ww-request-tab '+(k===wwSelectedOutletV1522?'is-active':'')+
       '" data-ww-request-outlet="'+esc(k)+'" aria-pressed="'+(k===wwSelectedOutletV1522)+'">'+
       '<span>'+esc(k)+'</span><b>'+num(grouped.get(k).rows.length,0)+'</b></button>').join('');
@@ -1216,15 +1251,16 @@
     const loader=!canonical?'<div class="ww-queue-loading"><span class="ww-spin-v1526" aria-hidden="true"></span><span>'+
       (wwQueueErrorV1526?'Status terbaru belum terbaca: '+esc(wwQueueErrorV1526)+' · ketuk Muat Ulang':'Menyinkronkan status Surat Jalan terbaru…')+
       '</span><button class="btn btn-soft" id="wwQueueRetryV1526" type="button">Muat Ulang</button></div>':'';
-    const n=wwQueueV1526&&wwQueueV1526.counts||{};
+    const n={PREPARE:req.length,IN_TRANSIT:progress.length,HISTORY:history.length};
     sheetHtml('Bahan yang Harus Dikirim Sekarang',
       '<div class="ww-request-top"><b>Permintaan Bahan Outlet</b><span>'+
-      (canonical?num(req.length,0)+' perlu disiapkan':'Memuat status…')+'</span></div>'+
+      (visible?num(req.length,0)+' perlu disiapkan':'Memuat status…')+'</span></div>'+
       loader+
+      (wwQueueErrorV1526?'<div class="ww-dispatch-pending-note" role="status">Pembacaan status SJ belum berhasil: '+esc(wwQueueErrorV1526)+'. Data modul Warehouse ditampilkan sementara; jangan buat SJ ganda.</div>':'')+
       '<div class="ww-request-tabs" role="group" aria-label="Pilih outlet">'+(menu||'Belum ada outlet aktif')+'</div>'+
       '<div class="ww-request-section"><div class="ww-request-section-head"><b>'+esc(selected?selected.name:'Tidak ada permintaan')+
       '</b><span>'+num(entries.length,0)+' permintaan</span></div><div class="ww-request-scroll">'+
-      (canonical?(requests||'<div class="empty">Tidak ada permintaan DRAFT untuk outlet ini.</div>'):
+      (visible?(requests||'<div class="empty">Tidak ada permintaan DRAFT untuk outlet ini.</div>'):
         '<div class="empty">Sedang memastikan status berdasarkan Surat Jalan terbaru…</div>')+'</div></div>'+
       '<div class="ww-life-note">Alur: DRAFT / Cek Barang → DIKIRIM → DITERIMA OUTLET → SELESAI. Status hanya berubah saat tahap terkait tercatat.</div>'+
       '<details class="ww-sj-collapse"><summary>Dalam Pengiriman / Penerimaan <span>'+num(n.IN_TRANSIT||0,0)+' permintaan</span></summary>'+
@@ -1251,7 +1287,7 @@
     $$('[data-request-id]').forEach(b=>b.onclick=()=>{const x=(wwQueueV1526&&wwQueueV1526.rows||[]).find(q=>String(q.requestId)===b.dataset.requestId);if(x&&x.sjStatus==='MISSING_SJ')wwRequestLifecycleDetailV1526(x.requestId);else opsRequestDetailV43(b.dataset.requestId)});
     $$('[data-ww-progress-id]').forEach(b=>b.onclick=()=>wwRequestLifecycleDetailV1526(b.dataset.wwProgressId));
     $$('[data-sjid]').forEach(b=>b.onclick=()=>directDeliveryDetail(b.dataset.sjid));
-    const retry=$('#wwQueueRetryV1526');if(retry)retry.onclick=()=>wwReloadQueueV1526(true).catch(e=>toast(e.message,'warning'));
+    const retry=$('#wwQueueRetryV1526');if(retry)retry.onclick=async()=>{try{await reloadDeliveryModule();await wwReloadQueueV1526(true);}catch(e){toast(e.message,'warning');directDelivery(false);}};
     if(load&&(!canonical||Date.now()-wwQueueFetchedAtV1526>30000)&&!wwQueuePromiseV1526)
       wwReloadQueueV1526(true).catch(e=>toast('Status canonical belum tersedia: '+e.message,'warning'));
   }
@@ -1830,7 +1866,7 @@
       reloadingForUpdate = true;
       window.location.reload();
     });
-    window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=0.6.7', { updateViaCache: 'none' }).then(reg => reg.update()).catch(() => {}));
+    window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=1.5.2.8', { updateViaCache: 'none' }).then(reg => reg.update()).catch(() => {}));
   }
 
 
