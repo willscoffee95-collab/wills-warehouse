@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  window.WW_FRONTEND_BUILD='2026-11-01.1.5.2.8-request-refresh';
+  window.WW_FRONTEND_BUILD='2026-11-01.1.5.2.9-so-owner-admin-lock';
 
 
   const $ = (q, root = document) => root.querySelector(q);
