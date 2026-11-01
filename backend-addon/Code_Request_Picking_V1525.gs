@@ -153,3 +153,26 @@ function ww1525PickingAuditReadOnly(){
     financeLedgerChanged:false,stockLedgerChanged:false,workerChanged:false};
   Logger.log('WW1525_PICKING_AUDIT_READONLY '+JSON.stringify(out));return out;
 }
+
+
+// V1.5.2.7 — Owner-only wrappers for sensitive legacy methods.
+// In the production Bridge allowlist, remove the three unguarded legacy
+// public routes, replace them with ONLY the owner wrappers below.
+function ww1527RequireOwner_(token){
+  const ss=warehouseSs_(),user=requireSessionReadOnlyFastV1360_(ss,token);
+  if(String(user&&user.role||'').toUpperCase()!=='OWNER')
+    throw new Error('Akses koreksi stok / revisi Surat Jalan hanya untuk Owner.');
+  return user;
+}
+function ownerAdjustDeliveryDraftFulfillmentV1527(token,payload,idem){
+  ww1527RequireOwner_(token);
+  return adjustDeliveryDraftFulfillment(token,payload,idem);
+}
+function ownerCancelDeliveryDraftV1527(token,payload,idem){
+  ww1527RequireOwner_(token);
+  return cancelDeliveryDraft(token,payload,idem);
+}
+function ownerPostStockAdjustmentV1527(token,payload,idem){
+  ww1527RequireOwner_(token);
+  return postStockAdjustment(token,payload,idem);
+}
