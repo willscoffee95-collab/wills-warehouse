@@ -962,7 +962,7 @@
     };
     let source=null,loading=false;
     const render=report=>{
-      source=report;const adminLocked=!!report.checked&&currentRole()!=='OWNER';
+      source=report;const adminLocked=!!report.lockedForStaff&&currentRole()!=='OWNER';
       if(report.status!=='DRAFT'){
         root.textContent='Surat Jalan sudah berstatus '+report.status+'. Pemeriksaan tidak boleh diubah setelah pengiriman.';
         save.disabled=true;return;
@@ -1029,7 +1029,7 @@
     form.onsubmit=async e=>{
       e.preventDefault();
       if(loading||!source||source.status!=='DRAFT')return;
-      if(source.checked&&currentRole()!=='OWNER')return toast('Hasil cek sudah dikunci. Admin tidak bisa merevisi. Hubungi Owner.','warning');
+      if(source.lockedForStaff&&currentRole()!=='OWNER')return toast('Hasil cek sudah dikunci. Admin tidak bisa merevisi. Hubungi Owner.','warning');
       const rows=$$('[data-ww-pick-line]',root);
       if(!rows.length)return toast('Belum ada bahan untuk diperiksa.','warning');
       const items=[],errors=[];
@@ -1065,7 +1065,7 @@
         status.textContent='Belum berhasil dikonfirmasi: '+String(err&&err.message||err)+
           '. Jangan klik simpan ulang jika status tidak pasti. Buka ulang rincian & periksa hasilnya.';
         toast('Simpan belum terverifikasi; cetak tetap terkunci.','warning');
-      }finally{loading=false;save.disabled=!!(source&&source.checked&&currentRole()!=='OWNER');endBusy();}
+      }finally{loading=false;save.disabled=!!(source&&source.lockedForStaff&&currentRole()!=='OWNER');endBusy();}
     };
   }
   function opsPrintRequestThermalV43(requestId) {
