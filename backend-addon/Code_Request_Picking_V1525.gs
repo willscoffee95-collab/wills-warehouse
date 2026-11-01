@@ -66,6 +66,19 @@ function getWarehouseRequestAvailabilityV1525(token,requestId) {
       status:l.fulfillmentStatus||'DIPENUHI',reason:l.fulfillmentReason||''
     };})};
 }
+// Owner control V1.5.2.7 — once warehouse availability was submitted,
+// only Owner may revise it, even if the SJ remains DRAFT.
+// This is a server-side gate; frontend hiding a control is NOT sufficient.
+function ww1527HasPickingAdjustment_(ss,sjId){
+  const sh=ss.getSheetByName(WW.S.FULFILLMENT_ADJUSTMENTS);
+  if(!sh||sh.getLastRow()<2)return false;
+  const rows=sh.getRange(2,1,sh.getLastRow()-1,4).getValues();
+  return rows.some(function(r){
+    const eventId=String(r[0]||'');
+    return String(r[3]||'')===String(sjId)&&
+      (eventId.indexOf('FCHK-')===0||eventId.indexOf('FADJ-')===0);
+  });
+}
 function saveWarehouseRequestAvailabilityV1525(token,payload,idem) {
   return withWriteLock_(function() {
     const ss=warehouseSs_(),user=requirePermission_(ss,token,'DELIVERY_PREPARE');
@@ -73,6 +86,8 @@ function saveWarehouseRequestAvailabilityV1525(token,payload,idem) {
     payload=payload||{};
     const linked=ww1525FindRequestDraft_(ss,payload.requestId),d=linked.delivery,lines=linked.lines;
     if(d.status!=='DRAFT')throw new Error('Pemeriksaan hanya bisa disimpan untuk SJ DRAFT. Status: '+d.status);
+    if(String(user.role||'').toUpperCase()!=='OWNER'&&ww1527HasPickingAdjustment_(ss,d.sjId))
+      throw new Error('Hasil pengecekan sudah dikunci. Admin tidak dapat merevisi selisih; hubungi Owner.');
     if(cleanText_(payload.sjId,100)!==d.sjId)throw new Error('SJ berubah. Muat ulang pemeriksaan.');
     const inputs=Array.isArray(payload.items)?payload.items:[];
     if(inputs.length!==lines.length||inputs.length>50)
