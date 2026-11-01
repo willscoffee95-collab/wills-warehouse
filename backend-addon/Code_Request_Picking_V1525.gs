@@ -58,6 +58,7 @@ function getWarehouseRequestAvailabilityV1525(token,requestId) {
   const linked=ww1525FindRequestDraft_(ss,requestId),review=ww1525ReadReview_(ss,linked);
   return {ok:true,readOnly:true,build:WW1525_PICK_BUILD,
     requestId:linked.requestId,outletCode:linked.outletCode,sjId:linked.delivery.sjId,
+    lockedForStaff:ww1527HasPickingAdjustment_(ss,linked.delivery.sjId),
     noSj:linked.delivery.noSj,status:linked.delivery.status,
     checked:review.checked,reviewId:review.reviewId,reviewedAt:review.reviewedAt,reviewedBy:review.reviewedBy,
     lines:linked.lines.map(function(l){return{
