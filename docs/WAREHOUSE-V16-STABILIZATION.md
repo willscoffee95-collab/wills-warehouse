@@ -112,3 +112,15 @@ Perampingan dinyatakan selesai hanya jika fungsi operasional asli tetap berjalan
 - Penamaan `safety-rc1` adalah versi **release candidate di branch Draft**; GitHub Pages produksi di `main` belum berubah.
 - Pengujian `tests/warehouse-pwa-cache.test.cjs` memastikan semua aset tersedia dan versi script konsisten.
 - Source `sw.js` memakai strategi network-first bagi navigasi dan core assets; setelah rilis, uji update dari PWA terpasang (Chrome Android/iPhone) dan rollback cache tetap wajib.
+
+## Tahap 6 — dispatch lock persisten dan pemulihan bridge (6 November 2026)
+- **Bug guard confirmed:** `dispatchStorePendingV44` sebelumnya mengabaikan exception dari `localStorage.setItem`. Gagal menyimpan pengunci bisa membuat `dispatchDelivery` tetap dipanggil dari PWA tanpa bukti pengunci persisten.
+- Guard sekarang **fail-closed**: input idempotency key wajib, status pengunci tidak dapat dibaca/JSON rusak dihitung sebagai *pending*, pengunci disimpan dan dibaca ulang **sebelum** `bridge.call('dispatchDelivery')`. Jika browser menolak storage, pengiriman tidak dilakukan.
+- `bridge.js`: READY pertama yang sah diikat ke channel selama satu inisialisasi; READY berikutnya dari sumber lain tidak bisa mengganti channel. Jika startup tidak merespons dalam 15 detik, iframe lama dibuang dan inisialisasi berikutnya dapat dicoba **hanya lewat tindakan pengguna**, tanpa memutar ulang RPC.
+- `bridge.call`: exception `postMessage` langsung menggagalkan permintaan, membersihkan timer dan entri pending; timeout 3 menit tetap tidak memicu retry otomatis.
+- `index.html` dan `sw.js` sekarang memuat `bridge.js?v=1.6.0-safety-rc1` bersama `app.js?v=1.6.0-safety-rc1`, sehingga cache PWA kandidat tidak mencampur bridge lama dan baru.
+- GitHub Actions menjalankan **60 tes regresi** (termasuk 8 kasus dispatch storage dan 7 kasus reconnect/response bridge) beserta syntax-check JavaScript. Semua tes adalah browser/mock unit tests; status runtime Apps Script **belum** diuji.
+
+**Batas keamanan yang tetap ada:** pesan READY dari origin Google terpercaya belum memakai nonce/attestation yang dibuktikan oleh backend, karena source Bridge.html aktif tidak tersedia. Jangan mengklaim keamanan komunikasi end-to-end tanpa memeriksa HTML service live. PWA juga belum membuktikan idempotency lintas browser/perangkat yang memakai penyimpanan terpisah.
+
+**Gate tetap:** Draft PR #15 tidak di-merge/deploy; tidak ada mutasi gudang, ledger, SO, atau status SJ produksi dalam tahap ini.
