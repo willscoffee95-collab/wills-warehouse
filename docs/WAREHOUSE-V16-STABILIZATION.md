@@ -82,3 +82,25 @@ Perampingan dinyatakan selesai hanya jika fungsi operasional asli tetap berjalan
 - Uji otomatis memakai mock backend; tidak pernah melakukan mutasi Warehouse pada produksi.
 
 **Gate tetap tertahan:** belum ada source Apps Script live, belum ada pengujian dua perangkat dengan lock backend live, belum ada staging yang terisolasi. Tidak merge/deploy sebelum gate itu terpenuhi.
+
+## Tahap 4 — idempotency terikat payload, proteksi picking/finance/SO (6 Nov 2026)
+**Patch frontend Draft PR #15:**
+- `lockedMutationIdemV160(action, method, payload)` menyimpan fingerprint SHA-256 dari method dan payload kanonis di perangkat. Key yang belum terkonfirmasi **tidak kedaluwarsa otomatis setelah 24 jam**. Percobaan yang mengubah qty/method/note saat status sebelumnya belum pasti ditolak. Tidak menyimpan isi transaksi atau PIN dalam key lokal.
+- `writeDirect` dan `writeDeliveryDirect` menggunakan key terikat payload. Kunci dihapus hanya setelah ack valid; dispatch masih wajib fresh SJ status.
+- `saveWarehouseRequestAvailabilityV1525` (picking) kini memakai key terikat payload, membaca ulang SJ, memverifikasi qty tiap baris, dan baru melepaskan key setelah hasil readback cocok. Angka 0 fisik tetap sah saat diinput eksplisit.
+- Koreksi SO Owner tidak lagi menampilkan sukses pada respons `POSTING`, `REVERSED`, null, atau ambigu.
+- `saveFinancialPositionActualV1300` sekarang lewat `writeDirect` yang memerlukan ack valid dan key terikat jumlah saldo Bank/Kas dan catatan. Source arsip 1.4.1.3 mengonfirmasi method ini mengembalikan `ok:true` saat berhasil, tetapi source deployment masih harus dicocokkan.
+- **41 pengujian otomatis** di `tests/*.test.cjs` + JS syntax-check lulus pada GitHub Actions workflow `Warehouse frontend safety`. Unit test berbasis mock, bukan uji backend produksi.
+- `idemKey` legacy masih digunakan pada event log cetak, yang tidak memutasi stok; jalur lain perlu audit lanjutan setelah verifikasi backend.
+
+**Audit forensik orphan dispatch SJ-20260927-0006:**
+- `Transaction Plans`, `Ledger Stok`, `Ledger Transit`, `Detail Transaksi`, dan `Audit Trail` mengonfirmasi aksi dispatch historis pada 27 September.
+- TX induk `DSP-20260927-143429-2C829F11C7` tidak ditemukan di `Transaksi Warehouse` aktif **maupun** backup Warehouse 26 Oktober.
+- Plan mencakup dua efek stock, UHT −3000 gr dan Whip Cream −975 gr; tidak boleh menyimpulkan saldo saat ini salah sejumlah tepat ini tanpa menelusuri SO dan mutasi selanjutnya.
+- Tindak lanjut read-only dilacak di [Issue #16](https://github.com/willscoffee95-collab/wills-warehouse/issues/16).
+- **Jangan memulihkan dengan dispatch baru, zero transit, atau adjustment stok tanpa analisis dan approval Owner.**
+
+**Kekurangan yang belum ditutup:**
+- Mutasi melalui dua browser/perangkat secara simultan masih memerlukan verifikasi backend live untuk penguncian global dan identitas transaksi bisnis. Perangkat berbeda dapat menghasilkan key berbeda.
+- Tidak semua modul addon Apps Script terbaru dapat diaudit dari arsip 19 Okt. Data Sheets dan GitHub frontend tidak membuktikan deployment runtime.
+- Key yang tertahan karena hasil ambigu membutuhkan prosedur recovery Owner yang aman, bukan tombol reset otomatis.
