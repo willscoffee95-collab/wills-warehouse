@@ -1124,12 +1124,15 @@
       try{
         // The server validates every SJ line, role, idempotency and DRAFT status.
         const safePickAction='pick_'+Array.from(id).reduce((h,c)=>Math.imul(h^c.charCodeAt(0),16777619)>>>0,2166136261).toString(16)+'_'+id.length;
-        const result=await bridge.call('saveWarehouseRequestAvailabilityV1525',state.token,
-          {requestId:id,sjId:source.sjId,items:items},idemKey(safePickAction));
-        if(!result||result.ok!==true)throw new Error('Simpan pemeriksaan belum terkonfirmasi.');
-        localStorage.removeItem('ww_gh_idem_'+safePickAction);
+        const method='saveWarehouseRequestAvailabilityV1525',
+          pickPayload={requestId:id,sjId:source.sjId,items:items},
+          idem=await lockedMutationIdemV160(safePickAction,method,pickPayload);
+        const result=await bridge.call(method,state.token,pickPayload,idem);
+        requireConfirmedWarehouseWriteV160(result,'Pemeriksaan bahan gudang');
         const fresh=await bridge.call('getWarehouseRequestAvailabilityV1525',state.token,id);
-        if(!fresh||!fresh.checked)throw new Error('Sudah tersimpan tetapi pemeriksaan terbaru belum terverifikasi. Buka ulang rincian.');
+        verifySavedPickingV160(fresh,source,items);
+        // Only release the local key after server acknowledgement AND fresh matching data.
+        localStorage.removeItem('ww_gh_idem_'+safePickAction);
         render(fresh);wwQueueV1526=null;
         toast('Cek ketersediaan tersimpan. Barang kosong/sebagian tercatat di SJ.','success');
         reloadDeliveryModule().catch(()=>{});
@@ -1140,6 +1143,21 @@
         toast('Simpan belum terverifikasi; cetak tetap terkunci.','warning');
       }finally{loading=false;save.disabled=!!(source&&source.lockedForStaff&&currentRole()!=='OWNER');endBusy();}
     };
+  }
+  // v1.6: a positive write acknowledgement is not enough when the reloaded
+  // DRAFT SJ still carries different picking quantities. Keep the retry key locked.
+  function verifySavedPickingV160(fresh,source,items){
+    if(!fresh||!fresh.checked||!Array.isArray(fresh.lines))
+      throw new Error('Hasil picking terbaru belum terverifikasi. Jangan ulangi dengan jumlah berbeda.');
+    if(source&&source.sjId&&fresh.sjId&&String(source.sjId)!==String(fresh.sjId))
+      throw new Error('Referensi Surat Jalan berubah setelah simpan. Periksa Audit.');
+    for(const item of items||[]){
+      const line=fresh.lines.find(x=>Number(x.lineNo)===Number(item.lineNo)&&String(x.code)===String(item.code));
+      if(!line||!Number.isFinite(Number(line.approvedQtyUnit))||
+         Math.abs(Number(line.approvedQtyUnit)-Number(item.approvedQtyUnit))>0.000001)
+        throw new Error('Jumlah picking terverifikasi berbeda untuk '+String(item.code)+'. Periksa Audit sebelum input ulang.');
+    }
+    return fresh;
   }
   function opsPrintRequestThermalV43(requestId) {
     const req=opsRequestV43(requestId),lines=wwPickingPrintLinesV1525(requestId);
@@ -1582,7 +1600,7 @@
             items},WW_SO3110_POST_KEY_V1527);
         });
         if(!output)return;
-        if(output.ok===false)throw Error(output.error||'Posting koreksi ditolak backend');
+        requireConfirmedWarehouseWriteV160(output,'Koreksi SO 31 Oktober');
         toast('Koreksi SO telah dikirim ke backend canonical. Verifikasi Ledger Stok dan transaksi adjustment sebelum menyatakan selesai.','success');
       }catch(err){
         toast('Status posting belum pasti: '+(err.message||err)+'. Periksa Ledger Stok dahulu, jangan mengulang secara manual.','warning',14000);
@@ -1755,7 +1773,7 @@
   async function directFinanceActualV1300(){
     let r;await withBusy('Membaca posisi dana…',async()=>{r=await callDirect('getFinancialPositionActualV1300')});const a=r.actual||null,d=r.currentDifference||null,stale=r.actualStale,canWrite=!!r.canWrite;const badge=(v)=>Math.abs(Number(v||0))<0.5?'<span class="badge ok">Rp0 · SESUAI</span>':`<span class="badge bad">Selisih ${rp(v)}</span>`;
     sheetHtml('Posisi Dana Warehouse',`<div class="role-guide"><b>Sederhana: isi saldo yang benar sekarang</b><span>Masukkan saldo rekening Bank dan uang fisik Kas Gudang yang benar. Saat disimpan, Saldo Sistem langsung disamakan ke angka ini melalui koreksi ledger yang tercatat di Audit.</span><span>Saldo Awal tetap Rp0. Stok, HPP, Surat Jalan, piutang, hutang, dan data outlet tidak berubah.</span></div>${stale?'<div class="demo-box"><b>Perlu cek ulang.</b><br>Ada transaksi Bank/Kas setelah posisi terakhir disimpan.</div>':''}<div class="stats-mini"><div class="demo-box"><b>Bank Warehouse</b><br>Sistem ${rp(r.system.bank)}<br>Posisi terakhir ${a?rp(a.bankActual):'Belum diinput'}<br>${a?badge(d.bank):''}</div><div class="demo-box"><b>Kas Gudang</b><br>Sistem ${rp(r.system.cash)}<br>Posisi terakhir ${a?rp(a.cashActual):'Belum diinput'}<br>${a?badge(d.cash):''}</div></div>${a?`<div class="demo-box">Terakhir disimpan ${esc(a.time)} oleh ${esc(a.user)}${a.note?'<br>'+esc(a.note):''}</div>`:''}${canWrite?`<form id="ghFinanceActual"><label class="field"><span>Saldo Bank Sekarang</span><input name="bankActual" type="number" min="0" step="1" value="${a?Number(a.bankActual):Math.max(0,Number(r.system.bank||0))}" required></label><label class="field"><span>Kas Gudang Sekarang</span><input name="cashActual" type="number" min="0" step="1" value="${a?Number(a.cashActual):Math.max(0,Number(r.system.cash||0))}" required></label><label class="field"><span>Catatan</span><textarea name="note" placeholder="Contoh: posisi sesuai mobile banking dan kas fisik"></textarea></label><button class="btn btn-primary">Simpan Posisi Sekarang</button></form>`:'<div class="demo-box">Mode baca saja. Hanya Owner yang dapat mengubah posisi dana.</div>'}`);
-    const f=$('#ghFinanceActual');if(f)f.onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.target),idem=idemKey('finance_actual');beginBusy('Menyamakan saldo sistem…');try{await bridge.call('saveFinancialPositionActualV1300',state.token,{bankActual:fd.get('bankActual'),cashActual:fd.get('cashActual'),note:fd.get('note')},idem);localStorage.removeItem('ww_gh_idem_finance_actual');toast('Posisi dana tersimpan. Saldo sistem sudah disamakan.');closeSheet();refreshBootstrapLight().catch(()=>{});}catch(err){toast(err.message)}finally{endBusy()}};
+    const f=$('#ghFinanceActual');if(f)f.onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.target),payload={bankActual:fd.get('bankActual'),cashActual:fd.get('cashActual'),note:fd.get('note')};try{await writeDirect('finance_actual','saveFinancialPositionActualV1300',payload);}catch(_){/* writeDirect reports error; uncertain write retains its idempotency key. */}};
   }
   let lastStockReportV1300=null;
   function todayIsoV1300(){const d=new Date(),p=n=>String(n).padStart(2,'0');return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`}
