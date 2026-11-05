@@ -74,6 +74,7 @@ function writeHarness({ backendCall, alreadyPending = false, instantTimeout = fa
     dispatchStorePendingV44: () => { stats.pending = true; stats.locks++; },
     dispatchUpdateIfVisibleV44: () => {},
     idemKey: () => 'idem-unchanged-for-sj',
+    lockedMutationIdemV160: async () => 'idem-unchanged-for-sj',
     currentSheetKey: () => 'delivery-detail:SJID-X',
     beginBusy: () => {},
     endBusy: () => {},
