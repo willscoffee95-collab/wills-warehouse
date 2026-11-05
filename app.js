@@ -723,7 +723,9 @@
     finally{opsWriteInFlightV43.delete('status_'+id);endBusy();}
   }
   function dispatchAcceptResponseV44(id,response){
-    if(!response||response.ok===false){
+    const txStatus=String(response&&response.status||'').trim().toUpperCase();
+    if(!response||response.ok!==true||response.pendingRecovery===true||
+       ['POSTING','PENDING','PENDING_RECOVERY','RECOVERY_PENDING','REVERSED','FAILED','ERROR'].includes(txStatus)){
       toast('Hasil Kirim belum berhasil dikonfirmasi. Jangan kirim ulang; gunakan Cek Status.','warning',12000);
       dispatchUpdateIfVisibleV44(id);return;
     }
