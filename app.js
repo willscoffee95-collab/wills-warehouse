@@ -1517,7 +1517,47 @@
     };
   }
 
-  function directAdjustment(){if(currentRole()!=='OWNER')return toast('Penyesuaian stok hanya dapat dilakukan Owner.');sheetHtml('Opname / Koreksi',`<button type="button" class="btn btn-soft" id="wwSo3110Open">Rekonsiliasi SO Fisik 31 Oktober · Owner</button><div class="ww-life-note">Referensi SO telah diproteksi. Koreksi harus dicatat lewat Ledger Stok, tidak boleh menimpa tabel stok.</div><form id="ghAdj"><label class="field"><span>Alasan</span><select name="reason"><option value="SELISIH_OPNAME">Selisih opname</option><option value="STOK_AWAL_TERLEWAT">Stok awal terlewat</option><option value="BARANG_DITEMUKAN">Barang ditemukan</option><option value="BARANG_RUSAK">Barang rusak</option><option value="BARANG_HILANG">Barang hilang</option><option value="KESALAHAN_PENCATATAN">Kesalahan pencatatan</option><option value="KOREKSI_INVESTIGASI">Koreksi investigasi</option><option value="LAINNYA">Lainnya</option></select></label><div id="ghAdjLines"></div><button class="btn btn-soft" type="button" id="ghAddAdj">+ Tambah bahan</button><label class="field"><span>Catatan</span><textarea name="note"></textarea></label><div class="actions"><button class="btn btn-line" type="button" id="ghCancel">Tutup</button><button class="btn btn-primary">Posting Koreksi</button></div></form>`);const box=$('#ghAdjLines'),add=()=>{const el=document.createElement('div');el.className='direct-line';el.innerHTML=`<select class="code"><option value="">Pilih bahan</option>${matOpts(false)}</select><input class="physical" type="number" min="0" step="0.000001" placeholder="Stok fisik unit"><input class="cost" type="number" min="0" step="0.01" placeholder="Modal/unit jika perlu"><button class="line-remove" type="button">×</button>`;el.querySelector('.line-remove').onclick=()=>el.remove();box.appendChild(el)};add();$('#ghAddAdj').onclick=add;$('#wwSo3110Open').onclick=directSO3110V1527;$('#ghCancel').onclick=closeSheet;$('#ghAdj').onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.target),mm=matByCode(),items=[...box.querySelectorAll('.direct-line')].map(x=>{const m=mm[x.querySelector('.code').value],physical=Number(x.querySelector('.physical').value||0),cost=x.querySelector('.cost').value;return{code:m.code,physicalQtyBase:physical*Number(m.factor||1),unitCostBase:cost===''?'':Number(cost)/Number(m.factor||1)}});await writeDirect('adjustment','ownerPostStockAdjustmentV1527',{reason:fd.get('reason'),note:fd.get('note'),items})};}
+
+  // V1.6 safety guard: an empty stock-count field must NEVER become a physical count of zero.
+  // This is a client preflight; backend validation/authorization remains mandatory.
+  function validateOwnerStockAdjustmentV160(rawLines, materials){
+    if(!Array.isArray(rawLines)||rawLines.length===0)throw new Error('Tambahkan minimal satu bahan.');
+    const seen=new Set();
+    return rawLines.map((line,index)=>{
+      const row=index+1,code=String((line&&line.code)||'').trim(),m=materials[code];
+      if(!code||!m)throw new Error('Baris '+row+': pilih bahan yang valid.');
+      if(seen.has(code))throw new Error('Bahan '+code+' dipilih dua kali; gabungkan menjadi satu baris.');
+      seen.add(code);
+      const factor=Number(m.factor);
+      if(!Number.isFinite(factor)||factor<=0)throw new Error('Konversi bahan '+code+' belum valid; posting ditahan.');
+      const raw=String(line.physical==null?'':line.physical).trim();
+      if(!/^\d+(?:\.\d+)?$/.test(raw))throw new Error('Baris '+row+': jumlah fisik wajib diisi, termasuk 0 jika benar-benar kosong.');
+      const physical=Number(raw),physicalQtyBase=physical*factor;
+      if(!Number.isFinite(physicalQtyBase)||physicalQtyBase<0)throw new Error('Baris '+row+': jumlah fisik tidak valid.');
+      const costRaw=String(line.cost==null?'':line.cost).trim();
+      if(costRaw!==''&&!/^\d+(?:\.\d+)?$/.test(costRaw))throw new Error('Baris '+row+': modal per unit tidak valid.');
+      const unitCostBase=costRaw===''?'':Number(costRaw)/factor;
+      if(unitCostBase!==''&&!Number.isFinite(unitCostBase))throw new Error('Baris '+row+': modal melebihi batas angka.');
+      return {code,physicalQtyBase,unitCostBase};
+    });
+  }
+  function directAdjustment(){if(currentRole()!=='OWNER')return toast('Penyesuaian stok hanya dapat dilakukan Owner.');sheetHtml('Opname / Koreksi',`<button type="button" class="btn btn-soft" id="wwSo3110Open">Rekonsiliasi SO Fisik 31 Oktober · Owner</button><div class="ww-life-note">Referensi SO telah diproteksi. Koreksi harus dicatat lewat Ledger Stok, tidak boleh menimpa tabel stok.</div><form id="ghAdj"><label class="field"><span>Alasan</span><select name="reason"><option value="SELISIH_OPNAME">Selisih opname</option><option value="STOK_AWAL_TERLEWAT">Stok awal terlewat</option><option value="BARANG_DITEMUKAN">Barang ditemukan</option><option value="BARANG_RUSAK">Barang rusak</option><option value="BARANG_HILANG">Barang hilang</option><option value="KESALAHAN_PENCATATAN">Kesalahan pencatatan</option><option value="KOREKSI_INVESTIGASI">Koreksi investigasi</option><option value="LAINNYA">Lainnya</option></select></label><div id="ghAdjLines"></div><button class="btn btn-soft" type="button" id="ghAddAdj">+ Tambah bahan</button><label class="field"><span>Catatan</span><textarea name="note"></textarea></label><div class="actions"><button class="btn btn-line" type="button" id="ghCancel">Tutup</button><button class="btn btn-primary">Posting Koreksi</button></div></form>`);const box=$('#ghAdjLines'),add=()=>{const el=document.createElement('div');el.className='direct-line';el.innerHTML=`<select class="code"><option value="">Pilih bahan</option>${matOpts(false)}</select><input class="physical" type="number" min="0" step="0.000001" placeholder="Stok fisik unit"><input class="cost" type="number" min="0" step="0.01" placeholder="Modal/unit jika perlu"><button class="line-remove" type="button">×</button>`;el.querySelector('.line-remove').onclick=()=>el.remove();box.appendChild(el)};add();$('#ghAddAdj').onclick=add;$('#wwSo3110Open').onclick=directSO3110V1527;$('#ghCancel').onclick=closeSheet;$('#ghAdj').onsubmit=async e=>{
+      e.preventDefault();
+      const fd=new FormData(e.target),rawLines=[...box.querySelectorAll('.direct-line')].map(row=>({
+        code:row.querySelector('.code').value,
+        physical:row.querySelector('.physical').value,
+        cost:row.querySelector('.cost').value
+      }));
+      let items;
+      try{items=validateOwnerStockAdjustmentV160(rawLines,matByCode());}
+      catch(err){return toast(err.message,'warning');}
+      const summary=items.map(x=>x.code+' = '+num(x.physicalQtyBase)+' (satuan dasar)').join('\n');
+      if(!window.confirm('KONFIRMASI KOREKSI STOK OWNER\n\n'+summary+
+        '\n\nKoreksi ini mengubah ledger stok. Pastikan angka sudah cocok dengan opname fisik. Lanjutkan?'))return;
+      try{await writeDirect('adjustment','ownerPostStockAdjustmentV1527',{
+        reason:fd.get('reason'),note:fd.get('note'),items
+      });}catch(_){/* writeDirect has already shown the error; never auto-retry a stock mutation. */}
+    };}
   function directPackingWage(){const rows=((state.data||{}).packingWages||[]).filter(x=>x.outstanding>0);sheetHtml('Bayar Upah Packing',`<form id="ghPw"><label class="field"><span>Sumber</span><select name="paymentSource"><option value="CASH">Kas Gudang</option><option value="BANK">Bank</option></select></label><div class="direct-list">${rows.map(x=>`<label class="direct-card"><b>${esc(x.packer)}</b><small>${esc(x.batchId)} · ${rp(x.outstanding)}</small><input class="pwck" type="checkbox" data-id="${esc(x.batchId)}" data-packer="${esc(x.packer)}"><input class="pwamt" data-id="${esc(x.batchId)}" type="number" value="${x.outstanding}" min="0.01" max="${x.outstanding}"></label>`).join('')||'<div class="empty">Tidak ada upah terhutang.</div>'}</div><label class="field"><span>Catatan</span><textarea name="note"></textarea></label><div class="actions"><button class="btn btn-line" type="button" id="ghCancel">Tutup</button><button class="btn btn-primary">Posting</button></div></form>`);$('#ghCancel').onclick=closeSheet;$('#ghPw').onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.target),cks=$$('.pwck:checked'),pack=[...new Set(cks.map(x=>x.dataset.packer))];if(!cks.length)return toast('Pilih upah.');if(pack.length>1)return toast('Pilih satu packer.');await writeDirect('packingWage','postPackingWagePayment',{paymentSource:fd.get('paymentSource'),note:fd.get('note'),allocations:cks.map(x=>({batchId:x.dataset.id,amount:$(`.pwamt[data-id="${CSS.escape(x.dataset.id)}"]`).value}))})};}
 
 
