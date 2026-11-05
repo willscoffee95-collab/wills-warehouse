@@ -672,6 +672,7 @@
     }catch(_){return {sjId:String(id),invalid:true};}
   }
   function dispatchStorePendingV44(id,idem){
+    if(!String(idem||'').trim())throw new Error('Idempotency key Kirim SJ tidak tersedia. Kirim ditahan.');
     if(dispatchPendingV44(id))throw new Error('Pengunci SJ sudah aktif atau tidak dapat dibaca. Kirim ditahan.');
     const key=dispatchPendingKeyV44(id),value=JSON.stringify({sjId:String(id),idem:String(idem),startedAt:Date.now()});
     try{
