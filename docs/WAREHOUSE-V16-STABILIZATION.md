@@ -60,3 +60,25 @@
 
 ## Definisi selesai
 Perampingan dinyatakan selesai hanya jika fungsi operasional asli tetap berjalan, seluruh tes kritis lulus, dan tidak ada selisih ledger/status yang diperkenalkan versi baru. Tidak ada klaim *zero bug* tanpa verifikasi.
+
+## Tahap 3 — audit backend archival vs ledger live (6 November 2026)
+**Catatan provenance:** hasil baca source ini berasal dari **arsip Code.gs v1.4.1.3, 19 Oktober 2026**, bukan source deployment aktif v1.5.2.x. Jangan mengklaim backend live sudah lolos audit tanpa perbandingan versi.
+
+**Kontrol yang terverifikasi di source arsip:**
+- `dispatchDelivery` berjalan di `withWriteLock_` (LockService ScriptLock, waitLock 30.000 ms), memeriksa sesi/permission `DELIVERY_DISPATCH`, `assertIdem_`, `idemResult_`, dan status SJ wajib `DRAFT`.
+- `executePlan_` menyimpan plan dan transaksi `POSTING`, menambah event ledger masing-masing sekali, mencatat `POSTED` setelah sukses, atau `PENDING_RECOVERY` tanpa meminta user mengulang posting.
+- `idemResult_` mengembalikan `{ok:true,status:'REVERSED',idempotent:true}` untuk transaction yang telah direversal. **Kontrak ini tidak boleh diterjemahkan frontend sebagai transaksi baru yang berhasil.**
+- `postStockAdjustment` membatasi OWNER, menolak bahan duplikat, dan memakai plan idempotent. Tetapi penerimaan nilai numerik tanpa pengecekan input kosong secara tekstual pada helper lama menyebabkan risiko jika parameter dikirim `''` atau `null`: `Number('')=0`. PWA v1.6 menahan input kosong; server terbaru tetap wajib diperiksa.
+- `syncOutletReceiptForDelivery` mengumpulkan data outlet sebelum lock, kemudian memverifikasi izin lagi di dalam lock dan melakukan commit canonical. Detail receipt/AR/transit terkunci backend perlu verifikasi ulang di versi live.
+
+**Rekonsiliasi read-only database aktif, 6 Nov 2026:**
+- 1.753 transaksi, 2.963 event ledger stok, 612 SJ, 14 recovery records semuanya RESOLVED.
+- Tidak ditemukan duplikasi idempotency key transaksi, Txn ID, atau Event ID ledger stok; tidak ada Txn POSTING/PENDING aktif dalam data yang dibaca.
+- **Pengecualian historis, jangan ubah otomatis:** SJ-20260927-0006 (RB), dispatch TX `DSP-20260927-143429-2C829F11C7` ada di field SJ serta memiliki dua event di Ledger Stok dan dua detail transaksi, tetapi master Transaksi Warehouse tidak memiliki baris TX tersebut. Perlu baca Audit Trail, Recovery/Transaction Plans, histori koreksi sebelum menentukan apakah orphan disengaja atau hilang.
+
+**Perbaikan frontend draft PR #15 yang ditambahkan:**
+- Tidak menganggap respons kosong/opaque, `POSTING`, `PENDING_RECOVERY` atau `REVERSED` sebagai sukses dan tidak menghapus idempotency key pada hasil tidak pasti.
+- Dispatch juga menolak acknowledgements reversed/pending dan mempertahankan pengunci lokal.
+- Uji otomatis memakai mock backend; tidak pernah melakukan mutasi Warehouse pada produksi.
+
+**Gate tetap tertahan:** belum ada source Apps Script live, belum ada pengujian dua perangkat dengan lock backend live, belum ada staging yang terisolasi. Tidak merge/deploy sebelum gate itu terpenuhi.
