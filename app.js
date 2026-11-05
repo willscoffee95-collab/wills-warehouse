@@ -61,9 +61,17 @@
     if(fromCache){const c=$('#content');if(c)c.dataset.fastSnapshot='1';}
   }
   function isSessionErrorV1360(err){const m=String(err&&err.message||err||'').toLowerCase();return m.includes('sesi')||m.includes('login kembali')||m.includes('user tidak aktif');}
-  function invalidateSessionV1360(message){
-    localStorage.removeItem(TOKEN_KEY);clearBootstrapSnapshotV1360();state.token='';state.data=null;state.moduleReady=Object.create(null);state.modulePromises=Object.create(null);resetSheetNavigation();appHistoryReady=false;
+  function invalidateSessionV1360(message,preserveStoredToken){
+    // Another tab changing login must not cause this tab to erase its new token.
+    if(!preserveStoredToken){localStorage.removeItem(TOKEN_KEY);clearBootstrapSnapshotV1360();}
+    state.token='';state.data=null;state.moduleReady=Object.create(null);state.modulePromises=Object.create(null);resetSheetNavigation();appHistoryReady=false;
     $('#mainView').classList.add('is-hidden');$('#loginView').classList.remove('is-hidden');if(message)toast(message,'warning');
+  }
+  // Discard only this tab's outdated UI session; leave other tab's token in storage.
+  function onWarehouseAuthStorageV160(event){
+    if(!event||event.key!==TOKEN_KEY||!state.token)return;
+    if(String(event.newValue||'')===String(state.token))return;
+    invalidateSessionV1360('Akun Warehouse berubah di tab lain. Silakan login kembali.',true);
   }
 
 
@@ -2145,5 +2153,6 @@
   // bukan dengan membatalkan touchmove sehingga tarikan layar tetap terasa normal.
 
 
+  window.addEventListener('storage',onWarehouseAuthStorageV160);
   boot();
 })();
