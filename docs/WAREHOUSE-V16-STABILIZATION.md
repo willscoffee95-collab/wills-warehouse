@@ -124,3 +124,12 @@ Perampingan dinyatakan selesai hanya jika fungsi operasional asli tetap berjalan
 **Batas keamanan yang tetap ada:** pesan READY dari origin Google terpercaya belum memakai nonce/attestation yang dibuktikan oleh backend, karena source Bridge.html aktif tidak tersedia. Jangan mengklaim keamanan komunikasi end-to-end tanpa memeriksa HTML service live. PWA juga belum membuktikan idempotency lintas browser/perangkat yang memakai penyimpanan terpisah.
 
 **Gate tetap:** Draft PR #15 tidak di-merge/deploy; tidak ada mutasi gudang, ledger, SO, atau status SJ produksi dalam tahap ini.
+
+## Tahap 7 — idempotency lintas tab dan pemisahan sesi (6 November 2026)
+- `lockedMutationIdemV160` memakai `navigator.locks.request` untuk **serialisasi reservasi key lokal** antar-tab pada origin yang sama bila browser mendukung Web Locks; dua tab dengan method/payload sama akan memakai key identik, sedangkan payload berbeda ditolak saat key belum terkonfirmasi. Jika browser tidak mendukung Web Locks, fallback ke reservasi lokal sebelumnya; **ini bukan jaminan bebas duplikasi**.
+- Reservasi key **bukan penguncian write end-to-end**; posting dari dua perangkat/browser profile berbeda tetap harus dicegah oleh `LockService`, idempotency business key, dan transaksi atomik di Apps Script versi aktif.
+- `onWarehouseAuthStorageV160` menutup sesi tampilan tab lama ketika token diubah/dihapus dari tab lain. Handler memanggil `invalidateSessionV1360(...,true)` supaya **tidak menghapus** token login baru di tab lain dan tidak membuat rantai logout antar-tab. Pengunci dispatch dan idempotency transaksi tidak ikut dihapus.
+- Marker build `window.WW_FRONTEND_BUILD` dan pendaftaran Service Worker sekarang sesuai `1.6.0-safety-rc1`, sama seperti `index.html`, `sw.js`, `app.js` dan `bridge.js` kandidat.
+- GitHub Actions pada kandidat menjalankan **68 regresi + syntax checks**, lulus seluruhnya (tanpa pengujian write live). Tes terbaru mensimulasikan dua tab berbagi storage, payload berbeda, logout/login dari tab lain, dan ketepatan versi pendaftaran SW.
+
+**Release tetap tertahan** sampai source Apps Script deployment aktif tersedia dan test end-to-end lintas perangkat di staging terisolasi selesai. Kriteria penerimaan: replay idempotent, transaksi request→picking→cetak→dispatch→terima tepat sekali, status offline/timeout, pemisahan role, saldo ledger, SO 31 Okt terkunci, dan prosedur rollback.
