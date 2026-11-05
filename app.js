@@ -585,6 +585,53 @@
     $('#sheetClose').onclick=closeSheet; $('#sheetBackdrop').onclick=e=>{if(e.target.id==='sheetBackdrop')closeSheet()};
   }
   function idemKey(action){const k='ww_gh_idem_'+action;let x;try{x=JSON.parse(localStorage.getItem(k)||'null')}catch(_){x=null}if(x&&Date.now()-x.ts<86400000)return x.id;const id=action+':'+Date.now()+':'+Math.random().toString(36).slice(2);localStorage.setItem(k,JSON.stringify({id,ts:Date.now()}));return id}
+  // v1.6: a retry must have exactly the SAME method and payload as its original write.
+  // Keep unresolved keys indefinitely; an arbitrary 24h expiry could cause a second posting.
+  // The digest stores no user PIN / transaction contents in localStorage.
+  function canonicalMutationPayloadV160(value){
+    if(Array.isArray(value))return value.map(canonicalMutationPayloadV160);
+    if(value&&typeof value==='object'){
+      const ordered={};
+      Object.keys(value).sort().forEach(k=>{if(value[k]!==undefined)ordered[k]=canonicalMutationPayloadV160(value[k]);});
+      return ordered;
+    }
+    return value;
+  }
+  async function lockedMutationIdemV160(action,method,payload){
+    const key='ww_gh_idem_'+String(action||''),raw=localStorage.getItem(key);
+    let previous=null;
+    if(raw!==null){
+      try{previous=JSON.parse(raw);}catch(_){throw new Error('Kunci transaksi lokal rusak. Periksa Riwayat/Audit sebelum mengulangi.');}
+      if(!previous||typeof previous!=='object'||!previous.id)
+        throw new Error('Kunci transaksi tidak valid. Periksa Riwayat/Audit sebelum mengulangi.');
+    }
+    if(!window.crypto||!window.crypto.subtle||typeof TextEncoder==='undefined')
+      throw new Error('Verifikasi transaksi aman tidak tersedia di browser ini. Gunakan browser HTTPS terbaru.');
+    const json=JSON.stringify({method:String(method||''),payload:canonicalMutationPayloadV160(payload||{})});
+    const bytes=await window.crypto.subtle.digest('SHA-256',new TextEncoder().encode(json));
+    const fingerprint=Array.from(new Uint8Array(bytes),b=>b.toString(16).padStart(2,'0')).join('');
+    // Check again after asynchronous hashing: another tab could have written the key meanwhile.
+    const currentRaw=localStorage.getItem(key);
+    if(currentRaw!==null){
+      let current;
+      try{current=JSON.parse(currentRaw);}catch(_){throw new Error('Kunci transaksi berubah/rusak. Periksa Riwayat/Audit.');}
+      if(!current||typeof current!=='object'||!current.id)
+        throw new Error('Kunci transaksi berubah. Periksa Riwayat/Audit.');
+      if(!current.payloadHash)
+        throw new Error('Ada transaksi versi lama yang belum terverifikasi. Periksa Riwayat/Audit sebelum posting baru.');
+      if(current.payloadHash!==fingerprint||String(current.method||'')!==String(method||''))
+        throw new Error('Isi transaksi berbeda dari percobaan sebelumnya. Jangan ubah jumlah atau metode sebelum status lama dipastikan.');
+      return String(current.id);
+    }
+    if(previous)throw new Error('Kunci transaksi berubah saat diverifikasi. Periksa Riwayat/Audit.');
+    const actionKey=String(action||'');
+    const random=window.crypto.randomUUID?window.crypto.randomUUID():Math.random().toString(36).slice(2);
+    const id=actionKey+':'+Date.now()+':'+random;
+    if(!/^[A-Za-z0-9._:-]{12,120}$/.test(id))
+      throw new Error('Idempotency key transaksi tidak valid.');
+    localStorage.setItem(key,JSON.stringify({id,ts:Date.now(),method:String(method||''),payloadHash:fingerprint}));
+    return id;
+  }
   // v1.6: fail closed when a mutation response is missing, reversed or pending recovery.
   // Do not erase the original idempotency key unless a positive server acknowledgement exists.
   function requireConfirmedWarehouseWriteV160(response,label){
@@ -605,7 +652,7 @@
   const opsWriteInFlightV43=new Set();
   async function writeDirect(action,method,payload){
     if(opsWriteInFlightV43.has(action)){toast('Transaksi sedang diproses; jangan tekan Simpan dua kali.','warning');return null;}
-    opsWriteInFlightV43.add(action);const idem=idemKey(action);beginBusy('Menyimpan…');try{const r=await bridge.call(method,state.token,payload||{},idem);requireConfirmedWarehouseWriteV160(r,'Transaksi '+action);localStorage.removeItem('ww_gh_idem_'+action);toast('Berhasil disimpan'+(r&&r.txnId?' · '+r.txnId:''));closeSheet();invalidateDataModules();refreshBootstrapLight().catch(err=>console.warn('[Wills Warehouse] refresh ringan:',err.message));return r}catch(e){toast(e.message);throw e}finally{opsWriteInFlightV43.delete(action);endBusy()}}
+    opsWriteInFlightV43.add(action);beginBusy('Menyimpan…');try{const idem=await lockedMutationIdemV160(action,method,payload||{});const r=await bridge.call(method,state.token,payload||{},idem);requireConfirmedWarehouseWriteV160(r,'Transaksi '+action);localStorage.removeItem('ww_gh_idem_'+action);toast('Berhasil disimpan'+(r&&r.txnId?' · '+r.txnId:''));closeSheet();invalidateDataModules();refreshBootstrapLight().catch(err=>console.warn('[Wills Warehouse] refresh ringan:',err.message));return r}catch(e){toast(e.message);throw e}finally{opsWriteInFlightV43.delete(action);endBusy()}}
   async function reloadDeliveryModule(){const m=await bridge.call('getAppModule',state.token,'delivery');Object.assign(state.data,m||{});state.moduleReady.delivery=true;return m;}
   function upsertFreshDeliveryV1354(d){if(!d||!d.sjId)return;state.data=state.data||{};const list=Array.isArray(state.data.deliveries)?state.data.deliveries:[];const i=list.findIndex(x=>String(x.sjId)===String(d.sjId));if(i>=0)list[i]=d;else list.unshift(d);state.data.deliveries=list;}
   // v4.4: persistent uncertainty guard: a slow Bridge response is never permission to dispatch again.
@@ -750,10 +797,11 @@
       dispatchUpdateIfVisibleV44(sjId);return {ok:false,pending:true};
     }
     opsWriteInFlightV43.add(action);
-    const idem=idemKey(action),fromKey=currentSheetKey();
-    if(dispatch)dispatchStorePendingV44(sjId,idem);
+    const fromKey=currentSheetKey();
     beginBusy(dispatch?'Konfirmasi Kirim SJ…':'Memproses Surat Jalan…');
     try{
+      const idem=await lockedMutationIdemV160(action,method,payload||{});
+      if(dispatch)dispatchStorePendingV44(sjId,idem);
       if(dispatch){
         const remote=bridge.call(method,state.token,payload||{},idem);
         const guarded=remote.then(value=>({type:'value',value}),error=>({type:'error',error}));
