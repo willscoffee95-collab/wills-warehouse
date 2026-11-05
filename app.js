@@ -658,8 +658,31 @@
   // v4.4: persistent uncertainty guard: a slow Bridge response is never permission to dispatch again.
   const WW_DISPATCH_PENDING_PREFIX_V44='ww_dispatch_pending_v44_';
   function dispatchPendingKeyV44(id){return WW_DISPATCH_PENDING_PREFIX_V44+String(id||'').replace(/[^a-zA-Z0-9_-]/g,'').slice(0,100);}
-  function dispatchPendingV44(id){try{return JSON.parse(localStorage.getItem(dispatchPendingKeyV44(id))||'null')}catch(_){return null}}
-  function dispatchStorePendingV44(id,idem){try{localStorage.setItem(dispatchPendingKeyV44(id),JSON.stringify({sjId:String(id),idem:String(idem),startedAt:Date.now()}))}catch(_){}}
+  // Fail closed if dispatch state is corrupt or browser storage is unavailable.
+  // An unreadable lock must never be interpreted as "safe to dispatch".
+  function dispatchPendingV44(id){
+    try{
+      const raw=localStorage.getItem(dispatchPendingKeyV44(id));
+      if(raw===null)return null;
+      const entry=JSON.parse(raw);
+      if(!entry||typeof entry!=='object'||String(entry.sjId||'')!==String(id)||
+         !String(entry.idem||'').trim())
+        return {sjId:String(id),invalid:true};
+      return entry;
+    }catch(_){return {sjId:String(id),invalid:true};}
+  }
+  function dispatchStorePendingV44(id,idem){
+    if(dispatchPendingV44(id))throw new Error('Pengunci SJ sudah aktif atau tidak dapat dibaca. Kirim ditahan.');
+    const key=dispatchPendingKeyV44(id),value=JSON.stringify({sjId:String(id),idem:String(idem),startedAt:Date.now()});
+    try{
+      localStorage.setItem(key,value);
+      const persisted=dispatchPendingV44(id);
+      if(!persisted||persisted.invalid||String(persisted.idem)!==String(idem))
+        throw new Error('Pengunci SJ tidak terverifikasi.');
+    }catch(_){
+      throw new Error('Pengunci pengiriman tidak dapat disimpan secara aman. SJ tidak dikirim. Periksa penyimpanan browser lalu Cek Status.');
+    }
+  }
   function dispatchClearPendingV44(id){try{localStorage.removeItem(dispatchPendingKeyV44(id));localStorage.removeItem('ww_gh_idem_dispatch_'+id)}catch(_){}}
   function dispatchUpdateIfVisibleV44(id){
     const key=currentSheetKey();
