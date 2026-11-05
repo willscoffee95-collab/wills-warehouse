@@ -42,3 +42,11 @@ test('all local versioned scripts in index are present in cache under the same U
     assert.ok(assets.includes('./'+file),'SW has stale or missing script '+file);
   }
 });
+
+
+test('candidate build marker and service worker registration use the same release version',()=>{
+  const app=fs.readFileSync(path.join(root,'app.js'),'utf8');
+  assert.match(app,/WW_FRONTEND_BUILD='2026-11-06\.1\.6\.0-safety-rc1'/);
+  assert.match(app,/serviceWorker\.register\('\.\/sw\.js\?v=1\.6\.0-safety-rc1'/);
+  assert.ok(sw.includes("wills-warehouse-shell-v1.6.0-safety-rc1"));
+});
