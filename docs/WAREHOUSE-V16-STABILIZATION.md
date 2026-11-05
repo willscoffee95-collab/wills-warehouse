@@ -104,3 +104,11 @@ Perampingan dinyatakan selesai hanya jika fungsi operasional asli tetap berjalan
 - Mutasi melalui dua browser/perangkat secara simultan masih memerlukan verifikasi backend live untuk penguncian global dan identitas transaksi bisnis. Perangkat berbeda dapat menghasilkan key berbeda.
 - Tidak semua modul addon Apps Script terbaru dapat diaudit dari arsip 19 Okt. Data Sheets dan GitHub frontend tidak membuktikan deployment runtime.
 - Key yang tertahan karena hasil ambigu membutuhkan prosedur recovery Owner yang aman, bukan tombol reset otomatis.
+
+## Tahap 5 — pengamanan versi cache PWA (6 November 2026)
+- `index.html` memuat `app.js?v=1.6.0-safety-rc1` dalam branch Draft.
+- `sw.js` cache name dan daftar `app.js` mengikuti versi sama. SW install memiliki daftar aset lokal yang dicek dengan pengujian otomatis.
+- Ketika jaringan putus, Service Worker hanya boleh mengembalikan `index.html` sebagai fallback **navigasi**, bukan mengembalikan HTML untuk file JavaScript yang tidak tersedia.
+- Penamaan `safety-rc1` adalah versi **release candidate di branch Draft**; GitHub Pages produksi di `main` belum berubah.
+- Pengujian `tests/warehouse-pwa-cache.test.cjs` memastikan semua aset tersedia dan versi script konsisten.
+- Source `sw.js` memakai strategi network-first bagi navigasi dan core assets; setelah rilis, uji update dari PWA terpasang (Chrome Android/iPhone) dan rollback cache tetap wajib.
