@@ -114,3 +114,66 @@ test('an expired pending key cannot be bypassed by changing action payload after
   h.clock(1000000000000+7*86400000);
   await assert.rejects(h.run('adjustment','ownerPostStockAdjustmentV1527',{items:[{code:'B03',physicalQtyBase:0}]}),/Isi transaksi berbeda/);
 });
+
+
+test('two browser tabs with Web Locks reserve one shared idempotency key',async()=>{
+  const records=new Map(),queue=new Map(),acquired=[];
+  const storage={
+    getItem:k=>records.has(k)?records.get(k):null,
+    setItem:(k,v)=>records.set(k,String(v)),
+    removeItem:k=>records.delete(k)
+  };
+  const locks={
+    request(name,options,fn){
+      assert.equal(options.mode,'exclusive');
+      const prev=queue.get(name)||Promise.resolve();
+      let unlock;
+      const gate=new Promise(resolve=>{unlock=resolve});
+      queue.set(name,prev.then(()=>gate));
+      return prev.then(async()=>{acquired.push(name);try{return await fn()}finally{unlock()}});
+    }
+  };
+  const tab=(suffix)=>{
+    const crypto={
+      randomUUID:()=> 'tab-'+suffix+'-unique-00000001',
+      subtle:{digest:async (_algo,bytes)=>{
+        await new Promise(resolve=>setImmediate(resolve));
+        return Uint8Array.from(createHash('sha256').update(Buffer.from(bytes)).digest()).buffer;
+      }}
+    };
+    return vm.runInNewContext(code,{navigator:{locks},window:{crypto},localStorage:storage,
+      TextEncoder,Uint8Array,Array,Object,String,Number,JSON,Error,Date,Math});
+  };
+  const first=tab('A'),second=tab('B'),payload={items:[{code:'B01',qty:3}]};
+  const [id1,id2]=await Promise.all([
+    first('purchase','postPurchase',payload),second('purchase','postPurchase',payload)
+  ]);
+  assert.equal(id1,id2);
+  assert.equal(acquired.length,2);
+  assert.equal(JSON.parse(records.get('ww_gh_idem_purchase')).id,id1);
+});
+
+test('two browser tabs cannot silently replace an in-flight key with different quantities',async()=>{
+  const records=new Map(),queue=new Map();
+  const storage={getItem:k=>records.has(k)?records.get(k):null,
+    setItem:(k,v)=>records.set(k,String(v)),removeItem:k=>records.delete(k)};
+  const locks={request(name,_opts,fn){
+    const prev=queue.get(name)||Promise.resolve();
+    let release;const done=new Promise(resolve=>release=resolve);
+    queue.set(name,prev.then(()=>done));
+    return prev.then(async()=>{try{return await fn()}finally{release()}});
+  }};
+  const invoke=()=>vm.runInNewContext(code,{
+    navigator:{locks},window:{crypto:{randomUUID:()=> 'example-uuid',
+      subtle:{digest:async (_algo,bytes)=>Uint8Array.from(createHash('sha256').update(Buffer.from(bytes)).digest()).buffer}}},
+    localStorage:storage,TextEncoder,Uint8Array,Array,Object,String,Number,JSON,Error,Date,Math
+  });
+  const a=invoke(),b=invoke();
+  const results=await Promise.allSettled([
+    a('purchase','postPurchase',{items:[{qty:2}]}),
+    b('purchase','postPurchase',{items:[{qty:4}]})
+  ]);
+  assert.equal(results.filter(x=>x.status==='fulfilled').length,1);
+  assert.equal(results.filter(x=>x.status==='rejected').length,1);
+  assert.match(String(results.find(x=>x.status==='rejected').reason),/Isi transaksi berbeda/);
+});
