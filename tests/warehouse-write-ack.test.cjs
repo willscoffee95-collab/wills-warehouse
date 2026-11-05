@@ -45,6 +45,7 @@ function harness(backendResult){
   const ctx={
     Set,opsWriteInFlightV43:new Set(),
     idemKey:()=> 'idem-write-123456',
+    lockedMutationIdemV160:async()=> 'idem-write-123456',
     beginBusy:()=>{},endBusy:()=>{},
     toast:(msg)=>events.success.push(msg),
     bridge:{call:async()=>backendResult},
