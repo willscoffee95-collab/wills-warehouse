@@ -9,6 +9,7 @@
   let readyPromise = null;
   let readyResolve = null;
   let readyReject = null;
+  let readyTimer = null;
 
   function validWebAppUrl(url) {
     return /^https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]+\/exec(?:\?.*)?$/.test(String(url || '').trim());
@@ -27,13 +28,17 @@
     const msg = event.data || {};
 
     if (msg.type === 'WW_BRIDGE_READY') {
-      if (!isTrustedGoogleOrigin(event.origin)) return;
-      // Apps Script HTML Service may run our page inside its own sandbox iframe.
-      // event.source is therefore the actual bridge window and is safer to retain
-      // than assuming it equals the outer iframe.contentWindow.
+      if (!readyResolve || !iframe || !isTrustedGoogleOrigin(event.origin) || !event.source) return;
+      // Accept only the first READY for the active bridge initialization. A later
+      // READY cannot replace the bridgeWindow and hijack subsequent method calls.
+      // Apps Script may use a nested sandbox, so source need not equal iframe.contentWindow.
       bridgeWindow = event.source;
       bridgeOrigin = event.origin;
-      if (readyResolve) readyResolve({ origin: bridgeOrigin, version: msg.bridgeVersion || '' });
+      if (readyTimer !== null) { clearTimeout(readyTimer); readyTimer = null; }
+      const resolve = readyResolve;
+      readyResolve = null;
+      readyReject = null;
+      resolve({ origin: bridgeOrigin, version: msg.bridgeVersion || '' });
       return;
     }
 
@@ -72,8 +77,16 @@
     iframe.src = url + sep + 'view=bridge&v=4.1.0';
     document.body.appendChild(iframe);
 
-    setTimeout(() => {
-      if (!bridgeWindow && readyReject) readyReject(new Error('Bridge Apps Script tidak merespons. Pastikan deployment terbaru sudah aktif dan Web App dapat diakses.'));
+    readyTimer = setTimeout(() => {
+      readyTimer = null;
+      if (bridgeWindow || !readyReject) return;
+      const reject = readyReject;
+      readyResolve = null;
+      readyReject = null;
+      readyPromise = null; // next explicit user operation can try reconnecting
+      if (iframe && iframe.parentNode) iframe.parentNode.removeChild(iframe);
+      iframe = null;
+      reject(new Error('Bridge Apps Script tidak merespons. Coba ulangi setelah koneksi stabil; jangan mengulang transaksi yang statusnya belum pasti.'));
     }, 15000);
 
     return readyPromise;
@@ -89,12 +102,18 @@
         reject(new Error('Backend belum selesai setelah 3 menit. Jangan ulangi transaksi stok sebelum memeriksa Riwayat; untuk sinkron, coba per SJ.'));
       }, 180000);
       pending.set(requestId, { resolve, reject, timer });
-      bridgeWindow.postMessage({
-        type: 'WW_BRIDGE_CALL',
-        requestId,
-        method,
-        args
-      }, bridgeOrigin);
+      try {
+        bridgeWindow.postMessage({
+          type: 'WW_BRIDGE_CALL',
+          requestId,
+          method,
+          args
+        }, bridgeOrigin);
+      } catch (error) {
+        pending.delete(requestId);
+        clearTimeout(timer);
+        reject(error);
+      }
     });
   }
 
