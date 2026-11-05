@@ -27,7 +27,8 @@ function fakeBrowser(){
     crypto:{randomUUID:()=> 'req-'+(++nextRequest)},
     addEventListener:(name,fn)=>handlers.set(name,fn)
   };
-  const context={window,document,Date,Math,Map,Promise,String,Error,JSON,RegExp,
+  // Browsers expose Web Crypto through both window.crypto and global crypto.
+  const context={window,crypto:window.crypto,document,Date,Math,Map,Promise,String,Error,JSON,RegExp,
     setTimeout(fn,delay){const id=nextTimer++;timers.set(id,{fn,delay});return id;},
     clearTimeout(id){timers.delete(id);}
   };
