@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  window.WW_FRONTEND_BUILD='2026-11-01.1.5.2.9-so-owner-admin-lock';
+  window.WW_FRONTEND_BUILD='2026-11-06.1.6.0-safety-rc1';
 
 
   const $ = (q, root = document) => root.querySelector(q);
@@ -597,7 +597,17 @@
     }
     return value;
   }
+  // Web Locks serializes creation of a local idempotency key across tabs of the same origin.
+  // It is not a substitute for server-side idempotency across separate devices.
   async function lockedMutationIdemV160(action,method,payload){
+    const locks=typeof navigator!=='undefined'&&navigator.locks;
+    if(locks&&typeof locks.request==='function'){
+      return locks.request('ww-idem-v160:'+String(action||''),{mode:'exclusive'},
+        ()=>reserveMutationIdemV160(action,method,payload));
+    }
+    return reserveMutationIdemV160(action,method,payload);
+  }
+  async function reserveMutationIdemV160(action,method,payload){
     const key='ww_gh_idem_'+String(action||''),raw=localStorage.getItem(key);
     let previous=null;
     if(raw!==null){
@@ -2127,7 +2137,7 @@
       reloadingForUpdate = true;
       window.location.reload();
     });
-    window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=1.5.2.8', { updateViaCache: 'none' }).then(reg => reg.update()).catch(() => {}));
+    window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=1.6.0-safety-rc1', { updateViaCache: 'none' }).then(reg => reg.update()).catch(() => {}));
   }
 
 
