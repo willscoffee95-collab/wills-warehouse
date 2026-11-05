@@ -602,10 +602,16 @@
     if(key==='delivery-detail:'+id)directDeliveryDetail(id);
     else if(key==='delivery-list')directDelivery();
   }
+  // Never release an uncertain dispatch lock based on a missing or unknown status.
+  // Only confirmed downstream SJ states prove dispatch is no longer a DRAFT.
+  const WW_DISPATCH_CONFIRMED_STATES_V160=Object.freeze([
+    'DIKIRIM','DITERIMA','DITERIMA_SEBAGIAN','SELISIH','SELESAI'
+  ]);
   function dispatchApplyStatusV44(id,fresh){
     if(!fresh||String(fresh.sjId||'')!==String(id))return false;
+    const status=String(fresh.status||'').trim().toUpperCase();
+    if(!WW_DISPATCH_CONFIRMED_STATES_V160.includes(status))return false;
     upsertFreshDeliveryV1354(fresh);
-    if(String(fresh.status||'').toUpperCase()==='DRAFT')return false;
     dispatchClearPendingV44(id);
     dispatchUpdateIfVisibleV44(id);
     return true;
