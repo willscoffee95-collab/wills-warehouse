@@ -24,6 +24,7 @@
 
 ## Masalah yang telah dibuktikan dan perubahan
 1. **Terverifikasi (bug input):** Koreksi Stok Owner sebelumnya mengkonversi input fisik kosong menjadi 0. Draft PR #15 sekarang menolak nilai kosong, bahan ganda, input tidak valid, dan meminta konfirmasi. Belum merged.
+8. **Terverifikasi (pengunci dispatch):** Fungsi `dispatchApplyStatusV44` sebelumnya melepas pending lock untuk status apapun selain `DRAFT`, termasuk respons tanpa `status` atau status tidak dikenal. V1.6 fail-closed hanya mengakui `DIKIRIM`, `DITERIMA`, `DITERIMA_SEBAGIAN`, `SELISIH`, `SELESAI`; DRAFT/unknown/canceled tetap pending. Dilindungi uji regresi termasuk double click dan timeout (frontend saja, tidak membuktikan idempotency server).
 2. **Temuan audit data:** Terdapat selisih 32 dari 42 material antara `Stok Gudang` dan `Prioritas Stok Admin`. Jangan menentukan sumber stok benar sebelum ledger + SO + mutasi dihitung ulang.
 3. **Temuan audit operasional:** 78 baris transit positif di 19 SJ (snapshot 5/11). Butuh bukti receipt sebelum rekonsiliasi, bukan penghapusan.
 4. **Temuan master:** `TM` dan `TGM` merujuk outlet sama; pilih satu kode kanonis, alias dipertahankan untuk kompatibilitas.
