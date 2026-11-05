@@ -73,7 +73,7 @@ test('late READY from another source cannot replace the established bridge',asyn
   await p;
   s.send({type:'WW_BRIDGE_READY'},intruder,'https://script.google.com');
   const result=s.bridge.call('getAppModule','SESSION','delivery');
-  await Promise.resolve();
+  await new Promise(resolve=>setImmediate(resolve));
   assert.equal(primary.calls.length,1);
   assert.equal(intruder.calls.length,0);
   const requestId=primary.calls[0].payload.requestId;
@@ -97,7 +97,7 @@ test('failed READY timeout permits a new explicit initialization without auto-re
 test('a spoofed response from wrong origin or window is ignored',async()=>{
   const s=fakeBrowser(),p=s.bridge.init(),primary=s.responder(),other=s.responder();
   s.send({type:'WW_BRIDGE_READY'},primary);await p;
-  const result=s.bridge.call('getAppModule','SESSION','delivery');await Promise.resolve();
+  const result=s.bridge.call('getAppModule','SESSION','delivery');await new Promise(resolve=>setImmediate(resolve));
   const requestId=primary.calls[0].payload.requestId;
   s.send({type:'WW_BRIDGE_RESPONSE',requestId,ok:true,value:'wrong'},other);
   s.send({type:'WW_BRIDGE_RESPONSE',requestId,ok:true,value:'wrong'},primary,'https://evil.test');
@@ -119,7 +119,7 @@ test('RPC timeout is a failure, not an automatic resend',async()=>{
   const s=fakeBrowser(),p=s.bridge.init(),backend=s.responder();
   s.send({type:'WW_BRIDGE_READY'},backend);await p;
   const result=s.bridge.call('dispatchDelivery','token',{sjId:'SJ-1'},'idem-1');
-  await Promise.resolve();
+  await new Promise(resolve=>setImmediate(resolve));
   assert.equal(backend.calls.length,1);
   s.fire(180000);
   await assert.rejects(result,/Jangan ulangi transaksi stok/);
