@@ -65,16 +65,19 @@ test('dashboard top area is real SJ list and filtered by selected outlet',()=>{
   assert.ok(!output.html.includes('<summary>Surat Jalan Terbaru'),'SJ no longer hidden in bottom collapsed section');
 });
 
-test('SJ details expose picking and dispatch actions using existing backend workflow',()=>{
+test('SJ details expose four simple actions and keep dispatch behind existing guards',()=>{
   const detail=part('  function directDeliveryDetail(id){','  function findRequestForDelivery(d){');
-  assert.match(detail,/id="wwSjCheckMaterialsV15210"/);
-  assert.match(detail,/id="ghSendSj"/);
+  const actions=part('  function wwSjActionMarkupV15211(','  async function wwSjWithLoadingV15211(');
+  assert.match(actions,/ghPrintSj/);
+  assert.match(actions,/wwSjCheckMaterialsV15210/);
+  assert.match(actions,/ghCancelSj/);
+  assert.match(actions,/ghSendSj/);
+  assert.match(actions,/canPrepare&&req&&req.requestId/);
+  assert.match(actions,/permissions.canDispatch/);
   assert.match(detail,/inspect\.onclick=\(\)=>opsRequestDetailV43\(req\.requestId\)/);
   assert.match(detail,/writeDeliveryDirect\('dispatch_'\+id,'dispatchDelivery'/);
-  assert.match(detail,/canPrepare&&req&&req\.requestId/);
-  assert.match(detail,/canDispatch&&!pendingDispatch/);
+  assert.match(detail,/wwSjWithLoadingV15211\(k,/);
 });
-
 test('saved picking can navigate directly to SJ confirm without re-posting stock',()=>{
   const pick=part('  function opsRequestDetailV43(requestId) {','  function opsPrintRequestThermalV43(');
   assert.match(pick,/id="wwPickingGoDeliveryV15210" disabled/);
@@ -98,7 +101,7 @@ test('canonical queue and module request lookup preserve linked SJ identity',()=
 });
 
 test('cache-busting version is consistent in app, index and service worker',()=>{
-  const ver='1.5.2.10-sj-top';
+  const ver='1.5.2.11-sj-simple';
   assert.ok(index.includes('app.js?v='+ver));
   assert.ok(sw.includes('app.js?v='+ver));
   assert.ok(sw.includes('wills-warehouse-shell-v'+ver));
