@@ -1059,15 +1059,29 @@
     const root=$('#wwPickingContentV1525'),form=$('#wwPickingFormV1525'),save=$('#wwPickingSaveV1525'),
       status=$('#wwPickingSavedStateV1525'),thermal=$('#opsV43RequestThermal'),print=$('#opsV43RequestPrint');
     $('#opsV43RequestBack').onclick=directDelivery;
+    let printRecordBusyV160=false;
     const printAndRecord=async(format)=>{
-      const issued=format==='THERMAL'?opsPrintRequestThermalV43(requestId):opsPrintRequestV43(requestId);
-      if(issued===false)return;
+      if(printRecordBusyV160)return toast('Perintah cetak sebelumnya masih diproses.','warning');
+      printRecordBusyV160=true;thermal.disabled=true;print.disabled=true;
       try{
-        await withBusy('Mencatat perintah cetak…',()=>bridge.call('markWarehousePickingPrintRequestedV1526',state.token,
-          {requestId:id,sjId:source&&source.sjId,reviewId:source&&source.reviewId,format},idemKey('print_'+format+'_'+id.length+'_'+id.slice(-9))));
+        // Preserve existing print flow. Audit recording is separate from physical printing.
+        const issued=format==='THERMAL'?opsPrintRequestThermalV43(requestId):opsPrintRequestV43(requestId);
+        if(issued===false)return;
+        const method='markWarehousePickingPrintRequestedV1526',
+          action='print_'+format+'_'+String(id).replace(/[^a-zA-Z0-9_-]/g,'').slice(0,100),
+          payload={requestId:id,sjId:source&&source.sjId,reviewId:source&&source.reviewId,format};
+        const idem=await lockedMutationIdemV160(action,method,payload);
+        const result=await withBusy('Mencatat perintah cetak…',()=>bridge.call(method,state.token,payload,idem));
+        requireConfirmedWarehouseWriteV160(result,'Pencatatan cetak SJ');
+        localStorage.removeItem('ww_gh_idem_'+action);
         wwQueueV1526=null;
         status.textContent='Perintah cetak '+format+' telah dicatat. Surat Jalan tetap DRAFT sampai dikonfirmasi Kirim.';
-      }catch(err){toast('Perintah cetak terbuka, tetapi status cetak belum tercatat: '+err.message,'warning')}
+      }catch(err){
+        toast('Perintah cetak mungkin sudah dibuka, tetapi pencatatan belum terverifikasi: '+String(err&&err.message||err)+'. Periksa Riwayat sebelum mencoba ulang.','warning');
+      }finally{
+        printRecordBusyV160=false;
+        togglePrint();
+      }
     };
     thermal.onclick=()=>printAndRecord('THERMAL');
     print.onclick=()=>printAndRecord('A4');
