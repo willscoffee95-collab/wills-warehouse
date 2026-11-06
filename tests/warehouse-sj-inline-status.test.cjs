@@ -144,7 +144,7 @@ test('the detail template has stable live-update slots and reuses action handler
     assert.ok(detail.includes(slot));
   assert.match(detail,/wwSjBindActionsV15213\(id,d,req\)/);
   assert.match(app,/function wwSjBindActionsV15213\(id,d,req\)/);
-  assert.match(app,/id="ghSendSj"/);
+  assert.match(app,/button\('ghSendSj'/);
 });
 
 test('version bump covers JS, CSS and installed PWA shell',()=>{
