@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  window.WW_FRONTEND_BUILD='2026-11-06.1.5.2.11-sj-simple';
+  window.WW_FRONTEND_BUILD='2026-11-06.1.5.2.13-inline-sj';
 
 
   const $ = (q, root = document) => root.querySelector(q);
@@ -589,17 +589,115 @@
     if(opsWriteInFlightV43.has(action)){toast('Transaksi sedang diproses; jangan tekan Simpan dua kali.','warning');return null;}
     opsWriteInFlightV43.add(action);const idem=idemKey(action);beginBusy('Menyimpan…');try{const r=await bridge.call(method,state.token,payload||{},idem);if(r&&r.ok===false)throw new Error(r.message||'Transaksi gagal');localStorage.removeItem('ww_gh_idem_'+action);toast('Berhasil disimpan'+(r&&r.txnId?' · '+r.txnId:''));closeSheet();invalidateDataModules();refreshBootstrapLight().catch(err=>console.warn('[Wills Warehouse] refresh ringan:',err.message));return r}catch(e){toast(e.message);throw e}finally{opsWriteInFlightV43.delete(action);endBusy()}}
   async function reloadDeliveryModule(){const m=await bridge.call('getAppModule',state.token,'delivery');Object.assign(state.data,m||{});state.moduleReady.delivery=true;return m;}
-  function upsertFreshDeliveryV1354(d){if(!d||!d.sjId)return;state.data=state.data||{};const list=Array.isArray(state.data.deliveries)?state.data.deliveries:[];const i=list.findIndex(x=>String(x.sjId)===String(d.sjId));if(i>=0)list[i]=d;else list.unshift(d);state.data.deliveries=list;}
+  function upsertFreshDeliveryV1354(d){
+    if(!d||!d.sjId)return;
+    state.data=state.data||{};
+    const list=Array.isArray(state.data.deliveries)?state.data.deliveries:[],
+      i=list.findIndex(x=>String(x.sjId)===String(d.sjId));
+    // A short status acknowledgement must not erase saved SJ lines needed for thermal print.
+    if(i>=0){
+      const previous=list[i];
+      if((!Array.isArray(d.lines)||!d.lines.length)&&Array.isArray(previous.lines)&&previous.lines.length)
+        d={...previous,...d,lines:previous.lines};
+      list[i]=d;
+    }else list.unshift(d);
+    state.data.deliveries=list;
+  }
   // v4.4: persistent uncertainty guard: a slow Bridge response is never permission to dispatch again.
   const WW_DISPATCH_PENDING_PREFIX_V44='ww_dispatch_pending_v44_';
   function dispatchPendingKeyV44(id){return WW_DISPATCH_PENDING_PREFIX_V44+String(id||'').replace(/[^a-zA-Z0-9_-]/g,'').slice(0,100);}
   function dispatchPendingV44(id){try{return JSON.parse(localStorage.getItem(dispatchPendingKeyV44(id))||'null')}catch(_){return null}}
   function dispatchStorePendingV44(id,idem){try{localStorage.setItem(dispatchPendingKeyV44(id),JSON.stringify({sjId:String(id),idem:String(idem),startedAt:Date.now()}))}catch(_){}}
   function dispatchClearPendingV44(id){try{localStorage.removeItem(dispatchPendingKeyV44(id));localStorage.removeItem('ww_gh_idem_dispatch_'+id)}catch(_){}}
+  // v1.5.2.13: update the active SJ in place. Never rebuild sheetHtml
+  // or replace the staff's current screen just because a status changed.
+  function wwSjDispatchNoteV15213(id,d){
+    const pending=!!dispatchPendingV44(id),active=opsWriteInFlightV43.has('dispatch_'+id)||
+      opsWriteInFlightV43.has('status_'+id);
+    if(active&&String(d.status||'').toUpperCase()==='DRAFT')
+      return '<span class="ww-spin-v1526" aria-hidden="true"></span> Mengonfirmasi status Kirim ke Warehouse…';
+    if(pending&&String(d.status||'').toUpperCase()==='DRAFT')
+      return '<b>Status pengiriman belum pasti.</b> Jangan Kirim ulang. Gunakan Cek Status Kirim; stok mungkin sudah berkurang.';
+    if(String(d.status||'').toUpperCase()==='DIKIRIM')
+      return '<b>Pengiriman terkonfirmasi.</b> SJ siap dicetak thermal.';
+    return '';
+  }
+  function wwSjRenderLinesV15213(d){
+    return (d.lines||[]).map(l=>{
+      const requested=Number(l.requestedQtyUnit!=null?l.requestedQtyUnit:(l.qtyUnit||0)),
+        approved=Number(l.qtyUnit||0),received=Number(l.receivedBase||0)/Number(l.factor||1),
+        fulfillment=l.fulfillmentStatus||'DIPENUHI',
+        fc=fulfillment==='DIPENUHI'?'ok':fulfillment==='TIDAK TERSEDIA'?'bad':'warn';
+      return '<div class="direct-card"><b>'+esc(l.name)+'</b>'+
+        '<small>Diminta '+num(requested)+' · disiapkan '+num(approved)+' '+esc(l.sendUnit)+
+        (d.status!=='DRAFT'?' · diterima '+num(received):'')+'</small>'+
+        (l.fulfillmentReason?'<small>Alasan: '+esc(l.fulfillmentReason)+'</small>':'')+
+        '<span class="badge '+fc+'">'+esc(fulfillment)+'</span></div>';
+    }).join('');
+  }
+  function wwSjUpdateDetailV15213(id){
+    const root=$('#sheetRoot'),sheet=root&&root.firstElementChild;
+    if(!sheet||String(sheet.dataset.sheetKey)!=='delivery-detail:'+id)return false;
+    const d=((state.data||{}).deliveries||[]).find(x=>String(x.sjId)===String(id));
+    if(!d)return false;
+    const status=sheet.querySelector('[data-ww-sj-live-status]'),
+      actions=sheet.querySelector('[data-ww-sj-live-actions]'),
+      note=sheet.querySelector('[data-ww-sj-live-note]'),
+      items=sheet.querySelector('[data-ww-sj-live-lines]');
+    if(!status||!actions||!note||!items)return false;
+    status.innerHTML=deliveryStatusBadge(d.status);
+    const pending=dispatchPendingV44(id),active=opsWriteInFlightV43.has('dispatch_'+id);
+    note.innerHTML=wwSjDispatchNoteV15213(id,d);
+    // Preserve the clicked button and its spinner while dispatch is pending.
+    if(!(active&&String(d.status||'').toUpperCase()==='DRAFT')){
+      const req=findRequestForDelivery(d),html=wwSjActionMarkupV15211(d,req,{
+        canPrint:actionAllowed('draftPrint'),canPrepare:roleCan('DELIVERY_PREPARE'),
+        canCancel:roleCan('OWNER_ONLY'),canDispatch:roleCan('DELIVERY_DISPATCH')
+      },pending);
+      const key=String(d.status||'')+'|'+!!pending+'|'+!!(req&&req.requestId);
+      if(actions.dataset.wwSjKey!==key){
+        actions.innerHTML=html;actions.dataset.wwSjKey=key;
+        wwSjBindActionsV15213(id,d,req);
+      }
+    }
+    // A fresh delivery read may include updated approved quantities.
+    // Do not erase existing visible rows if the short response omits lines.
+    if(Array.isArray(d.lines)&&d.lines.length){
+      const next=wwSjRenderLinesV15213(d);
+      if(items.innerHTML!==next)items.innerHTML=next;
+    }
+    return true;
+  }
+  function wwSjUpdateListV15213(id){
+    const root=$('#sheetRoot'),sheet=root&&root.firstElementChild;
+    if(!sheet||String(sheet.dataset.sheetKey)!=='delivery-list')return false;
+    const d=((state.data||{}).deliveries||[]).find(x=>String(x.sjId)===String(id));
+    if(!d)return false;
+    const card=Array.from(sheet.querySelectorAll('[data-sjid]')).find(
+      x=>String(x.dataset.sjid)===String(id));
+    if(card){
+      const badge=card.querySelector('.badge');
+      if(badge)badge.outerHTML=deliveryStatusBadge(d.status);
+      const label=card.querySelector('.ww-request-item-link');
+      if(label)label.textContent=String(d.status||'').toUpperCase()==='DRAFT'?
+        'Periksa Bahan · Konfirmasi Kirim ›':'Lihat Detail SJ ›';
+    }
+    const data=(state.data||{}).deliveries||[];
+    sheet.querySelectorAll('[data-ww-request-outlet]').forEach(tab=>{
+      const count=tab.querySelector('b');
+      if(count)count.textContent=num(wwDraftSjCountV15211(data,tab.dataset.wwRequestOutlet),0);
+    });
+    const top=sheet.querySelector('.ww-request-top span'),
+      section=sheet.querySelector('.ww-request-section-head span');
+    const count=num(wwDraftSjCountV15211(data,wwSelectedOutletV1522),0)+' DRAFT';
+    if(top)top.textContent=count;
+    if(section)section.textContent=count;
+    return true;
+  }
   function dispatchUpdateIfVisibleV44(id){
     const key=currentSheetKey();
-    if(key==='delivery-detail:'+id)directDeliveryDetail(id);
-    else if(key==='delivery-list')directDelivery();
+    if(key==='delivery-detail:'+id)wwSjUpdateDetailV15213(id);
+    else if(key==='delivery-list')wwSjUpdateListV15213(id);
   }
   function dispatchApplyStatusV44(id,fresh){
     if(!fresh||String(fresh.sjId||'')!==String(id))return false;
@@ -690,7 +788,7 @@
       const final=dispatchApplyStatusV44(id,fresh);
       if(final){
         toast((fresh.noSj||'Surat Jalan')+' berstatus '+fresh.status+'. Tidak ada pengiriman ulang.','success');
-        reloadDeliveryModule().then(()=>dispatchUpdateIfVisibleV44(id)).catch(e=>console.warn('[Warehouse] Refresh SJ:',e.message));
+        // A confirmed fresh SJ is already upserted; no full-module reload or modal repaint.
       }else{
         toast('SJ masih DRAFT di snapshot. Ada percobaan kirim yang belum terverifikasi. Jangan klik Kirim lagi; cek Riwayat/Audit Recovery.','warning',12000);
         dispatchUpdateIfVisibleV44(id);
@@ -714,7 +812,7 @@
     else if(feed&&['QUEUED','PENDING_WORKER','SCHEDULED'].includes(String(feed.status||'').toUpperCase()))toast((fresh.noSj||'SJ')+' · '+fresh.status+' tercatat. Feed outlet menunggu worker; JANGAN Kirim ulang.','warning',12000);
     else toast((fresh.noSj||'SJ')+' · '+fresh.status+' tercatat. Feed outlet belum terkonfirmasi; periksa status sinkronisasi.','warning',12000);
     // The module refresh must never block the dispatch confirmation UI.
-    reloadDeliveryModule().then(()=>dispatchUpdateIfVisibleV44(id)).catch(e=>console.warn('[Warehouse] Refresh setelah kirim:',e.message));
+    // The fresh canonical delivery is already in state; avoid a duplicate reload and repaint.
   }
   async function writeDeliveryDirect(action,method,payload,sjId){
     if(opsWriteInFlightV43.has(action)){toast('SJ sedang diproses; jangan tekan ulang.','warning');return null;}
@@ -766,6 +864,7 @@
       toast(String(err&&err.message||err),'error');throw err;
     }finally{
       opsWriteInFlightV43.delete(action);endBusy();
+      if(dispatch)dispatchUpdateIfVisibleV44(sjId);
     }
   }
   async function callDirect(method,...args){return bridge.call(method,state.token,...args)}
@@ -1397,21 +1496,9 @@
       }
     }
   }
-  function directDeliveryDetail(id){
-    const d=((state.data||{}).deliveries||[]).find(x=>x.sjId===id);if(!d)return toast('SJ tidak ditemukan.');
-    const canPrepare=roleCan('DELIVERY_PREPARE'),canCorrect=roleCan('OWNER_ONLY'),canCancel=roleCan('OWNER_ONLY'),canDispatch=roleCan('DELIVERY_DISPATCH'),canSync=roleCan('DELIVERY_SYNC');
-    const pendingDispatch=dispatchPendingV44(id),req=findRequestForDelivery(d),sjDate=displayDateTimeShort(d.dispatchedAt||d.shipDate||d.createdAt),receiptFirst=String(d.outletReceiptFirstDate||''),receiptLast=String(d.outletReceiptLastDate||''),receiptCount=Number(d.outletReceiptCount||0);
-    const requestMeta=req?`<div class="delivery-request-meta"><b>Permintaan Outlet · ${esc(displayDateShort(req.requestDate||req.createdAt))}</b><span>${req.needDate?'Dibutuhkan '+esc(displayDateShort(req.needDate)):''}${req.itemCount?' · '+num(req.itemCount,0)+' bahan':''}</span></div>`:'';
-    const dateMeta=`<div class="delivery-date-meta"><b>Tanggal Surat Jalan</b><span>${esc(sjDate)}</span></div>`;
-    const receiptLabel=!receiptLast?(receiptCount>0?'Sudah diterima · tanggal belum tercatat':'Belum diterima'):receiptFirst&&receiptFirst!==receiptLast?`${displayDateShort(receiptFirst)} – ${displayDateShort(receiptLast)}`:displayDateShort(receiptLast);
-    const receiptMeta=`<div class="delivery-date-meta"><b>Tanggal Diterima Outlet</b><span>${esc(receiptLabel)}</span></div>`;
-    const sjActions=wwSjActionMarkupV15211(d,req,{
-      canPrint:actionAllowed('draftPrint'),canPrepare,canCancel,canDispatch
-    },pendingDispatch);
-    // Keep audited local recovery available to Owner, but outside the four main actions.
-    const recoveryOnly=sjRecoveryEligibleV1527(id,d)?
-      '<details class="ww-sj-recovery-tools"><summary>Pemulihan Owner</summary><button class="btn btn-line" type="button" id="ghRecoveryLocalSJ">Audit Recovery Owner</button></details>':'';
-    sheetHtml(d.noSj,`<p><b>${esc(d.outletName)}</b> · ${deliveryStatusBadge(d.status)}${d.createdBy?' · dibuat '+esc(d.createdBy):''}</p>${dateMeta}${requestMeta}${receiptMeta}${pendingDispatch?'<div class="ww-dispatch-pending-note" role="status"><b>Status pengiriman belum pasti.</b> Jangan tekan Kirim lagi. Gunakan Cek Status Kirim untuk membaca status backend. Stok mungkin sudah berkurang. Cetak Thermal tetap dapat digunakan tanpa mengirim barang.</div>':''}<div class="direct-list">${(d.lines||[]).map(l=>{const requested=Number(l.requestedQtyUnit!=null?l.requestedQtyUnit:(l.qtyUnit||0)),approved=Number(l.qtyUnit||0),received=Number(l.receivedBase||0)/Number(l.factor||1),fulfillment=l.fulfillmentStatus||'DIPENUHI',fc=fulfillment==='DIPENUHI'?'ok':fulfillment==='TIDAK TERSEDIA'?'bad':'warn';return `<div class="direct-card"><b>${esc(l.name)}</b><small>Diminta ${num(requested)} · disiapkan ${num(approved)} ${esc(l.sendUnit)}${d.status!=='DRAFT'?' · diterima '+num(received):''}</small>${l.fulfillmentReason?`<small>Alasan: ${esc(l.fulfillmentReason)}</small>`:''}<span class="badge ${fc}">${esc(fulfillment)}</span></div>`}).join('')}</div>${sjActions}${recoveryOnly}`,{key:'delivery-detail:'+id});
+  // Shared bindings for initial render and in-place actions replacement.
+  // A replaced action panel must bind its own handlers, not rebuild the sheet.
+  function wwSjBindActionsV15213(id,d,req){
     const p=$('#ghPrintSj');if(p)p.onclick=()=>directPrintDeliveryDraft(id);
     const inspect=$('#wwSjCheckMaterialsV15210');if(inspect)inspect.onclick=()=>opsRequestDetailV43(req.requestId);
     const a=$('#ghAdjustSj');if(a)a.onclick=()=>directFulfillment(id);
@@ -1426,6 +1513,23 @@
       return wwSjWithLoadingV15211(k,()=>writeDeliveryDirect('dispatch_'+id,'dispatchDelivery',{sjId:id},id));
     };
 
+  }
+  function directDeliveryDetail(id){
+    const d=((state.data||{}).deliveries||[]).find(x=>x.sjId===id);if(!d)return toast('SJ tidak ditemukan.');
+    const canPrepare=roleCan('DELIVERY_PREPARE'),canCorrect=roleCan('OWNER_ONLY'),canCancel=roleCan('OWNER_ONLY'),canDispatch=roleCan('DELIVERY_DISPATCH'),canSync=roleCan('DELIVERY_SYNC');
+    const pendingDispatch=dispatchPendingV44(id),req=findRequestForDelivery(d),sjDate=displayDateTimeShort(d.dispatchedAt||d.shipDate||d.createdAt),receiptFirst=String(d.outletReceiptFirstDate||''),receiptLast=String(d.outletReceiptLastDate||''),receiptCount=Number(d.outletReceiptCount||0);
+    const requestMeta=req?`<div class="delivery-request-meta"><b>Permintaan Outlet · ${esc(displayDateShort(req.requestDate||req.createdAt))}</b><span>${req.needDate?'Dibutuhkan '+esc(displayDateShort(req.needDate)):''}${req.itemCount?' · '+num(req.itemCount,0)+' bahan':''}</span></div>`:'';
+    const dateMeta=`<div class="delivery-date-meta"><b>Tanggal Surat Jalan</b><span>${esc(sjDate)}</span></div>`;
+    const receiptLabel=!receiptLast?(receiptCount>0?'Sudah diterima · tanggal belum tercatat':'Belum diterima'):receiptFirst&&receiptFirst!==receiptLast?`${displayDateShort(receiptFirst)} – ${displayDateShort(receiptLast)}`:displayDateShort(receiptLast);
+    const receiptMeta=`<div class="delivery-date-meta"><b>Tanggal Diterima Outlet</b><span>${esc(receiptLabel)}</span></div>`;
+    const sjActions=wwSjActionMarkupV15211(d,req,{
+      canPrint:actionAllowed('draftPrint'),canPrepare,canCancel,canDispatch
+    },pendingDispatch);
+    // Keep audited local recovery available to Owner, but outside the four main actions.
+    const recoveryOnly=sjRecoveryEligibleV1527(id,d)?
+      '<details class="ww-sj-recovery-tools"><summary>Pemulihan Owner</summary><button class="btn btn-line" type="button" id="ghRecoveryLocalSJ">Audit Recovery Owner</button></details>':'';
+    sheetHtml(d.noSj,`<p><b>${esc(d.outletName)}</b> · <span data-ww-sj-live-status>${deliveryStatusBadge(d.status)}</span>${d.createdBy?' · dibuat '+esc(d.createdBy):''}</p>${dateMeta}${requestMeta}${receiptMeta}<div class="ww-sj-inline-status-v15213" data-ww-sj-live-note role="status">${wwSjDispatchNoteV15213(id,d)}</div><div class="direct-list" data-ww-sj-live-lines>${wwSjRenderLinesV15213(d)}</div><div data-ww-sj-live-actions data-ww-sj-key="${esc(String(d.status||'')+'|'+!!pendingDispatch+'|'+!!(req&&req.requestId))}">${sjActions}</div>${recoveryOnly}`,{key:'delivery-detail:'+id});
+    wwSjBindActionsV15213(id,d,req);
     if(String(d.status||'').toUpperCase()==='DRAFT'||pendingDispatch)dispatchMaybeRefreshFreshV45(id);
   }
 
@@ -2086,7 +2190,7 @@
       reloadingForUpdate = true;
       window.location.reload();
     });
-    window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=1.5.2.11-sj-simple', { updateViaCache: 'none' }).then(reg => reg.update()).catch(() => {}));
+    window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=1.5.2.13-inline-sj', { updateViaCache: 'none' }).then(reg => reg.update()).catch(() => {}));
   }
 
 

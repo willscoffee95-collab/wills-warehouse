@@ -66,18 +66,20 @@ test('dashboard top area is real SJ list and filtered by selected outlet',()=>{
   assert.ok(!output.html.includes('<summary>Surat Jalan Terbaru'),'SJ no longer hidden in bottom collapsed section');
 });
 
-test('SJ details expose four simple actions and keep dispatch behind existing guards',()=>{
+test('SJ detail renders and rebinds actions in place using the existing guarded dispatch',()=>{
   const detail=part('  function directDeliveryDetail(id){','  function findRequestForDelivery(d){');
+  const bindings=part('  function wwSjBindActionsV15213(id,d,req){','  function directDeliveryDetail(id){');
   const actions=part('  function wwSjActionMarkupV15211(','  async function wwSjWithLoadingV15211(');
   assert.match(actions,/ghPrintSj/);
   assert.match(actions,/wwSjCheckMaterialsV15210/);
   assert.match(actions,/ghCancelSj/);
   assert.match(actions,/ghSendSj/);
-  assert.match(actions,/canPrepare&&req&&req.requestId/);
   assert.match(actions,/permissions.canDispatch/);
-  assert.match(detail,/inspect\.onclick=\(\)=>opsRequestDetailV43\(req\.requestId\)/);
-  assert.match(detail,/writeDeliveryDirect\('dispatch_'\+id,'dispatchDelivery'/);
-  assert.match(detail,/wwSjWithLoadingV15211\(k,/);
+  assert.match(detail,/wwSjBindActionsV15213\(id,d,req\)/);
+  assert.match(detail,/data-ww-sj-live-actions/);
+  assert.match(bindings,/inspect\.onclick=\(\)=>opsRequestDetailV43\(req\.requestId\)/);
+  assert.match(bindings,/writeDeliveryDirect\('dispatch_'\+id,'dispatchDelivery'/);
+  assert.match(bindings,/wwSjWithLoadingV15211\(k,/);
 });
 test('saved picking can navigate directly to SJ confirm without re-posting stock',()=>{
   const pick=part('  function opsRequestDetailV43(requestId) {','  function opsPrintRequestThermalV43(');
@@ -102,7 +104,7 @@ test('canonical queue and module request lookup preserve linked SJ identity',()=
 });
 
 test('cache-busting version is consistent in app, index and service worker',()=>{
-  const ver='1.5.2.11-sj-simple';
+  const ver='1.5.2.13-inline-sj';
   assert.ok(index.includes('app.js?v='+ver));
   assert.ok(sw.includes('app.js?v='+ver));
   assert.ok(sw.includes('wills-warehouse-shell-v'+ver));
