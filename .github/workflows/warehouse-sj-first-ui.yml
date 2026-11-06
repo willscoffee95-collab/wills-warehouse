@@ -1,0 +1,29 @@
+name: Warehouse SJ first UI safety
+
+on:
+  pull_request:
+    paths:
+      - 'app.js'
+      - 'index.html'
+      - 'sw.js'
+      - 'tests/warehouse-sj-top-ui.test.cjs'
+      - '.github/workflows/warehouse-sj-first-ui.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  frontend-ui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check JavaScript syntax
+        run: |
+          node --check app.js
+          node --check sw.js
+      - name: Check SJ list and workflow
+        run: node --test tests/warehouse-sj-top-ui.test.cjs
