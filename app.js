@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  window.WW_FRONTEND_BUILD='2026-11-06.1.5.2.11-sj-simple';
+  window.WW_FRONTEND_BUILD='2026-11-06.1.5.2.13-inline-sj';
 
 
   const $ = (q, root = document) => root.querySelector(q);
@@ -596,10 +596,95 @@
   function dispatchPendingV44(id){try{return JSON.parse(localStorage.getItem(dispatchPendingKeyV44(id))||'null')}catch(_){return null}}
   function dispatchStorePendingV44(id,idem){try{localStorage.setItem(dispatchPendingKeyV44(id),JSON.stringify({sjId:String(id),idem:String(idem),startedAt:Date.now()}))}catch(_){}}
   function dispatchClearPendingV44(id){try{localStorage.removeItem(dispatchPendingKeyV44(id));localStorage.removeItem('ww_gh_idem_dispatch_'+id)}catch(_){}}
+  // v1.5.2.13: update the active SJ in place. Never rebuild sheetHtml
+  // or replace the staff's current screen just because a status changed.
+  function wwSjDispatchNoteV15213(id,d){
+    const pending=!!dispatchPendingV44(id),active=opsWriteInFlightV43.has('dispatch_'+id)||
+      opsWriteInFlightV43.has('status_'+id);
+    if(active&&String(d.status||'').toUpperCase()==='DRAFT')
+      return '<span class="ww-spin-v1526" aria-hidden="true"></span> Mengonfirmasi status Kirim ke Warehouse…';
+    if(pending&&String(d.status||'').toUpperCase()==='DRAFT')
+      return '<b>Status pengiriman belum pasti.</b> Jangan Kirim ulang. Gunakan Cek Status Kirim; stok mungkin sudah berkurang.';
+    if(String(d.status||'').toUpperCase()==='DIKIRIM')
+      return '<b>Pengiriman terkonfirmasi.</b> SJ siap dicetak thermal.';
+    return '';
+  }
+  function wwSjRenderLinesV15213(d){
+    return (d.lines||[]).map(l=>{
+      const requested=Number(l.requestedQtyUnit!=null?l.requestedQtyUnit:(l.qtyUnit||0)),
+        approved=Number(l.qtyUnit||0),received=Number(l.receivedBase||0)/Number(l.factor||1),
+        fulfillment=l.fulfillmentStatus||'DIPENUHI',
+        fc=fulfillment==='DIPENUHI'?'ok':fulfillment==='TIDAK TERSEDIA'?'bad':'warn';
+      return '<div class="direct-card"><b>'+esc(l.name)+'</b>'+
+        '<small>Diminta '+num(requested)+' · disiapkan '+num(approved)+' '+esc(l.sendUnit)+
+        (d.status!=='DRAFT'?' · diterima '+num(received):'')+'</small>'+
+        (l.fulfillmentReason?'<small>Alasan: '+esc(l.fulfillmentReason)+'</small>':'')+
+        '<span class="badge '+fc+'">'+esc(fulfillment)+'</span></div>';
+    }).join('');
+  }
+  function wwSjUpdateDetailV15213(id){
+    const root=$('#sheetRoot'),sheet=root&&root.firstElementChild;
+    if(!sheet||String(sheet.dataset.sheetKey)!=='delivery-detail:'+id)return false;
+    const d=((state.data||{}).deliveries||[]).find(x=>String(x.sjId)===String(id));
+    if(!d)return false;
+    const status=sheet.querySelector('[data-ww-sj-live-status]'),
+      actions=sheet.querySelector('[data-ww-sj-live-actions]'),
+      note=sheet.querySelector('[data-ww-sj-live-note]'),
+      items=sheet.querySelector('[data-ww-sj-live-lines]');
+    if(!status||!actions||!note||!items)return false;
+    status.innerHTML=deliveryStatusBadge(d.status);
+    const pending=dispatchPendingV44(id),active=opsWriteInFlightV43.has('dispatch_'+id);
+    note.innerHTML=wwSjDispatchNoteV15213(id,d);
+    // Preserve the clicked button and its spinner while dispatch is pending.
+    if(!(active&&String(d.status||'').toUpperCase()==='DRAFT')){
+      const req=findRequestForDelivery(d),html=wwSjActionMarkupV15211(d,req,{
+        canPrint:actionAllowed('draftPrint'),canPrepare:roleCan('DELIVERY_PREPARE'),
+        canCancel:roleCan('OWNER_ONLY'),canDispatch:roleCan('DELIVERY_DISPATCH')
+      },pending);
+      const key=String(d.status||'')+'|'+!!pending+'|'+!!(req&&req.requestId);
+      if(actions.dataset.wwSjKey!==key){
+        actions.innerHTML=html;actions.dataset.wwSjKey=key;
+        wwSjBindActionsV15213(id,d,req);
+      }
+    }
+    // A fresh delivery read may include updated approved quantities.
+    // Do not erase existing visible rows if the short response omits lines.
+    if(Array.isArray(d.lines)&&d.lines.length){
+      const next=wwSjRenderLinesV15213(d);
+      if(items.innerHTML!==next)items.innerHTML=next;
+    }
+    return true;
+  }
+  function wwSjUpdateListV15213(id){
+    const root=$('#sheetRoot'),sheet=root&&root.firstElementChild;
+    if(!sheet||String(sheet.dataset.sheetKey)!=='delivery-list')return false;
+    const d=((state.data||{}).deliveries||[]).find(x=>String(x.sjId)===String(id));
+    if(!d)return false;
+    const card=Array.from(sheet.querySelectorAll('[data-sjid]')).find(
+      x=>String(x.dataset.sjid)===String(id));
+    if(card){
+      const badge=card.querySelector('.badge');
+      if(badge)badge.outerHTML=deliveryStatusBadge(d.status);
+      const label=card.querySelector('.ww-request-item-link');
+      if(label)label.textContent=String(d.status||'').toUpperCase()==='DRAFT'?
+        'Periksa Bahan · Konfirmasi Kirim ›':'Lihat Detail SJ ›';
+    }
+    const data=(state.data||{}).deliveries||[];
+    sheet.querySelectorAll('[data-ww-request-outlet]').forEach(tab=>{
+      const count=tab.querySelector('b');
+      if(count)count.textContent=num(wwDraftSjCountV15211(data,tab.dataset.wwRequestOutlet),0);
+    });
+    const top=sheet.querySelector('.ww-request-top span'),
+      section=sheet.querySelector('.ww-request-section-head span');
+    const count=num(wwDraftSjCountV15211(data,wwSelectedOutletV1522),0)+' DRAFT';
+    if(top)top.textContent=count;
+    if(section)section.textContent=count;
+    return true;
+  }
   function dispatchUpdateIfVisibleV44(id){
     const key=currentSheetKey();
-    if(key==='delivery-detail:'+id)directDeliveryDetail(id);
-    else if(key==='delivery-list')directDelivery();
+    if(key==='delivery-detail:'+id)wwSjUpdateDetailV15213(id);
+    else if(key==='delivery-list')wwSjUpdateListV15213(id);
   }
   function dispatchApplyStatusV44(id,fresh){
     if(!fresh||String(fresh.sjId||'')!==String(id))return false;
@@ -690,7 +775,7 @@
       const final=dispatchApplyStatusV44(id,fresh);
       if(final){
         toast((fresh.noSj||'Surat Jalan')+' berstatus '+fresh.status+'. Tidak ada pengiriman ulang.','success');
-        reloadDeliveryModule().then(()=>dispatchUpdateIfVisibleV44(id)).catch(e=>console.warn('[Warehouse] Refresh SJ:',e.message));
+        // A confirmed fresh SJ is already upserted; no full-module reload or modal repaint.
       }else{
         toast('SJ masih DRAFT di snapshot. Ada percobaan kirim yang belum terverifikasi. Jangan klik Kirim lagi; cek Riwayat/Audit Recovery.','warning',12000);
         dispatchUpdateIfVisibleV44(id);
@@ -714,7 +799,7 @@
     else if(feed&&['QUEUED','PENDING_WORKER','SCHEDULED'].includes(String(feed.status||'').toUpperCase()))toast((fresh.noSj||'SJ')+' · '+fresh.status+' tercatat. Feed outlet menunggu worker; JANGAN Kirim ulang.','warning',12000);
     else toast((fresh.noSj||'SJ')+' · '+fresh.status+' tercatat. Feed outlet belum terkonfirmasi; periksa status sinkronisasi.','warning',12000);
     // The module refresh must never block the dispatch confirmation UI.
-    reloadDeliveryModule().then(()=>dispatchUpdateIfVisibleV44(id)).catch(e=>console.warn('[Warehouse] Refresh setelah kirim:',e.message));
+    // The fresh canonical delivery is already in state; avoid a duplicate reload and repaint.
   }
   async function writeDeliveryDirect(action,method,payload,sjId){
     if(opsWriteInFlightV43.has(action)){toast('SJ sedang diproses; jangan tekan ulang.','warning');return null;}
@@ -766,6 +851,7 @@
       toast(String(err&&err.message||err),'error');throw err;
     }finally{
       opsWriteInFlightV43.delete(action);endBusy();
+      if(dispatch)dispatchUpdateIfVisibleV44(sjId);
     }
   }
   async function callDirect(method,...args){return bridge.call(method,state.token,...args)}
@@ -2086,7 +2172,7 @@
       reloadingForUpdate = true;
       window.location.reload();
     });
-    window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=1.5.2.11-sj-simple', { updateViaCache: 'none' }).then(reg => reg.update()).catch(() => {}));
+    window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=1.5.2.13-inline-sj', { updateViaCache: 'none' }).then(reg => reg.update()).catch(() => {}));
   }
 
 
