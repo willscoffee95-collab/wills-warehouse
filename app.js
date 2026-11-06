@@ -1219,11 +1219,21 @@
       throw new Error('Hasil picking terbaru belum terverifikasi. Jangan ulangi dengan jumlah berbeda.');
     if(source&&source.sjId&&fresh.sjId&&String(source.sjId)!==String(fresh.sjId))
       throw new Error('Referensi Surat Jalan berubah setelah simpan. Periksa Audit.');
-    for(const item of items||[]){
-      const line=fresh.lines.find(x=>Number(x.lineNo)===Number(item.lineNo)&&String(x.code)===String(item.code));
-      if(!line||!Number.isFinite(Number(line.approvedQtyUnit))||
+    if(!Array.isArray(items)||!items.length||fresh.lines.length!==items.length)
+      throw new Error('Jumlah baris picking tidak sesuai dengan hasil backend. Periksa Audit.');
+    const seen=new Set();
+    for(const item of items){
+      const key=String(item.lineNo)+'|'+String(item.code);
+      if(seen.has(key))throw new Error('Baris picking ganda. Periksa Audit.');
+      seen.add(key);
+      const matches=fresh.lines.filter(x=>Number(x.lineNo)===Number(item.lineNo)&&String(x.code)===String(item.code));
+      const line=matches.length===1?matches[0]:null;
+      if(!line||line.approvedQtyUnit==null||String(line.approvedQtyUnit).trim()===''||
+         !Number.isFinite(Number(line.approvedQtyUnit))||
          Math.abs(Number(line.approvedQtyUnit)-Number(item.approvedQtyUnit))>0.000001)
         throw new Error('Jumlah picking terverifikasi berbeda untuk '+String(item.code)+'. Periksa Audit sebelum input ulang.');
+      if(String(line.reason||'').trim()!==String(item.reason||'').trim())
+        throw new Error('Alasan picking terverifikasi berbeda untuk '+String(item.code)+'. Periksa Audit sebelum input ulang.');
     }
     return fresh;
   }
