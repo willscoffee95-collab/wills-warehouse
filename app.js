@@ -1348,7 +1348,7 @@
       sj=entries.map(x=>{
         const pending=String(x.status||'').toUpperCase()==='DRAFT'&&dispatchPendingV44(x.sjId);
         const action=pending?'Cek Status Kirim':String(x.status||'').toUpperCase()==='DRAFT'?
-          'Periksa Bahan · Konfirmasi Kirim':'Lihat Detail SJ';
+          'Siapkan · Cek Ulang · Kirim':'Lihat Detail SJ';
         return '<button class="direct-card direct-click ww-ops-request-card ww-request-item" type="button" data-sjid="'+esc(x.sjId)+'">'+
           '<b>'+esc(x.noSj)+' · '+esc(x.outletName||x.outletCode||'-')+'</b>'+
           '<small>'+esc(displayDateShort(x.shipDate||x.createdAt))+' · '+num((x.lines||[]).length,0)+' bahan</small>'+
@@ -1367,7 +1367,7 @@
       '<div class="ww-request-section"><div class="ww-request-section-head"><b>'+esc(selected?selected.name:'Semua Outlet')+
       '</b><span>'+num(wwDraftSjCountV15211(entries),0)+' DRAFT</span></div><div class="ww-request-scroll">'+
       (sj||'<div class="empty">Belum ada Surat Jalan pada outlet ini. Ketuk Muat Ulang bila perlu.</div>')+'</div></div>'+
-      '<div class="ww-life-note">Pilih SJ DRAFT untuk Periksa Bahan / Cetak Thermal dan Konfirmasi Kirim. Stok hanya berkurang setelah pengiriman dikonfirmasi.</div>'+
+      '<div class="ww-life-note">Siapkan bahan → Selesai Disiapkan → Cek Ulang → Konfirmasi Kirim → Cetak SJ. Stok hanya berkurang setelah backend mengonfirmasi Kirim.</div>'+
       (missing.length?'<details class="ww-sj-collapse"><summary>Permintaan Belum Ada SJ <span>'+num(missing.length,0)+' permintaan</span></summary>'+
         '<div class="direct-list">'+requests+'</div></details>':'')+
       '<details class="ww-sj-collapse"><summary>Dalam Pengiriman / Penerimaan <span>'+num(n.IN_TRANSIT||0,0)+' permintaan</span></summary>'+
@@ -1475,7 +1475,7 @@
       actions.push(action('wwSjReviewV15212','check',icons.clipboard,'Cek Ulang'));
     else if(st==='SIAP_KIRIM'&&permissions.canDispatch)
       actions.push(action('ghSendSj','send',icons.truck,'Konfirmasi Kirim'));
-    if(permissions.canCancel)
+    if(!pending&&permissions.canCancel)
       actions.push(action('ghCancelSj','cancel',icons.warning,'Batalkan'));
     const name=st==='SIAP_KIRIM'?'Siap dikirim':st==='SIAP_CEK_ULANG'?
       'Selesai disiapkan · menunggu cek ulang':'Menunggu disiapkan';
