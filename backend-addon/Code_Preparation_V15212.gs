@@ -19,21 +19,32 @@
 var WW15212_PREP_BUILD='2026-11-06.1.5.2.12-verified-preparation';
 var WW15212_PREP_EVENT='REQUEST_PREPARATION_VERIFIED_V15212';
 
+// ScriptProperties provides one small O(1) state lookup per SJ, instead of
+// reading thousands of Audit Trail rows on every screen opening.
+// Audit Trail remains the immutable verification evidence.
+function ww15212PrepKey_(sjId) {
+  return 'WW15212_PREP_'+sha256Hex_(String(sjId||'')).slice(0,40);
+}
 function ww15212FindVerified_(ss,d) {
-  const sh=sheet_(ss,WW.S.AUDIT),last=sh.getLastRow();
-  if(last<2)return null;
-  // Fail closed if a previous verification is outside this bounded audit tail.
-  const start=Math.max(2,last-5999),rows=sh.getRange(start,1,last-start+1,11).getValues();
-  for(let i=rows.length-1;i>=0;i--){
-    const r=rows[i];
-    if(String(r[5]||'')!==WW15212_PREP_EVENT||String(r[6]||'')!==String(d.noSj))continue;
-    let meta={};
-    try{meta=JSON.parse(String(r[9]||'{}'))||{};}catch(e){continue;}
-    if(String(meta.sjId||'')!==String(d.sjId))continue;
-    return {requestId:String(meta.requestId||''),reviewId:String(meta.reviewId||''),
-      verifiedBy:String(r[2]||''),verifiedAt:serializeDateTime_(r[0])};
-  }
-  return null;
+  const raw=PropertiesService.getScriptProperties().getProperty(ww15212PrepKey_(d.sjId));
+  if(!raw)return null;
+  let row={};
+  try{row=JSON.parse(raw)||{};}catch(e){return null;}
+  if(String(row.sjId||'')!==String(d.sjId)||
+     !String(row.reviewId||'')||!String(row.requestId||''))return null;
+  return {requestId:String(row.requestId),reviewId:String(row.reviewId),
+    verifiedBy:String(row.verifiedBy||''),verifiedAt:String(row.verifiedAt||'')};
+}
+function ww15212RecordVerified_(ss,d,requestId,reviewId,user) {
+  const now=new Date(),row={
+    sjId:String(d.sjId),requestId:String(requestId),reviewId:String(reviewId),
+    verifiedBy:String(user&&user.name||''),verifiedAt:serializeDateTime_(now)
+  };
+  PropertiesService.getScriptProperties().setProperty(ww15212PrepKey_(d.sjId),JSON.stringify(row));
+  const fresh=ww15212FindVerified_(ss,d);
+  if(!fresh||fresh.requestId!==row.requestId||fresh.reviewId!==row.reviewId)
+    throw new Error('Verifikasi persiapan belum tersimpan. Kirim dikunci.');
+  return row;
 }
 function ww15212PreparationState_(ss,linked) {
   const d=linked.delivery,review=ww1525ReadReview_(ss,linked);
@@ -104,8 +115,8 @@ function verifyWarehousePreparationV15212(token,payload,idem){
     auditLog_(ss,user,'DISTRIBUTION',WW15212_PREP_EVENT,d.noSj,
       'SUCCESS',null,{requestId:linked.requestId,sjId:d.sjId,reviewId:current.reviewId,idem:idem},
       'Cek ulang fisik selesai. Bukan dispatch dan bukan mutasi stok.');
-    const latest=ww15212PreparationState_(ss,linked);
-    if(!latest.verified)throw new Error('Verifikasi belum terbaca dari audit. Jangan Kirim.');
+    // Audit must be written first. A failed properties write leaves Send blocked.
+    ww15212RecordVerified_(ss,d,linked.requestId,current.reviewId,user);
     return {ok:true,verified:true,requestId:linked.requestId,sjId:d.sjId,
       reviewId:current.reviewId,phase:'SIAP_KIRIM'};
   });
