@@ -50,7 +50,7 @@ test('dashboard top area is real SJ list and filtered by selected outlet',()=>{
     wwQueueV1526:{rows:[]},wwQueueErrorV1526:'',wwQueueFetchedAtV1526:Date.now(),
     wwQueuePromiseV1526:null,wwSelectedOutletV1522:'TM',
     wwRequestOutletV1522:normalize,wwVisibleQueueV1528:()=>[],roleCan:()=>false,canAny:()=>false,
-    dispatchPendingV44:()=>null,deliveryStatusBadge:s=>'<b>'+s+'</b>',
+    dispatchPendingV44:()=>null,wwRequestProgressCardV1526:()=>'',deliveryStatusBadge:s=>'<b>'+s+'</b>',
     esc:s=>String(s||''),num:x=>String(x),displayDateShort:s=>String(s||'').slice(0,10),
     sheetHtml:(_title,html)=>{output.html=html},
     $:()=>null,$$:()=>[],Date,Number,String,Object,Array,Set,Map,Boolean
