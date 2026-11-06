@@ -177,3 +177,26 @@ test('two browser tabs cannot silently replace an in-flight key with different q
   assert.equal(results.filter(x=>x.status==='rejected').length,1);
   assert.match(String(results.find(x=>x.status==='rejected').reason),/Isi transaksi berbeda/);
 });
+
+
+test('user-management PIN is never stored as a reversible low-entropy payload digest',async()=>{
+  const h=harness();
+  const action='userSave_ari@example.com';
+  const first=await h.run(action,'saveUser',{username:'ari@example.com',pin:'0000',role:'ADMIN_2'});
+  assert.match(first,/^[A-Za-z0-9._:-]{12,120}$/);
+  const stored=h.key(action);
+  assert.equal(stored.secretPayload,true);
+  assert.equal(Object.hasOwn(stored,'payloadHash'),false);
+  assert.equal(JSON.stringify(stored).includes('0000'),false);
+  assert.equal(JSON.stringify(stored).includes('ari@example.com'),false);
+  await assert.rejects(h.run(action,'saveUser',{username:'ari@example.com',pin:'0000',role:'ADMIN_2'}),/PIN belum terverifikasi/);
+  assert.equal(h.key(action).id,first);
+});
+
+test('valid nonsecret saveUser action still fingerprints normal user status updates',async()=>{
+  const h=harness();
+  const id=await h.run('userStatus_email@example.com','saveUser',{username:'email@example.com',pin:'',active:'TIDAK'});
+  assert.match(id,/^[A-Za-z0-9._:-]{12,120}$/);
+  assert.match(h.key('userStatus_email@example.com').payloadHash,/^[0-9a-f]{64}$/);
+  assert.notEqual(h.key('userStatus_email@example.com').secretPayload,true);
+});
