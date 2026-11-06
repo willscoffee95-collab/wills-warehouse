@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>Wills Warehouse Bridge</title>
+</head>
+<body>
+<script>
+(() => {
+  'use strict';
+
+  const BRIDGE_VERSION = '1.5.2.12-VERIFIED-PREPARATION';
+  const ALLOWED_PARENT_ORIGIN = 'https://willscoffee95-collab.github.io';
+
+  const ALLOWED_METHODS = new Set([
+    'getPublicState',
+    'loginWarehouse',
+    'logoutWarehouse',
+    'getAppSessionShellV1360',
+    'getAppBootstrap',
+    'getAppModule',
+
+    // Surat Jalan, read-only
+    'getDeliveryDetailFreshV1354',
+    'getDeliveryDetailFreshV1500',
+    'getDeliveryPaymentStateV1500',
+    'getDeliveryPrintDataV1500',
+    'getDeliveryPrintArchiveV1504',
+
+    // Operasional gudang — create/dispatch allowed according to core permissions
+    'previewPurchaseGuard',
+    'postPurchase',
+    'postPackingBatch',
+    'syncOutletMaterialRequestsNowV1250',
+    'syncOutletReceipts',
+    'auditReceiptSyncDiagnosticAppV1260',
+    'createDeliveryDraft',
+    // Raw dispatchDelivery deliberately NOT allowlisted: second-check backend gate required.
+    'dispatchWarehouseVerifiedV15212',
+    'syncOutletReceiptForDelivery',
+
+    // Pemeriksaan / picking — Admin dapat mencatat sekali sebelum cetak
+    'getWarehouseRequestAvailabilityV1525',
+    'saveWarehouseRequestAvailabilityV1525',
+    'getWarehousePreparationV15212',
+    'verifyWarehousePreparationV15212',
+
+    // Lifecycle, harga snapshot SJ & bukti perintah cetak
+    'getWarehouseRequestLifecycleV1526',
+    'getWarehousePickingPricesV1526',
+    'markWarehousePickingPrintRequestedV1526',
+
+    // Only OWNER can revise fulfillment, cancel SJ, or adjust ledger stock.
+    // Legacy cancelDeliveryDraft, adjustDeliveryDraftFulfillment,
+    // postStockAdjustment have deliberately been removed from Bridge.
+    'ownerAdjustDeliveryDraftFulfillmentV1527',
+    'ownerCancelDeliveryDraftV1527',
+    'ownerPostStockAdjustmentV1527',
+
+    // Transaksi keuangan lama; core finance quarantine remains authoritative
+    'prepareOutletPaymentV1390',
+    'prepareDeliveryFullPaymentV1500',
+    'postOutletPayment',
+    'postOperationalExpense',
+    'postSupplierPayment',
+    'postPackingWagePayment',
+
+    // Harga internal & harga pusat
+    'centralPriceDashboard',
+    'saveCentralMaterialPrice',
+    'syncCentralMaterialPricesNow',
+    'previewOutletReceiptInternalPrices',
+    'syncOutletReceiptInternalPricesNow',
+
+    'saveUser',
+    'auditWarehouseAppV1260',
+    'reverseTransaction',
+
+    'getFinancialPositionActualV1300',
+    'saveFinancialPositionActualV1300',
+    'getWarehouseStockMovementReportV1300',
+    'getWarehouseOutletDispatchRecapV1320',
+    'previewHistoricalHppCorrection',
+    'postHistoricalHppCorrection',
+
+    // Tugas Gudang
+    'getWarehouseTasksV1370',
+    'updateWarehouseTaskV1370',
+    'createWarehouseTaskV1522',
+    'listWarehouseTaskTemplatesV1522',
+    'saveWarehouseTaskTemplateV1522',
+
+    // Absensi
+    'getOfficeAttendanceV1370',
+    'officeAttendanceShiftV1370',
+
+    // Audit
+    'auditWarehouseReceivableCanonicalAppV1401',
+    'auditWarehouseReceivableCanonicalAppV1402',
+    'auditWarehouseReceivableCanonicalAppV1403',
+    'auditWarehouseReceivableCanonicalAppV1404',
+    'auditWarehouseReceivableCanonicalAppV1405',
+    'auditWarehouseFinanceCanonicalAppV1406',
+    'auditWarehouseFinanceCanonicalAppV1407',
+    'auditWarehouseStockCanonicalAppV1407',
+    'auditWarehouseFinanceCanonicalAppV1408',
+    'auditWarehouseStockCanonicalAppV1408',
+    'auditWarehouseTransitDetailAppV1408',
+    'auditWarehouseFinanceCanonicalAppV1409',
+    'auditWarehouseStockCanonicalAppV1409',
+    'auditWarehouseTransitDetailAppV1409',
+    'auditWarehouseReceivableSelfHealAppV1410',
+    'auditWarehouseManualPaymentControlV1500',
+    'wwUiV4Signals'
+  ]);
+
+  function send(message) {
+    window.top.postMessage(message, ALLOWED_PARENT_ORIGIN);
+  }
+
+  function errorText(error) {
+    if (!error) return 'Backend error.';
+    if (typeof error === 'string') return error;
+    return String(error.message || error.toString() || 'Backend error.');
+  }
+
+  function runBackend(method, args, requestId) {
+    if (!ALLOWED_METHODS.has(method)) {
+      send({
+        type: 'WW_BRIDGE_RESPONSE',
+        requestId,
+        ok: false,
+        error: 'Method tidak diizinkan oleh Wills Warehouse Bridge: ' + method
+      });
+      return;
+    }
+
+    try {
+      const runner = google.script.run
+        .withSuccessHandler(value => send({
+          type: 'WW_BRIDGE_RESPONSE',
+          requestId,
+          ok: true,
+          value
+        }))
+        .withFailureHandler(error => send({
+          type: 'WW_BRIDGE_RESPONSE',
+          requestId,
+          ok: false,
+          error: errorText(error)
+        }));
+
+      const fn = runner[method];
+
+      if (typeof fn !== 'function') {
+        throw new Error('Method backend tidak tersedia pada deployment aktif: ' + method);
+      }
+
+      fn.apply(runner, Array.isArray(args) ? args : []);
+
+    } catch (error) {
+      send({
+        type: 'WW_BRIDGE_RESPONSE',
+        requestId,
+        ok: false,
+        error: errorText(error)
+      });
+    }
+  }
+
+  window.addEventListener('message', event => {
+    if (event.origin !== ALLOWED_PARENT_ORIGIN) return;
+
+    const msg = event.data || {};
+    if (msg.type !== 'WW_BRIDGE_CALL') return;
+
+    const requestId = String(msg.requestId || '');
+    const method = String(msg.method || '');
+
+    if (!requestId || !method) {
+      send({
+        type: 'WW_BRIDGE_RESPONSE',
+        requestId,
+        ok: false,
+        error: 'Request Bridge tidak lengkap.'
+      });
+      return;
+    }
+
+    runBackend(method, msg.args, requestId);
+  });
+
+  send({
+    type: 'WW_BRIDGE_READY',
+    bridgeVersion: BRIDGE_VERSION
+  });
+
+})();
+</script>
+</body>
+</html>
