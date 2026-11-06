@@ -923,7 +923,7 @@
     const req=opsRequestV43(requestId);
     if(!req)return toast('Permintaan belum ada di snapshot. Perbarui Permintaan dahulu.');
     const id=String(requestId);
-    wwPickingReportV1525.delete(id);wwPickingPricesV1526.delete(id);
+    wwPickingReportV1525.delete(id);
     sheetHtml('Cek Ketersediaan Bahan Outlet',
       '<div class="ww-ops-request-meta"><strong>'+esc(req.outletName||req.outletCode||'-')+'</strong>'+
       '<span>Permintaan '+esc(req.requestId||'-')+' · '+esc(displayDateShort(req.requestDate||req.createdAt))+'</span>'+
@@ -932,7 +932,7 @@
       '<div class="ww-preprint-check"><div class="ww-preprint-head"><b>1. Cek & Catat Barang Gudang</b>'+
       '<span>Isi jumlah nyata yang bisa disiapkan</span></div>'+
       '<p>Isi 0 bila kosong. Jika hanya tersedia sebagian, isi jumlah yang bisa dikirim serta alasannya. Ini belum mengurangi stok.</p>'+
-      '<form id="wwPickingFormV1525"><div id="wwPickingContentV1525" class="ww-preprint-results" role="status"><span class="ww-spin-v1526" aria-hidden="true"></span> Memuat rincian bahan, harga, dan status DRAFT…</div>'+
+      '<form id="wwPickingFormV1525"><div id="wwPickingContentV1525" class="ww-preprint-results" role="status"><span class="ww-spin-v1526" aria-hidden="true"></span> Memuat jumlah bahan DRAFT…</div>'+
       '<button class="btn btn-primary" id="wwPickingSaveV1525" type="submit" disabled>Selesai Disiapkan</button></form></div>'+
       '<div class="ww-preprint-head"><b>2. Cek Ulang</b><span>Setelah selesai disiapkan</span></div>'+
       '<div id="wwPickingSavedStateV1525" class="ww-preprint-results">Selesaikan persiapan dahulu. Belum ada pengiriman ataupun cetak SJ.</div>'+
@@ -957,14 +957,12 @@
         root.textContent='Surat Jalan sudah berstatus '+report.status+'. Pemeriksaan tidak boleh diubah setelah pengiriman.';
         save.disabled=true;return;
       }
-      const pricing=wwPickingPricesV1526.get(id);
       const notes=report.lines.map(l=>{
-        const qty=Number(l.approvedQtyUnit),price=wwPickingPriceV1526(id,l.lineNo);
+        const qty=Number(l.approvedQtyUnit);
         return '<div class="direct-card ww-pick-review-row" data-ww-pick-line="'+Number(l.lineNo)+'" data-ww-pick-code="'+esc(l.code)+'">'+
           '<div class="ww-pick-item-head"><div><b>'+esc(l.name)+'</b><small>Diminta '+num(Number(l.requestedQtyUnit))+' '+esc(l.sendUnit)+'</small></div>'+ 
           '<span class="ww-pick-stage '+(qty<=0?'is-short':qty<Number(l.requestedQtyUnit)?'is-partial':'is-ready')+'">'+esc(wwPickingStatusV1525(l))+'</span></div>'+ 
-          '<div class="ww-pick-price"><b>Harga internal SJ: '+(price&&Number(price.unitPrice)>0?rp(Number(price.unitPrice)):'BELUM DIATUR')+' / '+esc(l.sendUnit)+'</b>'+ 
-          (price&&price.changed?'<small>Harga Pusat terbaru '+rp(Number(price.effectiveMasterPrice))+' berbeda. Harga SJ tetap mengikuti snapshot; konfirmasi Owner sebelum merevisi.</small>':'')+'</div>'+
+
           '<label class="field"><span>Jumlah disiapkan (0 = stok kosong)</span>'+
           '<input type="number" class="ww-pick-qty" min="0" max="'+Number(l.requestedQtyUnit)+'" step="0.000001" required value="'+qty+'"></label>'+
           '<label class="field"><span>Alasan jika kurang atau kosong</span>'+
@@ -972,10 +970,9 @@
           '<small class="ww-pick-row-status">'+esc(wwPickingStatusV1525(l))+'</small></div>';
       }).join('');
       root.innerHTML='<div class="ww-preprint-summary">'+
-        (adminLocked?'<b>HASIL CEK DIKUNCI</b> · Admin dapat mencetak ulang. Jika ada selisih setelah disimpan, laporkan kepada Owner untuk koreksi.<br>':'')+
-        (pricing&&pricing.hasMissing?'<b>Perhatian: Ada harga SJ belum diatur. Cetak bernilai terkunci jika barang tersebut disiapkan.</b><br>':'')+
-        (pricing&&pricing.hasChanged?'<small>Harga supplier/Pusat terbaru berbeda dari snapshot SJ. Tidak ada penggantian harga otomatis pada SJ lama.</small><br>':'')+
-        (report.checked?'Hasil pemeriksaan sebelumnya ditemukan; boleh dicetak atau diperbarui.':'Belum ada pemeriksaan tersimpan. Sesuaikan jumlah nyata lalu simpan.')+
+        (adminLocked?'<b>PERSIAPAN DIKUNCI</b> · Perubahan jumlah sesudah Selesai Disiapkan hanya bisa ditangani Owner.<br>':'')+
+        ''+
+        (report.checked?'Persiapan selesai; lanjut ke Cek Ulang.':'Sesuaikan jumlah yang benar lalu pilih Selesai Disiapkan.')+
         '</div>'+notes;
       save.disabled=!!report.checked||adminLocked||!report.lines.length;
       if(adminLocked||report.checked)$('.ww-pick-qty,.ww-pick-reason',root).forEach(input=>{input.disabled=true;input.setAttribute('aria-readonly','true')});
@@ -1005,18 +1002,22 @@
           ' · '+(report.reviewedAt||'')+'. Hasil persiapan dikunci. Lanjut Cek Ulang sebelum Kirim.';
       }
     };
-    // Both reads are read-only; form remains locked if price or SJ cannot be verified.
-    withBusy('Membaca permintaan, stok terverifikasi, dan harga internal…',async()=>{
-      const [report,price]=await Promise.all([
-        bridge.call('getWarehouseRequestAvailabilityV1525',state.token,id),
-        bridge.call('getWarehousePickingPricesV1526',state.token,id)
-      ]);
-      if(!price||price.ok!==true||!Array.isArray(price.lines))throw Error('Harga SJ belum bisa diverifikasi.');
-      wwPickingPricesV1526.set(id,price);render(report);
+    // One narrow server read; pricing and historical module reload are intentionally
+    // not on the critical path for physical preparation.
+    wwPrepGetV15212(id).then(view=>{
+      if(!root.isConnected)return;
+      if(String(view.status)!=='DRAFT'||!Array.isArray(view.lines)||!view.lines.length)
+        throw Error('DRAFT atau bahan tidak tersedia di backend.');
+      const report={...view,
+        lines:view.lines.map(l=>({...l,sendUnit:l.unit,
+          status:Number(l.approvedQtyUnit)<=0?'TIDAK TERSEDIA':
+            Number(l.approvedQtyUnit)<Number(l.requestedQtyUnit)?'DIPENUHI SEBAGIAN':'DIPENUHI'}))
+      };
+      render(report);
     }).catch(err=>{
-      root.textContent='Pemeriksaan belum dapat dibuka: '+String(err&&err.message||err)+
-        '. Pastikan add-on pemeriksaan dan izin Bridge sudah di-deploy. Cetak tetap terkunci.';
-      save.disabled=true;togglePrint();
+      root.textContent='Persiapan belum dapat dibuka: '+String(err&&err.message||err)+
+        '. Backend v1.5.2.12 harus aktif sebelum alur baru digunakan.';
+      save.disabled=true;goDelivery.disabled=true;
     });
     form.onsubmit=async e=>{
       e.preventDefault();
@@ -1047,11 +1048,14 @@
           {requestId:id,sjId:source.sjId,items:items},idemKey(safePickAction));
         if(!result||result.ok!==true)throw new Error('Simpan pemeriksaan belum terkonfirmasi.');
         localStorage.removeItem('ww_gh_idem_'+safePickAction);
-        const fresh=await bridge.call('getWarehouseRequestAvailabilityV1525',state.token,id);
-        if(!fresh||!fresh.checked)throw new Error('Sudah tersimpan tetapi pemeriksaan terbaru belum terverifikasi. Buka ulang rincian.');
-        render(fresh);wwQueueV1526=null;
-        toast('Selesai Disiapkan. Periksa ulang sebelum Konfirmasi Kirim.','success');
-        reloadDeliveryModule().catch(()=>{});
+        wwPrepClearV15212(id);
+        const fresh=await wwPrepGetV15212(id,true);
+        if(!fresh||fresh.checked!==true||String(fresh.status)!=='DRAFT')
+          throw new Error('Persiapan tersimpan, tetapi belum terverifikasi dari backend.');
+        render({...fresh,lines:fresh.lines.map(l=>({...l,sendUnit:l.unit}))});
+        wwQueueV1526=null;
+        toast('Selesai Disiapkan. Lanjut Cek Ulang sebelum Konfirmasi Kirim.','success');
+        // Do not reload the full warehouse module; summary will refresh naturally.
       }catch(err){
         wwPickingReportV1525.delete(id);togglePrint();
         status.textContent='Belum berhasil dikonfirmasi: '+String(err&&err.message||err)+
