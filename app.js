@@ -1053,7 +1053,7 @@
         if(!fresh||fresh.checked!==true||String(fresh.status)!=='DRAFT')
           throw new Error('Persiapan tersimpan, tetapi belum terverifikasi dari backend.');
         render({...fresh,lines:fresh.lines.map(l=>({...l,sendUnit:l.unit}))});
-        wwQueueV1526=null;
+        // Preserve the known request-to-SJ link for the next screen; avoid a full queue fetch.
         toast('Selesai Disiapkan. Lanjut Cek Ulang sebelum Konfirmasi Kirim.','success');
         // Do not reload the full warehouse module; summary will refresh naturally.
       }catch(err){
