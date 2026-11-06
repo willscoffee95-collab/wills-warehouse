@@ -1447,7 +1447,10 @@
   function deliveryDisplayNote(d,req){return req?String(req.note||'').trim():String((d&&d.note)||'').trim();}
   function deliveryThermalText(d,width){
     width=Number(width)===48?48:32;const hr='-'.repeat(width),out=[],req=findRequestForDelivery(d),user=(state.data||{}).user||{};
-    out.push(centerThermal('WILLS COFFEE',width));out.push(centerThermal(d.status==='DRAFT'?'DRAFT SIAP KIRIM':'CHECKLIST SURAT JALAN',width));out.push(hr);
+    const sjStatus=String(d.status||'').trim().toUpperCase();
+    const printStage=sjStatus==='DRAFT'?'DRAFT - CEK GUDANG':sjStatus==='DIKIRIM'?'SIAP KIRIM':'CHECKLIST SURAT JALAN';
+    out.push(centerThermal('WILLS COFFEE',width));out.push(centerThermal(printStage,width));out.push(hr);
+    wrapThermal('Status SJ: '+sjStatus,width).forEach(x=>out.push(x));
     wrapThermal('No SJ: '+d.noSj,width).forEach(x=>out.push(x));wrapThermal('Outlet: '+d.outletName,width).forEach(x=>out.push(x));
     if(req)wrapThermal('Permintaan: '+displayDateShort(req.requestDate||req.createdAt),width).forEach(x=>out.push(x));if(req&&req.needDate)wrapThermal('Dibutuhkan: '+displayDateShort(req.needDate),width).forEach(x=>out.push(x));
     {const rf=String(d.outletReceiptFirstDate||''),rl=String(d.outletReceiptLastDate||''),rc=Number(d.outletReceiptCount||0),label=!rl?(rc>0?'Sudah diterima - tanggal belum tercatat':'Belum diterima'):rf&&rf!==rl?displayDateShort(rf)+' - '+displayDateShort(rl):displayDateShort(rl);wrapThermal('Diterima Outlet: '+label,width).forEach(x=>out.push(x));}
@@ -1466,7 +1469,7 @@
     try{const a=document.createElement('a');a.href='rawbt:'+encodeURIComponent(String(text||''));a.style.display='none';document.body.appendChild(a);a.click();a.remove();toast('Membuka RawBT. Pilih printer Bluetooth yang sudah tersambung.');}catch(e){toast('RawBT tidak dapat dibuka: '+e.message);}
   }
   function printThermalBrowser(text,width){
-    const w=window.open('','_blank','width=420,height=720');if(!w)return toast('Popup print diblokir browser.');const mm=Number(width)===48?'80mm':'58mm';w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>Draft Siap Kirim</title><style>@page{size:'+mm+' auto;margin:3mm}body{margin:0;font:12px/1.35 monospace;color:#000}pre{white-space:pre-wrap;margin:0}</style></head><body><pre>'+esc(text)+'</pre></body></html>');w.document.close();w.focus();setTimeout(()=>w.print(),120);
+    const w=window.open('','_blank','width=420,height=720');if(!w)return toast('Popup print diblokir browser.');const mm=Number(width)===48?'80mm':'58mm';w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>Surat Jalan Wills Coffee</title><style>@page{size:'+mm+' auto;margin:3mm}body{margin:0;font:12px/1.35 monospace;color:#000}pre{white-space:pre-wrap;margin:0}</style></head><body><pre>'+esc(text)+'</pre></body></html>');w.document.close();w.focus();setTimeout(()=>w.print(),120);
   }
 
 
