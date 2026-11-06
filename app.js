@@ -310,7 +310,7 @@
     if(roleCan('PACKING')) quick.push(quickCard('pack','Batch Packing','Bahan curah → hasil packing','packing'));
     if(actionAllowed('delivery')) quick.push(quickCard('truck','Bahan yang Harus Dikirim','Siapkan bahan outlet','delivery'));
     if(actionAllowed('delivery')) quick.push(quickCard('truck','Surat Jalan','Siapkan • cetak • kirim','delivery'));
-    if(actionAllowed('draftPrint')&&draftCount) quick.push(quickCard('printer','Draft Siap Kirim','Cetak thermal Bluetooth','draftPrint'));
+    // DRAFT printing removed from the primary flow: print only after dispatch is confirmed.
     if(roleCan('PURCHASE')) quick.push(quickCard('cart','Belanja Bahan',inventoryOnlyV1520()?'Barang masuk · biaya & HPP':'Bank / Kas / Tempo','purchase'));
     if(actionAllowed('outletPayment')) quick.push(quickCard('money','Pembayaran Outlet','Catat pembayaran outlet','outletPayment'));
     if(actionAllowed('packingWage')&&Number(dash.packingWageOutstanding||0)>0) quick.push(quickCard('money','Bayar Upah Packing','Pelunasan upah batch','packingWage'));
@@ -718,7 +718,7 @@
   }
   async function writeDeliveryDirect(action,method,payload,sjId){
     if(opsWriteInFlightV43.has(action)){toast('SJ sedang diproses; jangan tekan ulang.','warning');return null;}
-    const dispatch=method==='dispatchDelivery';
+    const dispatch=method==='dispatchDelivery'||method==='dispatchWarehouseVerifiedV15212';
     if(dispatch&&dispatchPendingV44(sjId)){
       toast('Percobaan kirim sebelumnya belum terverifikasi. Gunakan Cek Status Kirim, jangan kirim ulang.','warning',12000);
       dispatchUpdateIfVisibleV44(sjId);return {ok:false,pending:true};
@@ -1354,8 +1354,8 @@
   }
 
   function directDraftPrintList(){
-    const rows=((state.data||{}).deliveries||[]).filter(x=>String(x.status||'')==='DRAFT');
-    sheetHtml('Draft Siap Kirim',`<p>Pilih draft yang sudah disiapkan. Checklist ini dicetak ke thermal Bluetooth dan dibawa bersama barang untuk pengecekan barista.</p><div class="direct-list">${rows.map(x=>`<button class="direct-card direct-click" data-print-sjid="${esc(x.sjId)}"><b>${esc(x.noSj)} · ${esc(x.outletName)}</b><small>${(x.lines||[]).length} bahan · ${esc(x.note||'Tanpa catatan')}</small><span class="badge brand">CETAK</span></button>`).join('')||'<div class="empty">Belum ada Surat Jalan berstatus DRAFT.</div>'}</div>`);
+    const rows=((state.data||{}).deliveries||[]).filter(x=>String(x.status||'').toUpperCase()==='DIKIRIM');
+    sheetHtml('SJ Siap Cetak',`<p>Hanya SJ yang sudah DIKIRIM dapat dicetak.</p><div class="direct-list">${rows.map(x=>`<button class="direct-card direct-click" data-print-sjid="${esc(x.sjId)}"><b>${esc(x.noSj)} · ${esc(x.outletName)}</b><small>${(x.lines||[]).length} bahan</small><span class="badge ok">SIAP KIRIM</span></button>`).join('')||'<div class="empty">Belum ada SJ berstatus DIKIRIM.</div>'}</div>`);
     $$('[data-print-sjid]').forEach(b=>b.onclick=()=>directPrintDeliveryDraft(b.dataset.printSjid));
   }
 
@@ -1460,6 +1460,8 @@
   }
   function directPrintDeliveryDraft(id){
     const d=((state.data||{}).deliveries||[]).find(x=>x.sjId===id);if(!d)return toast('SJ tidak ditemukan.');
+    if(!['DIKIRIM','DITERIMA','DITERIMA_SEBAGIAN','SELESAI','SELISIH'].includes(String(d.status||'').toUpperCase()))
+      return toast('Cetak Surat Jalan hanya setelah status Kirim terverifikasi.','warning');
     let saved=Number(localStorage.getItem('ww_thermal_width')||32);if(saved!==48)saved=32;const initial=deliveryThermalText(d,saved);
     sheetHtml('Cetak Thermal Bluetooth',`<p>Format checklist dibuat untuk printer thermal. Pilih lebar printer lalu tekan <b>Cetak Bluetooth (RawBT)</b>.</p><label class="field thermal-width"><span>Lebar Printer</span><select id="thermalWidth"><option value="32" ${saved===32?'selected':''}>58 mm · 32 karakter</option><option value="48" ${saved===48?'selected':''}>80 mm · 48 karakter</option></select></label><pre class="thermal-preview" id="thermalPreview">${esc(initial)}</pre><div class="actions"><button class="btn btn-line" id="thermalBack" type="button">Kembali</button><button class="btn btn-soft" id="thermalBrowser" type="button">Print Sistem</button><button class="btn btn-thermal" id="thermalRawbt" type="button">Cetak Bluetooth (RawBT)</button></div><div class="thermal-note">Checklist fisik diberikan ke barista untuk dicentang. Setelah pengecekan, kertas dapat difoto dan dikirim ke grup sebagai bukti.</div>`,{key:'delivery-thermal:'+id});
     const sel=$('#thermalWidth'),preview=$('#thermalPreview');const update=()=>{const w=Number(sel.value)===48?48:32;localStorage.setItem('ww_thermal_width',String(w));preview.textContent=deliveryThermalText(d,w);return preview.textContent};
