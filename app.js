@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  window.WW_FRONTEND_BUILD='2026-11-06.1.5.2.10-sj-top';
+  window.WW_FRONTEND_BUILD='2026-11-06.1.5.2.11-sj-simple';
 
 
   const $ = (q, root = document) => root.querySelector(q);
@@ -288,10 +288,9 @@
   function renderHome() {
     const d=state.data||{}, dash=d.dashboard||{};
     const role=currentRole(), finance=!inventoryOnlyV1520()&&dash.financeVisible!==false;
-    const draftCount=(d.deliveries||[]).filter(x=>String(x.status||'')==='DRAFT').length;
+    const draftCount=wwDraftSjCountV15211(d.deliveries);
     const bootstrapReady=Object.prototype.hasOwnProperty.call(dash,'activeMaterials');
-    const openReq=wwQueueV1526&&wwQueueV1526.counts?Number(wwQueueV1526.counts.PREPARE||0):
-      bootstrapReady?(d.incomingRequests||[]).filter(x=>String(x.warehouseStatus||'')==='MENUNGGU DISIAPKAN').length:null;
+    const openReq=Array.isArray(d.deliveries)?draftCount:null;
     const cashReady=dash.financeUnit&&dash.financeUnit.ready;
     const money=v=>v==null?'—':rp(v);
     const qty=v=>v==null?'—':num(v,0);
@@ -303,7 +302,7 @@
       kpiCard('Dalam Transit',money(dash.transitValue),qty(dash.transitLines)+' baris aktif')
     ].join(''):[
       kpiCard('Bahan Aktif',qty(dash.activeMaterials),'Stok fisik Warehouse'),
-      kpiCard('Harus Dikirim',qty(openReq),'Permintaan outlet aktif'),
+      kpiCard('Harus Dikirim',qty(openReq),'SJ DRAFT menunggu pengiriman'),
       kpiCard('Dalam Pengiriman',qty(dash.transitLines)+' baris','Status transit'),
       kpiCard('Pemulihan',qty(dash.recoveryPending),Number(dash.recoveryPending||0)?'Perlu perhatian':'Tidak ada proses tertunda')
     ].join('');
@@ -1232,6 +1231,13 @@
     return [...all.values()].sort((a,b)=>dateKey(b).localeCompare(dateKey(a))||String(b.createdAt||'').localeCompare(String(a.createdAt||'')));
   }
   // UI only: active SJ first, newest within each state, filtered by outlet (TGM -> TM).
+  // SJ badges count DRAFT only; historical SJ remain visible for audit/reprint.
+  function wwDraftSjCountV15211(deliveries,outletCode='ALL'){
+    const code=String(outletCode||'ALL').trim().toUpperCase();
+    return (Array.isArray(deliveries)?deliveries:[]).filter(x=>
+      x&&x.sjId&&String(x.status||'').trim().toUpperCase()==='DRAFT'&&
+      (code==='ALL'||wwRequestOutletV1522(x)===code)).length;
+  }
   function wwRecentSjForOutletV15210(deliveries,outletCode){
     const code=String(outletCode||'ALL').toUpperCase();
     const rows=(Array.isArray(deliveries)?deliveries:[]).filter(d=>
@@ -1280,7 +1286,7 @@
     if(!grouped.has(wwSelectedOutletV1522))wwSelectedOutletV1522='ALL';
     const menu=keys.map(k=>'<button type="button" class="ww-request-tab '+(k===wwSelectedOutletV1522?'is-active':'')+
       '" data-ww-request-outlet="'+esc(k)+'" aria-pressed="'+(k===wwSelectedOutletV1522)+'">'+
-      '<span>'+esc(k)+'</span><b>'+num(grouped.get(k).rows.length,0)+'</b></button>').join('');
+      '<span>'+esc(k)+'</span><b>'+num(wwDraftSjCountV15211(grouped.get(k).rows),0)+'</b></button>').join('');
     const selected=grouped.get(wwSelectedOutletV1522),
       entries=wwRecentSjForOutletV15210(rows,wwSelectedOutletV1522),
       knownSjIds=new Set(rows.map(x=>String(x&&x.sjId||'')).filter(Boolean)),
@@ -1310,12 +1316,12 @@
     const n={PREPARE:req.length,IN_TRANSIT:progress.length,HISTORY:history.length};
     sheetHtml('Bahan yang Harus Dikirim Sekarang',
       '<div class="ww-request-top"><b>Surat Jalan Terbaru</b><span>'+
-      num(entries.length,0)+' SJ ditampilkan</span></div>'+
+      num(wwDraftSjCountV15211(entries),0)+' DRAFT</span></div>'+
       loader+
       (wwQueueErrorV1526?'<div class="ww-dispatch-pending-note" role="status">Pembacaan status SJ belum berhasil: '+esc(wwQueueErrorV1526)+'. Data modul Warehouse ditampilkan sementara; jangan buat SJ ganda.</div>':'')+
       '<div class="ww-request-tabs" role="group" aria-label="Pilih outlet">'+(menu||'Belum ada outlet aktif')+'</div>'+
       '<div class="ww-request-section"><div class="ww-request-section-head"><b>'+esc(selected?selected.name:'Semua Outlet')+
-      '</b><span>'+num(entries.length,0)+' Surat Jalan</span></div><div class="ww-request-scroll">'+
+      '</b><span>'+num(wwDraftSjCountV15211(entries),0)+' DRAFT</span></div><div class="ww-request-scroll">'+
       (sj||'<div class="empty">Belum ada Surat Jalan pada outlet ini. Ketuk Muat Ulang bila perlu.</div>')+'</div></div>'+
       '<div class="ww-life-note">Pilih SJ DRAFT untuk Periksa Bahan / Cetak Thermal dan Konfirmasi Kirim. Stok hanya berkurang setelah pengiriman dikonfirmasi.</div>'+
       (missing.length?'<details class="ww-sj-collapse"><summary>Permintaan Belum Ada SJ <span>'+num(missing.length,0)+' permintaan</span></summary>'+
@@ -1873,8 +1879,7 @@
     let count = stockAlerts().length;
     if (Number(dash.recoveryPending || 0) > 0) count += 1;
     if (!inventoryOnlyV1520() && Number(dash.packingWageCount || 0) > 0) count += 1;
-    const req=(wwQueueV1526&&wwQueueV1526.rows||[]).filter(x=>x.group==='PREPARE');
-    if(req.length) count += 1;
+    if(wwDraftSjCountV15211((state.data||{}).deliveries)>0)count += 1;
     return count;
   }
 
@@ -1903,8 +1908,8 @@
     const other = [];
     if (Number(dash.recoveryPending || 0) > 0) other.push(`<div class="notice-row"><span class="notice-icon bad">${icons.warning}</span><div class="notice-copy"><b>Pemulihan transaksi</b><small>Ada transaksi yang perlu diperiksa sistem.</small></div><div class="notice-side"><strong>${num(dash.recoveryPending,0)}</strong><span class="badge bad">PERIKSA</span></div></div>`);
     if (!inventoryOnlyV1520() && Number(dash.packingWageCount || 0) > 0) other.push(`<div class="notice-row"><span class="notice-icon">${icons.money}</span><div class="notice-copy"><b>Upah packing belum dibayar</b><small>${num(dash.packingWageCount,0)} kewajiban upah masih terbuka.</small></div><div class="notice-side"><strong>${compactRp(dash.packingWageOutstanding)}</strong><span class="badge warn">BELUM LUNAS</span></div></div>`);
-    const req=(wwQueueV1526&&wwQueueV1526.rows||[]).filter(x=>x.group==='PREPARE');
-    if(req.length) other.push(`<div class="notice-row"><span class="notice-icon">${icons.truck}</span><div class="notice-copy"><b>Bahan yang Harus Dikirim Sekarang</b><small>${req.slice(0,4).map(x=>esc(x.outletName)+' · '+num(x.itemCount||0)+' bahan').join('<br>')}${req.length>4?'<br>+'+(req.length-4)+' permintaan lainnya':''}</small></div><div class="notice-side"><strong>${req.length}</strong><span class="badge warn">SIAPKAN</span></div></div>`);
+    const req=((state.data||{}).deliveries||[]).filter(x=>x.sjId&&String(x.status||'').trim().toUpperCase()==='DRAFT');
+    if(req.length) other.push(`<div class="notice-row"><span class="notice-icon">${icons.truck}</span><div class="notice-copy"><b>Surat Jalan DRAFT</b><small>${req.slice(0,4).map(x=>esc(x.outletName)+' · '+num((x.lines||[]).length,0)+' bahan').join('<br>')}${req.length>4?'<br>+'+(req.length-4)+' SJ DRAFT lainnya':''}</small></div><div class="notice-side"><strong>${req.length}</strong><span class="badge warn">DRAFT</span></div></div>`);
 
 
     if(wwQueueV1526&&wwQueueV1526.counts){
@@ -2031,7 +2036,7 @@
       reloadingForUpdate = true;
       window.location.reload();
     });
-    window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=1.5.2.10-sj-top', { updateViaCache: 'none' }).then(reg => reg.update()).catch(() => {}));
+    window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=1.5.2.11-sj-simple', { updateViaCache: 'none' }).then(reg => reg.update()).catch(() => {}));
   }
 
 
