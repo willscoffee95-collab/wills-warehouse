@@ -164,3 +164,17 @@ html{background:#fbf7f2!important;color-scheme:light;max-width:100%;min-height:1
   .ww-sj-action-panel .ww-sj-action{transition:none}
   .ww-sj-action-panel .ww-sj-action.is-loading::after{animation-duration:1.6s}
 }
+
+/* Warehouse SJ v1.5.2.13 — no-flicker inline dispatch confirmation */
+.ww-sj-inline-status-v15213{
+  display:flex;align-items:center;gap:10px;margin:12px 0;padding:12px 14px;
+  border:1px solid #e9d6c7;border-radius:14px;background:#fffaf5;
+  color:#6b5142;font-size:12px;font-weight:700;line-height:1.5;
+}
+.ww-sj-inline-status-v15213:empty{display:none}
+.ww-sj-inline-status-v15213 .ww-spin-v1526{
+  flex:0 0 auto;display:inline-block;vertical-align:middle;
+}
+@media(prefers-reduced-motion:reduce){
+  .ww-sj-inline-status-v15213 .ww-spin-v1526{animation-duration:1.6s}
+}
