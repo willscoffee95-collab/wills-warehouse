@@ -164,3 +164,25 @@ html{background:#fbf7f2!important;color-scheme:light;max-width:100%;min-height:1
   .ww-sj-action-panel .ww-sj-action{transition:none}
   .ww-sj-action-panel .ww-sj-action.is-loading::after{animation-duration:1.6s}
 }
+
+/* Warehouse v1.5.2.12 — clean three-step preparation workflow */
+.ww-prep-stage{
+  display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;
+  gap:6px 12px;margin:13px 0 9px;padding:12px 14px;border-radius:15px;
+  background:linear-gradient(110deg,#fef6f2,#fffaf6);border:1px solid #ecd8ce
+}
+.ww-prep-stage strong{font-size:11px;letter-spacing:.07em;color:#b84631}
+.ww-prep-stage span{font-size:12px;font-weight:750;color:#5a4840}
+.ww-prep-confirm{
+  display:flex;align-items:center;gap:12px;margin-top:14px;padding:15px 14px;
+  background:#fffaf5;border:1px solid #e9cbb9;border-radius:14px;
+  font-size:12px;line-height:1.55;font-weight:700;color:#55463b;cursor:pointer
+}
+.ww-prep-confirm input{flex:0 0 19px;width:19px;height:19px;accent-color:#ce4c30}
+.ww-preprint-summary p{margin:6px 0 0;font-size:12px;line-height:1.6}
+.ww-preprint-check .btn.is-loading,.ww-prep-confirm .btn.is-loading{pointer-events:none}
+@media(max-width:460px){
+  .ww-prep-stage{align-items:flex-start}
+  .ww-prep-stage span{font-size:11px}
+  .ww-prep-confirm{padding:12px;font-size:11.5px}
+}
