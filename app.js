@@ -939,11 +939,20 @@
       '<div id="wwPickingSavedStateV1525" class="ww-preprint-results">Cetak terkunci sebelum pemeriksaan tersimpan.</div>'+
       '<div class="actions"><button type="button" class="btn btn-line" id="opsV43RequestBack">Kembali</button>'+
       '<button type="button" class="btn btn-soft" id="opsV43RequestThermal" disabled>Cetak Thermal</button>'+
-      '<button type="button" class="btn btn-primary" id="opsV43RequestPrint" disabled>Cetak A4</button></div>',
+      '<button type="button" class="btn btn-soft" id="opsV43RequestPrint" disabled>Cetak A4</button></div>'+
+      '<div class="ww-preprint-head"><b>3. Pengiriman</b><span>Setelah hasil pemeriksaan tersimpan</span></div>'+
+      '<div class="actions"><button type="button" class="btn btn-primary" id="wwPickingGoDeliveryV15210" disabled>Lanjut ke Konfirmasi Kirim</button></div>',
       {key:'request-detail-v43:'+id});
     const root=$('#wwPickingContentV1525'),form=$('#wwPickingFormV1525'),save=$('#wwPickingSaveV1525'),
-      status=$('#wwPickingSavedStateV1525'),thermal=$('#opsV43RequestThermal'),print=$('#opsV43RequestPrint');
-    $('#opsV43RequestBack').onclick=directDelivery;
+      status=$('#wwPickingSavedStateV1525'),thermal=$('#opsV43RequestThermal'),print=$('#opsV43RequestPrint'),
+      goDelivery=$('#wwPickingGoDeliveryV15210');
+    const returnToSjV15210=()=>{
+      const sjId=String((source&&source.sjId)||req.linkedSjId||req.sjId||'');
+      const sj=((state.data||{}).deliveries||[]).find(x=>String(x.sjId)===sjId);
+      if(sj)directDeliveryDetail(sj.sjId);else directDelivery();
+    };
+    $('#opsV43RequestBack').onclick=returnToSjV15210;
+    goDelivery.onclick=returnToSjV15210;
     const printAndRecord=async(format)=>{
       const issued=format==='THERMAL'?opsPrintRequestThermalV43(requestId):opsPrintRequestV43(requestId);
       if(issued===false)return;
@@ -963,6 +972,7 @@
     let source=null,loading=false;
     const render=report=>{
       source=report;const adminLocked=!!report.lockedForStaff&&currentRole()!=='OWNER';
+      goDelivery.disabled=true;
       if(report.status!=='DRAFT'){
         root.textContent='Surat Jalan sudah berstatus '+report.status+'. Pemeriksaan tidak boleh diubah setelah pengiriman.';
         save.disabled=true;return;
@@ -992,6 +1002,7 @@
       const update=()=>{
         if(wwPickingReportV1525.has(id)){
           wwPickingReportV1525.delete(id);togglePrint();
+          goDelivery.disabled=true;
           status.textContent='Ada perubahan yang belum disimpan. Simpan kembali sebelum cetak.';
         }
         $$('[data-ww-pick-line]',root).forEach(card=>{
@@ -1009,6 +1020,7 @@
       });
       if(report.checked){
         wwPickingReportV1525.set(id,report);togglePrint();
+        goDelivery.disabled=!((state.data||{}).deliveries||[]).some(x=>String(x.sjId)===String(report.sjId||req.linkedSjId||req.sjId||''));
         status.textContent='Tersimpan oleh '+(report.reviewedBy||'staf gudang')+
           ' · '+(report.reviewedAt||'')+'. Struk menampilkan jumlah disiapkan & kekurangannya.';
       }
