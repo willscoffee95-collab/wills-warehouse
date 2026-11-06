@@ -1437,6 +1437,49 @@
       }
     }
   }
+  // Fast UI: reuse a short-lived read-only preparation response when navigating
+  // between Prepare / Double-check / Detail. The backend always revalidates a Send.
+  const wwPrepCacheV15212=new Map();
+  const wwPrepInFlightV15212=new Map();
+  function wwPrepClearV15212(requestId){
+    wwPrepCacheV15212.delete(String(requestId||''));
+  }
+  async function wwPrepGetV15212(requestId,force=false){
+    const id=String(requestId||''),cached=wwPrepCacheV15212.get(id),now=Date.now();
+    if(!force&&cached&&now-cached.at<12000)return cached.value;
+    if(wwPrepInFlightV15212.has(id))return wwPrepInFlightV15212.get(id);
+    const promise=bridge.call('getWarehousePreparationV15212',state.token,id).then(value=>{
+      if(!value||value.ok!==true||String(value.requestId)!==id||
+        !['MENUNGGU_DISIAPKAN','SIAP_CEK_ULANG','SIAP_KIRIM',
+          'DIKIRIM','DITERIMA','DITERIMA_SEBAGIAN','SELISIH','SELESAI','DIBATALKAN'].includes(String(value.phase||'')))
+        throw new Error('Status persiapan belum terverifikasi di server.');
+      wwPrepCacheV15212.set(id,{at:Date.now(),value});
+      return value;
+    }).finally(()=>wwPrepInFlightV15212.delete(id));
+    wwPrepInFlightV15212.set(id,promise);
+    return promise;
+  }
+  // Render only actions authorized by current server-side preparation stage.
+  function wwSjWorkflowMarkupV15212(phase,permissions,pending){
+    const st=String(phase||'').toUpperCase(),actions=[];
+    const action=(id,kind,icon,label)=>
+      '<button type="button" class="btn ww-sj-action ww-sj-action--'+kind+'" id="'+id+'">'+icon+'<span>'+label+'</span></button>';
+    if(pending)actions.push(action('ghCheckSjStatus','status',icons.clock,'Cek Status Kirim'));
+    else if(st==='MENUNGGU_DISIAPKAN'&&permissions.canPrepare)
+      actions.push(action('wwSjPrepareV15212','check',icons.clipboard,'Siapkan Bahan'));
+    else if(st==='SIAP_CEK_ULANG'&&permissions.canPrepare)
+      actions.push(action('wwSjReviewV15212','check',icons.clipboard,'Cek Ulang'));
+    else if(st==='SIAP_KIRIM'&&permissions.canDispatch)
+      actions.push(action('ghSendSj','send',icons.truck,'Konfirmasi Kirim'));
+    if(permissions.canCancel)
+      actions.push(action('ghCancelSj','cancel',icons.warning,'Batalkan'));
+    const name=st==='SIAP_KIRIM'?'Siap dikirim':st==='SIAP_CEK_ULANG'?
+      'Selesai disiapkan · menunggu cek ulang':'Menunggu disiapkan';
+    return '<div class="ww-prep-stage"><strong>DRAFT</strong><span>'+name+'</span></div>'+
+      (actions.length?'<div class="ww-sj-action-panel'+(actions.length===1?' is-single':'')+
+        '" role="group" aria-label="Tahap persiapan Surat Jalan">'+actions.join('')+'</div>':
+        '<div class="ww-preprint-summary">Akun ini tidak memiliki izin melanjutkan tahap ini.</div>');
+  }
   function directDeliveryDetail(id){
     const d=((state.data||{}).deliveries||[]).find(x=>x.sjId===id);if(!d)return toast('SJ tidak ditemukan.');
     const canPrepare=roleCan('DELIVERY_PREPARE'),canCorrect=roleCan('OWNER_ONLY'),canCancel=roleCan('OWNER_ONLY'),canDispatch=roleCan('DELIVERY_DISPATCH'),canSync=roleCan('DELIVERY_SYNC');
@@ -1445,28 +1488,59 @@
     const dateMeta=`<div class="delivery-date-meta"><b>Tanggal Surat Jalan</b><span>${esc(sjDate)}</span></div>`;
     const receiptLabel=!receiptLast?(receiptCount>0?'Sudah diterima · tanggal belum tercatat':'Belum diterima'):receiptFirst&&receiptFirst!==receiptLast?`${displayDateShort(receiptFirst)} – ${displayDateShort(receiptLast)}`:displayDateShort(receiptLast);
     const receiptMeta=`<div class="delivery-date-meta"><b>Tanggal Diterima Outlet</b><span>${esc(receiptLabel)}</span></div>`;
-    const sjActions=wwSjActionMarkupV15211(d,req,{
-      canPrint:actionAllowed('draftPrint'),canPrepare,canCancel,canDispatch
-    },pendingDispatch);
+    const draft=String(d.status||'').toUpperCase()==='DRAFT';
+    const sjActions=draft?
+      '<div id="wwSjWorkflowV15212" role="status" class="ww-preprint-summary"><span class="ww-spin-v1526" aria-hidden="true"></span> Membaca tahap persiapan…</div>':
+      wwSjActionMarkupV15211(d,req,{
+        canPrint:actionAllowed('draftPrint'),canPrepare,canCancel,canDispatch
+      },pendingDispatch);
     // Keep audited local recovery available to Owner, but outside the four main actions.
     const recoveryOnly=sjRecoveryEligibleV1527(id,d)?
       '<details class="ww-sj-recovery-tools"><summary>Pemulihan Owner</summary><button class="btn btn-line" type="button" id="ghRecoveryLocalSJ">Audit Recovery Owner</button></details>':'';
     sheetHtml(d.noSj,`<p><b>${esc(d.outletName)}</b> · ${deliveryStatusBadge(d.status)}${d.createdBy?' · dibuat '+esc(d.createdBy):''}</p>${dateMeta}${requestMeta}${receiptMeta}${pendingDispatch?'<div class="ww-dispatch-pending-note" role="status"><b>Status pengiriman belum pasti.</b> Jangan tekan Kirim lagi. Gunakan Cek Status Kirim untuk membaca status backend. Stok mungkin sudah berkurang. Cetak Thermal tetap dapat digunakan tanpa mengirim barang.</div>':''}<div class="direct-list">${(d.lines||[]).map(l=>{const requested=Number(l.requestedQtyUnit!=null?l.requestedQtyUnit:(l.qtyUnit||0)),approved=Number(l.qtyUnit||0),received=Number(l.receivedBase||0)/Number(l.factor||1),fulfillment=l.fulfillmentStatus||'DIPENUHI',fc=fulfillment==='DIPENUHI'?'ok':fulfillment==='TIDAK TERSEDIA'?'bad':'warn';return `<div class="direct-card"><b>${esc(l.name)}</b><small>Diminta ${num(requested)} · disiapkan ${num(approved)} ${esc(l.sendUnit)}${d.status!=='DRAFT'?' · diterima '+num(received):''}</small>${l.fulfillmentReason?`<small>Alasan: ${esc(l.fulfillmentReason)}</small>`:''}<span class="badge ${fc}">${esc(fulfillment)}</span></div>`}).join('')}</div>${sjActions}${recoveryOnly}`,{key:'delivery-detail:'+id});
     const p=$('#ghPrintSj');if(p)p.onclick=()=>directPrintDeliveryDraft(id);
-    const inspect=$('#wwSjCheckMaterialsV15210');if(inspect)inspect.onclick=()=>opsRequestDetailV43(req.requestId);
-    const a=$('#ghAdjustSj');if(a)a.onclick=()=>directFulfillment(id);
-    const c=$('#ghCancelSj');if(c)c.onclick=()=>{
-      if(!confirm('Batalkan Surat Jalan '+d.noSj+'? Tindakan ini tidak mengirim barang.'))return;
-      return wwSjWithLoadingV15211(c,()=>writeDeliveryDirect('cancel_'+id,'ownerCancelDeliveryDraftV1527',{sjId:id,reason:'Dibatalkan dari GitHub PWA'},id));
-    };
-    const check=$('#ghCheckSjStatus');if(check)check.onclick=()=>wwSjWithLoadingV15211(check,()=>dispatchCheckStatusV44(id));
-    const recovery=$('#ghRecoveryLocalSJ');if(recovery)recovery.onclick=()=>wwSjWithLoadingV15211(recovery,()=>recoverSjLocalV1527(id));
-    const k=$('#ghSendSj');if(k)k.onclick=()=>{
-      if(!confirm('Hanya qty yang sudah disiapkan/disetujui yang akan mengurangi stok. Barang benar-benar siap dikirim?'))return;
-      return wwSjWithLoadingV15211(k,()=>writeDeliveryDirect('dispatch_'+id,'dispatchDelivery',{sjId:id},id));
-    };
+    const recovery=$('#ghRecoveryLocalSJ');
+    if(recovery)recovery.onclick=()=>wwSjWithLoadingV15211(recovery,()=>recoverSjLocalV1527(id));
+    if(draft){
+      const panel=$('#wwSjWorkflowV15212');
+      if(!req||!req.requestId){
+        panel.textContent='Link permintaan outlet belum tersedia. Sinkronkan permintaan sebelum menyiapkan / mengirim SJ.';
+      }else{
+        // One narrow, coalesced backend status request; no full module reload while opening.
+        wwPrepGetV15212(req.requestId).then(view=>{
+          if(!panel.isConnected)return;
+          if(String(view.sjId)!==String(id)||String(view.status)!=='DRAFT')
+            throw new Error('SJ berubah. Gunakan Cek Status, jangan mengirim ulang.');
+          panel.innerHTML=wwSjWorkflowMarkupV15212(view.phase,
+            {canPrepare,canCancel,canDispatch},pendingDispatch);
+          const prepare=$('#wwSjPrepareV15212');
+          if(prepare)prepare.onclick=()=>opsRequestDetailV43(req.requestId);
+          const review=$('#wwSjReviewV15212');
+          if(review)review.onclick=()=>wwReviewPreparationV15212(req.requestId);
+          const cancel=$('#ghCancelSj');
+          if(cancel)cancel.onclick=()=>{
+            if(!confirm('Batalkan Surat Jalan '+d.noSj+'? Barang tidak akan dikirim.'))return;
+            return wwSjWithLoadingV15211(cancel,
+              ()=>writeDeliveryDirect('cancel_'+id,'ownerCancelDeliveryDraftV1527',
+                {sjId:id,reason:'Dibatalkan dari GitHub PWA'},id));
+          };
+          const check=$('#ghCheckSjStatus');
+          if(check)check.onclick=()=>wwSjWithLoadingV15211(check,()=>dispatchCheckStatusV44(id));
+          const send=$('#ghSendSj');
+          if(send)send.onclick=()=>{
+            if(!confirm('Persiapan dan Cek Ulang telah selesai. Konfirmasi barang siap diberangkatkan?'))return;
+            return wwSjWithLoadingV15211(send,()=>writeDeliveryDirect(
+              'dispatch_'+id,'dispatchWarehouseVerifiedV15212',
+              {sjId:id,requestId:req.requestId,reviewId:view.reviewId},id));
+          };
+        }).catch(error=>{
+          if(panel.isConnected)panel.textContent='Belum dapat memverifikasi persiapan: '+
+            String(error&&error.message||error)+'. Kirim ditahan sampai backend tersedia.';
+        });
+      }
+    }
 
-    if(String(d.status||'').toUpperCase()==='DRAFT'||pendingDispatch)dispatchMaybeRefreshFreshV45(id);
+    if(pendingDispatch)dispatchMaybeRefreshFreshV45(id);
   }
 
 
