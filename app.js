@@ -1060,6 +1060,65 @@
       }finally{loading=false;save.disabled=!!(source&&(source.checked||source.lockedForStaff&&currentRole()!=='OWNER'));save.classList.remove('is-loading');save.removeAttribute('aria-busy');endBusy();}
     };
   }
+  // Second physical review. Only the verified backend audit can unlock dispatch.
+  function wwReviewPreparationV15212(requestId) {
+    const id=String(requestId||'');
+    sheetHtml('Cek Ulang Sebelum Kirim',
+      '<div class="ww-preprint-summary"><b>2. Cek Ulang Bahan</b><p>Bandingkan kembali jumlah fisik dengan jumlah disiapkan. Permintaan asli outlet tidak berubah.</p></div>'+
+      '<div id="wwPrepReviewBodyV15212" class="direct-list" role="status"><span class="ww-spin-v1526" aria-hidden="true"></span> Membaca hasil persiapan terkunci…</div>'+
+      '<div class="actions"><button type="button" class="btn btn-line" id="wwPrepBackV15212">Kembali</button>'+
+      '<button type="button" class="btn btn-primary" id="wwPrepVerifyV15212" disabled>Selesai Cek Ulang</button></div>',
+      {key:'preparation-review:'+id});
+    const box=$('#wwPrepReviewBodyV15212'),button=$('#wwPrepVerifyV15212');
+    $('#wwPrepBackV15212').onclick=()=>opsRequestDetailV43(id);
+    withBusy('Memeriksa hasil persiapan di server…',async()=>{
+      const p=await bridge.call('getWarehousePreparationV15212',state.token,id);
+      if(!p||p.ok!==true||String(p.requestId)!==id||String(p.status)!=='DRAFT'||
+         !p.checked||!p.reviewId||!Array.isArray(p.lines)||!p.lines.length)
+        throw new Error('Persiapan belum selesai atau hasil server belum dapat dibaca.');
+      const already=p.verified===true&&p.phase==='SIAP_KIRIM';
+      box.innerHTML='<div class="ww-preprint-summary"><b>'+esc(p.noSj)+'</b> · '+esc(p.outletCode)+
+        (already?' · <b>CEK ULANG TERKONFIRMASI</b>':' · periksa setiap baris sekali lagi')+'</div>'+
+        p.lines.map(l=>'<div class="direct-card"><b>'+esc(l.name)+'</b>'+
+          '<small>Diminta '+num(l.requestedQtyUnit)+' '+esc(l.unit)+
+          ' · Disiapkan '+num(l.approvedQtyUnit)+' '+esc(l.unit)+'</small>'+
+          (l.reason?'<small>Alasan: '+esc(l.reason)+'</small>':'')+'</div>').join('')+
+        (already?'<div class="ww-preprint-summary">Hasil Cek Ulang sudah dicatat di server.</div>':
+          '<label class="ww-prep-confirm"><input type="checkbox" id="wwPrepPhysicalCheckedV15212"><span>Sudah saya periksa ulang semua bahan dan jumlah fisiknya sesuai.</span></label>');
+      button.disabled=false;
+      if(already){
+        button.textContent='Lanjut Konfirmasi Kirim';
+        button.onclick=()=>directDeliveryDetail(p.sjId);
+        return;
+      }
+      button.onclick=()=>wwSjWithLoadingV15211(button,async()=>{
+        if(!$('#wwPrepPhysicalCheckedV15212')?.checked){
+          toast('Centang konfirmasi pemeriksaan fisik setelah semua bahan dicek ulang.','warning');
+          return null;
+        }
+        const action='prepverify_'+id+'_'+String(p.reviewId).slice(-24);
+        const payload={requestId:id,sjId:p.sjId,reviewId:p.reviewId,
+          items:p.lines.map(l=>({lineNo:l.lineNo,code:l.code,
+            approvedQtyUnit:String(l.approvedQtyUnit),reason:l.reason||''}))};
+        const result=await withBusy('Mencatat Cek Ulang di server…',
+          ()=>bridge.call('verifyWarehousePreparationV15212',state.token,payload,idemKey(action)));
+        if(!result||result.ok!==true||result.verified!==true)
+          throw new Error('Cek Ulang belum dikonfirmasi server. Jangan Kirim.');
+        const fresh=await bridge.call('getWarehousePreparationV15212',state.token,id);
+        if(!fresh||fresh.ok!==true||fresh.verified!==true||fresh.phase!=='SIAP_KIRIM'||
+           String(fresh.reviewId)!==String(p.reviewId))
+          throw new Error('Hasil Cek Ulang belum terverifikasi dari pembacaan ulang.');
+        localStorage.removeItem('ww_gh_idem_'+action);
+        toast('Cek Ulang selesai. SJ siap Konfirmasi Kirim.','success');
+        directDeliveryDetail(p.sjId);
+        return result;
+      }).catch(e=>toast(String(e&&e.message||e),'warning'));
+    }).catch(e=>{
+      box.textContent='Tidak bisa melanjutkan: '+String(e&&e.message||e)+
+        '. Pengiriman dikunci sampai backend persiapan versi baru aktif.';
+      button.disabled=true;
+    });
+  }
   function opsPrintRequestThermalV43(requestId) {
     const req=opsRequestV43(requestId),lines=wwPickingPrintLinesV1525(requestId);
     if(!req||!lines)return false;
