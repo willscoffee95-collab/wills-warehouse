@@ -589,7 +589,20 @@
     if(opsWriteInFlightV43.has(action)){toast('Transaksi sedang diproses; jangan tekan Simpan dua kali.','warning');return null;}
     opsWriteInFlightV43.add(action);const idem=idemKey(action);beginBusy('Menyimpan…');try{const r=await bridge.call(method,state.token,payload||{},idem);if(r&&r.ok===false)throw new Error(r.message||'Transaksi gagal');localStorage.removeItem('ww_gh_idem_'+action);toast('Berhasil disimpan'+(r&&r.txnId?' · '+r.txnId:''));closeSheet();invalidateDataModules();refreshBootstrapLight().catch(err=>console.warn('[Wills Warehouse] refresh ringan:',err.message));return r}catch(e){toast(e.message);throw e}finally{opsWriteInFlightV43.delete(action);endBusy()}}
   async function reloadDeliveryModule(){const m=await bridge.call('getAppModule',state.token,'delivery');Object.assign(state.data,m||{});state.moduleReady.delivery=true;return m;}
-  function upsertFreshDeliveryV1354(d){if(!d||!d.sjId)return;state.data=state.data||{};const list=Array.isArray(state.data.deliveries)?state.data.deliveries:[];const i=list.findIndex(x=>String(x.sjId)===String(d.sjId));if(i>=0)list[i]=d;else list.unshift(d);state.data.deliveries=list;}
+  function upsertFreshDeliveryV1354(d){
+    if(!d||!d.sjId)return;
+    state.data=state.data||{};
+    const list=Array.isArray(state.data.deliveries)?state.data.deliveries:[],
+      i=list.findIndex(x=>String(x.sjId)===String(d.sjId));
+    // A short status acknowledgement must not erase saved SJ lines needed for thermal print.
+    if(i>=0){
+      const previous=list[i];
+      if((!Array.isArray(d.lines)||!d.lines.length)&&Array.isArray(previous.lines)&&previous.lines.length)
+        d={...previous,...d,lines:previous.lines};
+      list[i]=d;
+    }else list.unshift(d);
+    state.data.deliveries=list;
+  }
   // v4.4: persistent uncertainty guard: a slow Bridge response is never permission to dispatch again.
   const WW_DISPATCH_PENDING_PREFIX_V44='ww_dispatch_pending_v44_';
   function dispatchPendingKeyV44(id){return WW_DISPATCH_PENDING_PREFIX_V44+String(id||'').replace(/[^a-zA-Z0-9_-]/g,'').slice(0,100);}
@@ -1483,21 +1496,9 @@
       }
     }
   }
-  function directDeliveryDetail(id){
-    const d=((state.data||{}).deliveries||[]).find(x=>x.sjId===id);if(!d)return toast('SJ tidak ditemukan.');
-    const canPrepare=roleCan('DELIVERY_PREPARE'),canCorrect=roleCan('OWNER_ONLY'),canCancel=roleCan('OWNER_ONLY'),canDispatch=roleCan('DELIVERY_DISPATCH'),canSync=roleCan('DELIVERY_SYNC');
-    const pendingDispatch=dispatchPendingV44(id),req=findRequestForDelivery(d),sjDate=displayDateTimeShort(d.dispatchedAt||d.shipDate||d.createdAt),receiptFirst=String(d.outletReceiptFirstDate||''),receiptLast=String(d.outletReceiptLastDate||''),receiptCount=Number(d.outletReceiptCount||0);
-    const requestMeta=req?`<div class="delivery-request-meta"><b>Permintaan Outlet · ${esc(displayDateShort(req.requestDate||req.createdAt))}</b><span>${req.needDate?'Dibutuhkan '+esc(displayDateShort(req.needDate)):''}${req.itemCount?' · '+num(req.itemCount,0)+' bahan':''}</span></div>`:'';
-    const dateMeta=`<div class="delivery-date-meta"><b>Tanggal Surat Jalan</b><span>${esc(sjDate)}</span></div>`;
-    const receiptLabel=!receiptLast?(receiptCount>0?'Sudah diterima · tanggal belum tercatat':'Belum diterima'):receiptFirst&&receiptFirst!==receiptLast?`${displayDateShort(receiptFirst)} – ${displayDateShort(receiptLast)}`:displayDateShort(receiptLast);
-    const receiptMeta=`<div class="delivery-date-meta"><b>Tanggal Diterima Outlet</b><span>${esc(receiptLabel)}</span></div>`;
-    const sjActions=wwSjActionMarkupV15211(d,req,{
-      canPrint:actionAllowed('draftPrint'),canPrepare,canCancel,canDispatch
-    },pendingDispatch);
-    // Keep audited local recovery available to Owner, but outside the four main actions.
-    const recoveryOnly=sjRecoveryEligibleV1527(id,d)?
-      '<details class="ww-sj-recovery-tools"><summary>Pemulihan Owner</summary><button class="btn btn-line" type="button" id="ghRecoveryLocalSJ">Audit Recovery Owner</button></details>':'';
-    sheetHtml(d.noSj,`<p><b>${esc(d.outletName)}</b> · ${deliveryStatusBadge(d.status)}${d.createdBy?' · dibuat '+esc(d.createdBy):''}</p>${dateMeta}${requestMeta}${receiptMeta}${pendingDispatch?'<div class="ww-dispatch-pending-note" role="status"><b>Status pengiriman belum pasti.</b> Jangan tekan Kirim lagi. Gunakan Cek Status Kirim untuk membaca status backend. Stok mungkin sudah berkurang. Cetak Thermal tetap dapat digunakan tanpa mengirim barang.</div>':''}<div class="direct-list">${(d.lines||[]).map(l=>{const requested=Number(l.requestedQtyUnit!=null?l.requestedQtyUnit:(l.qtyUnit||0)),approved=Number(l.qtyUnit||0),received=Number(l.receivedBase||0)/Number(l.factor||1),fulfillment=l.fulfillmentStatus||'DIPENUHI',fc=fulfillment==='DIPENUHI'?'ok':fulfillment==='TIDAK TERSEDIA'?'bad':'warn';return `<div class="direct-card"><b>${esc(l.name)}</b><small>Diminta ${num(requested)} · disiapkan ${num(approved)} ${esc(l.sendUnit)}${d.status!=='DRAFT'?' · diterima '+num(received):''}</small>${l.fulfillmentReason?`<small>Alasan: ${esc(l.fulfillmentReason)}</small>`:''}<span class="badge ${fc}">${esc(fulfillment)}</span></div>`}).join('')}</div>${sjActions}${recoveryOnly}`,{key:'delivery-detail:'+id});
+  // Shared bindings for initial render and in-place actions replacement.
+  // A replaced action panel must bind its own handlers, not rebuild the sheet.
+  function wwSjBindActionsV15213(id,d,req){
     const p=$('#ghPrintSj');if(p)p.onclick=()=>directPrintDeliveryDraft(id);
     const inspect=$('#wwSjCheckMaterialsV15210');if(inspect)inspect.onclick=()=>opsRequestDetailV43(req.requestId);
     const a=$('#ghAdjustSj');if(a)a.onclick=()=>directFulfillment(id);
@@ -1512,6 +1513,23 @@
       return wwSjWithLoadingV15211(k,()=>writeDeliveryDirect('dispatch_'+id,'dispatchDelivery',{sjId:id},id));
     };
 
+  }
+  function directDeliveryDetail(id){
+    const d=((state.data||{}).deliveries||[]).find(x=>x.sjId===id);if(!d)return toast('SJ tidak ditemukan.');
+    const canPrepare=roleCan('DELIVERY_PREPARE'),canCorrect=roleCan('OWNER_ONLY'),canCancel=roleCan('OWNER_ONLY'),canDispatch=roleCan('DELIVERY_DISPATCH'),canSync=roleCan('DELIVERY_SYNC');
+    const pendingDispatch=dispatchPendingV44(id),req=findRequestForDelivery(d),sjDate=displayDateTimeShort(d.dispatchedAt||d.shipDate||d.createdAt),receiptFirst=String(d.outletReceiptFirstDate||''),receiptLast=String(d.outletReceiptLastDate||''),receiptCount=Number(d.outletReceiptCount||0);
+    const requestMeta=req?`<div class="delivery-request-meta"><b>Permintaan Outlet · ${esc(displayDateShort(req.requestDate||req.createdAt))}</b><span>${req.needDate?'Dibutuhkan '+esc(displayDateShort(req.needDate)):''}${req.itemCount?' · '+num(req.itemCount,0)+' bahan':''}</span></div>`:'';
+    const dateMeta=`<div class="delivery-date-meta"><b>Tanggal Surat Jalan</b><span>${esc(sjDate)}</span></div>`;
+    const receiptLabel=!receiptLast?(receiptCount>0?'Sudah diterima · tanggal belum tercatat':'Belum diterima'):receiptFirst&&receiptFirst!==receiptLast?`${displayDateShort(receiptFirst)} – ${displayDateShort(receiptLast)}`:displayDateShort(receiptLast);
+    const receiptMeta=`<div class="delivery-date-meta"><b>Tanggal Diterima Outlet</b><span>${esc(receiptLabel)}</span></div>`;
+    const sjActions=wwSjActionMarkupV15211(d,req,{
+      canPrint:actionAllowed('draftPrint'),canPrepare,canCancel,canDispatch
+    },pendingDispatch);
+    // Keep audited local recovery available to Owner, but outside the four main actions.
+    const recoveryOnly=sjRecoveryEligibleV1527(id,d)?
+      '<details class="ww-sj-recovery-tools"><summary>Pemulihan Owner</summary><button class="btn btn-line" type="button" id="ghRecoveryLocalSJ">Audit Recovery Owner</button></details>':'';
+    sheetHtml(d.noSj,`<p><b>${esc(d.outletName)}</b> · <span data-ww-sj-live-status>${deliveryStatusBadge(d.status)}</span>${d.createdBy?' · dibuat '+esc(d.createdBy):''}</p>${dateMeta}${requestMeta}${receiptMeta}<div class="ww-sj-inline-status-v15213" data-ww-sj-live-note role="status">${wwSjDispatchNoteV15213(id,d)}</div><div class="direct-list" data-ww-sj-live-lines>${wwSjRenderLinesV15213(d)}</div><div data-ww-sj-live-actions data-ww-sj-key="${esc(String(d.status||'')+'|'+!!pendingDispatch+'|'+!!(req&&req.requestId))}">${sjActions}</div>${recoveryOnly}`,{key:'delivery-detail:'+id});
+    wwSjBindActionsV15213(id,d,req);
     if(String(d.status||'').toUpperCase()==='DRAFT'||pendingDispatch)dispatchMaybeRefreshFreshV45(id);
   }
 
