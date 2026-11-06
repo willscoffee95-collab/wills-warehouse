@@ -136,7 +136,7 @@ function dispatchWarehouseVerifiedV15212(token,payload,idem){
   // Core dispatchDelivery owns its own write lock, idempotency and stock ledger.
   // Do not acquire withWriteLock_ here; that would create a nested lock.
   // Release gate: verify there is no Owner revision between this check and core lock.
-  return dispatchDelivery(token,{sjId:d.sjId},idem);
+  return dispatchDelivery(token,{sjId:d.sjId,requestId:linked.requestId,reviewId:fresh.reviewId},idem);
 }
 function ww15212PreparationAuditReadOnly(){
   const ss=warehouseSs_();
