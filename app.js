@@ -933,41 +933,22 @@
       '<span>Isi jumlah nyata yang bisa disiapkan</span></div>'+
       '<p>Isi 0 bila kosong. Jika hanya tersedia sebagian, isi jumlah yang bisa dikirim serta alasannya. Ini belum mengurangi stok.</p>'+
       '<form id="wwPickingFormV1525"><div id="wwPickingContentV1525" class="ww-preprint-results" role="status"><span class="ww-spin-v1526" aria-hidden="true"></span> Memuat rincian bahan, harga, dan status DRAFT…</div>'+
-      '<button class="btn btn-primary" id="wwPickingSaveV1525" type="submit" disabled>Simpan Hasil Pemeriksaan</button></form></div>'+
-      '<div class="ww-preprint-head"><b>2. Cetak Hasil Pemeriksaan</b><span>Setelah tersimpan</span></div>'+
-      '<div id="wwPickingSavedStateV1525" class="ww-preprint-results">Cetak terkunci sebelum pemeriksaan tersimpan.</div>'+
+      '<button class="btn btn-primary" id="wwPickingSaveV1525" type="submit" disabled>Selesai Disiapkan</button></form></div>'+
+      '<div class="ww-preprint-head"><b>2. Cek Ulang</b><span>Setelah selesai disiapkan</span></div>'+
+      '<div id="wwPickingSavedStateV1525" class="ww-preprint-results">Selesaikan persiapan dahulu. Belum ada pengiriman ataupun cetak SJ.</div>'+
       '<div class="actions"><button type="button" class="btn btn-line" id="opsV43RequestBack">Kembali</button>'+
-      '<button type="button" class="btn btn-soft" id="opsV43RequestThermal" disabled>Cetak Thermal</button>'+
-      '<button type="button" class="btn btn-soft" id="opsV43RequestPrint" disabled>Cetak A4</button></div>'+
-      '<div class="ww-preprint-head"><b>3. Pengiriman</b><span>Setelah hasil pemeriksaan tersimpan</span></div>'+
-      '<div class="actions"><button type="button" class="btn btn-primary" id="wwPickingGoDeliveryV15210" disabled>Lanjut ke Konfirmasi Kirim</button></div>',
+      '<button type="button" class="btn btn-primary" id="wwPickingGoDeliveryV15210" disabled>Cek Ulang Bahan</button></div>',
       {key:'request-detail-v43:'+id});
     const root=$('#wwPickingContentV1525'),form=$('#wwPickingFormV1525'),save=$('#wwPickingSaveV1525'),
-      status=$('#wwPickingSavedStateV1525'),thermal=$('#opsV43RequestThermal'),print=$('#opsV43RequestPrint'),
-      goDelivery=$('#wwPickingGoDeliveryV15210');
-    const returnToSjV15210=()=>{
+      status=$('#wwPickingSavedStateV1525'),goDelivery=$('#wwPickingGoDeliveryV15210');
+    const returnToSj=()=>{
       const sjId=String((source&&source.sjId)||req.linkedSjId||req.sjId||'');
       const sj=((state.data||{}).deliveries||[]).find(x=>String(x.sjId)===sjId);
       if(sj)directDeliveryDetail(sj.sjId);else directDelivery();
     };
-    $('#opsV43RequestBack').onclick=returnToSjV15210;
-    goDelivery.onclick=returnToSjV15210;
-    const printAndRecord=async(format)=>{
-      const issued=format==='THERMAL'?opsPrintRequestThermalV43(requestId):opsPrintRequestV43(requestId);
-      if(issued===false)return;
-      try{
-        await withBusy('Mencatat perintah cetak…',()=>bridge.call('markWarehousePickingPrintRequestedV1526',state.token,
-          {requestId:id,sjId:source&&source.sjId,reviewId:source&&source.reviewId,format},idemKey('print_'+format+'_'+id.length+'_'+id.slice(-9))));
-        wwQueueV1526=null;
-        status.textContent='Perintah cetak '+format+' telah dicatat. Surat Jalan tetap DRAFT sampai dikonfirmasi Kirim.';
-      }catch(err){toast('Perintah cetak terbuka, tetapi status cetak belum tercatat: '+err.message,'warning')}
-    };
-    thermal.onclick=()=>printAndRecord('THERMAL');
-    print.onclick=()=>printAndRecord('A4');
-    const togglePrint=()=>{
-      const allowed=!!wwPickingReportForPrintV1525(requestId);
-      thermal.disabled=!allowed;print.disabled=!allowed;
-    };
+    $('#opsV43RequestBack').onclick=returnToSj;
+    goDelivery.onclick=()=>wwReviewPreparationV15212(id);
+    const togglePrint=()=>{};
     let source=null,loading=false;
     const render=report=>{
       source=report;const adminLocked=!!report.lockedForStaff&&currentRole()!=='OWNER';
@@ -996,13 +977,13 @@
         (pricing&&pricing.hasChanged?'<small>Harga supplier/Pusat terbaru berbeda dari snapshot SJ. Tidak ada penggantian harga otomatis pada SJ lama.</small><br>':'')+
         (report.checked?'Hasil pemeriksaan sebelumnya ditemukan; boleh dicetak atau diperbarui.':'Belum ada pemeriksaan tersimpan. Sesuaikan jumlah nyata lalu simpan.')+
         '</div>'+notes;
-      save.disabled=adminLocked||!report.lines.length;
-      if(adminLocked)$$('.ww-pick-qty,.ww-pick-reason',root).forEach(input=>{input.disabled=true;input.setAttribute('aria-readonly','true')});
+      save.disabled=!!report.checked||adminLocked||!report.lines.length;
+      if(adminLocked||report.checked)$('.ww-pick-qty,.ww-pick-reason',root).forEach(input=>{input.disabled=true;input.setAttribute('aria-readonly','true')});
       const update=()=>{
         if(wwPickingReportV1525.has(id)){
           wwPickingReportV1525.delete(id);togglePrint();
           goDelivery.disabled=true;
-          status.textContent='Ada perubahan yang belum disimpan. Simpan kembali sebelum cetak.';
+          status.textContent='Persiapan berubah. Pilih Selesai Disiapkan untuk mengunci hasil.';
         }
         $$('[data-ww-pick-line]',root).forEach(card=>{
           const qty=Number(card.querySelector('.ww-pick-qty').value||0);
@@ -1019,9 +1000,9 @@
       });
       if(report.checked){
         wwPickingReportV1525.set(id,report);togglePrint();
-        goDelivery.disabled=!((state.data||{}).deliveries||[]).some(x=>String(x.sjId)===String(report.sjId||req.linkedSjId||req.sjId||''));
+        goDelivery.disabled=false;
         status.textContent='Tersimpan oleh '+(report.reviewedBy||'staf gudang')+
-          ' · '+(report.reviewedAt||'')+'. Struk menampilkan jumlah disiapkan & kekurangannya.';
+          ' · '+(report.reviewedAt||'')+'. Hasil persiapan dikunci. Lanjut Cek Ulang sebelum Kirim.';
       }
     };
     // Both reads are read-only; form remains locked if price or SJ cannot be verified.
@@ -1056,9 +1037,9 @@
         items.push({lineNo,code,approvedQtyUnit:raw,reason:reason});
       });
       if(errors.length)return toast(errors.slice(0,2).join(' • '),'warning');
-      loading=true;save.disabled=true;thermal.disabled=true;print.disabled=true;beginBusy('Menyimpan hasil pemeriksaan…');
+      loading=true;save.disabled=true;goDelivery.disabled=true;save.classList.add('is-loading');save.setAttribute('aria-busy','true');beginBusy('Menyelesaikan persiapan bahan…');
       wwPickingReportV1525.delete(id);
-      status.textContent='Menyimpan keputusan ketersediaan ke DRAFT SJ…';
+      status.textContent='Menyimpan jumlah aktual dan mengunci hasil persiapan…';
       try{
         // The server validates every SJ line, role, idempotency and DRAFT status.
         const safePickAction='pick_'+Array.from(id).reduce((h,c)=>Math.imul(h^c.charCodeAt(0),16777619)>>>0,2166136261).toString(16)+'_'+id.length;
@@ -1069,14 +1050,14 @@
         const fresh=await bridge.call('getWarehouseRequestAvailabilityV1525',state.token,id);
         if(!fresh||!fresh.checked)throw new Error('Sudah tersimpan tetapi pemeriksaan terbaru belum terverifikasi. Buka ulang rincian.');
         render(fresh);wwQueueV1526=null;
-        toast('Cek ketersediaan tersimpan. Barang kosong/sebagian tercatat di SJ.','success');
+        toast('Selesai Disiapkan. Periksa ulang sebelum Konfirmasi Kirim.','success');
         reloadDeliveryModule().catch(()=>{});
       }catch(err){
         wwPickingReportV1525.delete(id);togglePrint();
         status.textContent='Belum berhasil dikonfirmasi: '+String(err&&err.message||err)+
           '. Jangan klik simpan ulang jika status tidak pasti. Buka ulang rincian & periksa hasilnya.';
-        toast('Simpan belum terverifikasi; cetak tetap terkunci.','warning');
-      }finally{loading=false;save.disabled=!!(source&&source.lockedForStaff&&currentRole()!=='OWNER');endBusy();}
+        toast('Selesai Disiapkan belum terverifikasi; Kirim masih terkunci.','warning');
+      }finally{loading=false;save.disabled=!!(source&&(source.checked||source.lockedForStaff&&currentRole()!=='OWNER'));save.classList.remove('is-loading');save.removeAttribute('aria-busy');endBusy();}
     };
   }
   function opsPrintRequestThermalV43(requestId) {
