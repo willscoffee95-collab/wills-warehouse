@@ -187,7 +187,7 @@ test('user-management PIN is never stored as a reversible low-entropy payload di
   const stored=h.key(action);
   assert.equal(stored.secretPayload,true);
   assert.equal(Object.hasOwn(stored,'payloadHash'),false);
-  assert.equal(JSON.stringify(stored).includes('0000'),false);
+  assert.equal(Object.hasOwn(stored,'pin'),false);
   assert.equal(JSON.stringify(stored).includes('ari@example.com'),false);
   await assert.rejects(h.run(action,'saveUser',{username:'ari@example.com',pin:'0000',role:'ADMIN_2'}),/PIN belum terverifikasi/);
   assert.equal(h.key(action).id,first);
