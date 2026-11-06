@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  window.WW_FRONTEND_BUILD='2026-11-01.1.5.2.9-so-owner-admin-lock';
+  window.WW_FRONTEND_BUILD='2026-11-06.1.6.0-safety-rc1';
 
 
   const $ = (q, root = document) => root.querySelector(q);
@@ -61,9 +61,17 @@
     if(fromCache){const c=$('#content');if(c)c.dataset.fastSnapshot='1';}
   }
   function isSessionErrorV1360(err){const m=String(err&&err.message||err||'').toLowerCase();return m.includes('sesi')||m.includes('login kembali')||m.includes('user tidak aktif');}
-  function invalidateSessionV1360(message){
-    localStorage.removeItem(TOKEN_KEY);clearBootstrapSnapshotV1360();state.token='';state.data=null;state.moduleReady=Object.create(null);state.modulePromises=Object.create(null);resetSheetNavigation();appHistoryReady=false;
+  function invalidateSessionV1360(message,preserveStoredToken){
+    // Another tab changing login must not cause this tab to erase its new token.
+    if(!preserveStoredToken){localStorage.removeItem(TOKEN_KEY);clearBootstrapSnapshotV1360();}
+    state.token='';state.data=null;state.moduleReady=Object.create(null);state.modulePromises=Object.create(null);resetSheetNavigation();appHistoryReady=false;
     $('#mainView').classList.add('is-hidden');$('#loginView').classList.remove('is-hidden');if(message)toast(message,'warning');
+  }
+  // Discard only this tab's outdated UI session; leave other tab's token in storage.
+  function onWarehouseAuthStorageV160(event){
+    if(!event||event.key!==TOKEN_KEY||!state.token)return;
+    if(String(event.newValue||'')===String(state.token))return;
+    invalidateSessionV1360('Akun Warehouse berubah di tab lain. Silakan login kembali.',true);
   }
 
 
@@ -585,27 +593,143 @@
     $('#sheetClose').onclick=closeSheet; $('#sheetBackdrop').onclick=e=>{if(e.target.id==='sheetBackdrop')closeSheet()};
   }
   function idemKey(action){const k='ww_gh_idem_'+action;let x;try{x=JSON.parse(localStorage.getItem(k)||'null')}catch(_){x=null}if(x&&Date.now()-x.ts<86400000)return x.id;const id=action+':'+Date.now()+':'+Math.random().toString(36).slice(2);localStorage.setItem(k,JSON.stringify({id,ts:Date.now()}));return id}
+  // v1.6: a retry must have exactly the SAME method and payload as its original write.
+  // Keep unresolved keys indefinitely; an arbitrary 24h expiry could cause a second posting.
+  // The digest stores no user PIN / transaction contents in localStorage.
+  function canonicalMutationPayloadV160(value){
+    if(Array.isArray(value))return value.map(canonicalMutationPayloadV160);
+    if(value&&typeof value==='object'){
+      const ordered={};
+      Object.keys(value).sort().forEach(k=>{if(value[k]!==undefined)ordered[k]=canonicalMutationPayloadV160(value[k]);});
+      return ordered;
+    }
+    return value;
+  }
+  // Web Locks serializes creation of a local idempotency key across tabs of the same origin.
+  // It is not a substitute for server-side idempotency across separate devices.
+  async function lockedMutationIdemV160(action,method,payload){
+    const locks=typeof navigator!=='undefined'&&navigator.locks;
+    if(locks&&typeof locks.request==='function'){
+      return locks.request('ww-idem-v160:'+String(action||''),{mode:'exclusive'},
+        ()=>reserveMutationIdemV160(action,method,payload));
+    }
+    return reserveMutationIdemV160(action,method,payload);
+  }
+  async function reserveMutationIdemV160(action,method,payload){
+    const key='ww_gh_idem_'+String(action||''),raw=localStorage.getItem(key);
+    let previous=null;
+    if(raw!==null){
+      try{previous=JSON.parse(raw);}catch(_){throw new Error('Kunci transaksi lokal rusak. Periksa Riwayat/Audit sebelum mengulangi.');}
+      if(!previous||typeof previous!=='object'||!previous.id)
+        throw new Error('Kunci transaksi tidak valid. Periksa Riwayat/Audit sebelum mengulangi.');
+    }
+    if(!window.crypto||!window.crypto.subtle||typeof TextEncoder==='undefined')
+      throw new Error('Verifikasi transaksi aman tidak tersedia di browser ini. Gunakan browser HTTPS terbaru.');
+    // A stored unsalted fingerprint of a short PIN can be brute-forced offline.
+    // For user maintenance with a new PIN, do not persist a PIN-derived digest at all.
+    // An uncertain secret-bearing write must be reconciled before any new attempt.
+    const secretPayload=String(method||'')==='saveUser'&&
+      payload&&Object.prototype.hasOwnProperty.call(payload,'pin')&&String(payload.pin||'').length>0;
+    let fingerprint='';
+    if(!secretPayload){
+      const json=JSON.stringify({method:String(method||''),payload:canonicalMutationPayloadV160(payload||{})});
+      const bytes=await window.crypto.subtle.digest('SHA-256',new TextEncoder().encode(json));
+      fingerprint=Array.from(new Uint8Array(bytes),b=>b.toString(16).padStart(2,'0')).join('');
+    }
+    // Check again after asynchronous hashing: another tab could have written the key meanwhile.
+    const currentRaw=localStorage.getItem(key);
+    if(currentRaw!==null){
+      let current;
+      try{current=JSON.parse(currentRaw);}catch(_){throw new Error('Kunci transaksi berubah/rusak. Periksa Riwayat/Audit.');}
+      if(!current||typeof current!=='object'||!current.id)
+        throw new Error('Kunci transaksi berubah. Periksa Riwayat/Audit.');
+      if(current.secretPayload===true||secretPayload)
+        throw new Error('Perubahan data pengguna dengan PIN belum terverifikasi. Periksa Audit Owner sebelum mencoba lagi.');
+      if(!current.payloadHash)
+        throw new Error('Ada transaksi versi lama yang belum terverifikasi. Periksa Riwayat/Audit sebelum posting baru.');
+      if(current.payloadHash!==fingerprint||String(current.method||'')!==String(method||''))
+        throw new Error('Isi transaksi berbeda dari percobaan sebelumnya. Jangan ubah jumlah atau metode sebelum status lama dipastikan.');
+      return String(current.id);
+    }
+    if(previous)throw new Error('Kunci transaksi berubah saat diverifikasi. Periksa Riwayat/Audit.');
+    const actionKey=String(action||'').replace(/[^a-zA-Z0-9._:-]/g,'_').slice(0,54)||'write';
+    const random=window.crypto.randomUUID?window.crypto.randomUUID():Math.random().toString(36).slice(2);
+    const id=actionKey+':'+Date.now()+':'+random;
+    if(!/^[A-Za-z0-9._:-]{12,120}$/.test(id))
+      throw new Error('Idempotency key transaksi tidak valid.');
+    localStorage.setItem(key,JSON.stringify(secretPayload?
+      {id,ts:Date.now(),method:String(method||''),secretPayload:true}:
+      {id,ts:Date.now(),method:String(method||''),payloadHash:fingerprint}));
+    return id;
+  }
+  // v1.6: fail closed when a mutation response is missing, reversed or pending recovery.
+  // Do not erase the original idempotency key unless a positive server acknowledgement exists.
+  function requireConfirmedWarehouseWriteV160(response,label){
+    const name=String(label||'Transaksi');
+    if(!response||typeof response!=='object'||Array.isArray(response))
+      throw new Error(name+': hasil backend belum dapat dipastikan. Periksa Riwayat/Audit sebelum mengulangi.');
+    const status=String(response.status||'').trim().toUpperCase();
+    if(response.pendingRecovery===true||['POSTING','PENDING','PENDING_RECOVERY','RECOVERY_PENDING'].includes(status))
+      throw new Error(name+': transaksi menunggu recovery. Jangan posting ulang; periksa Riwayat/Audit.');
+    if(status==='REVERSED')
+      throw new Error(name+': idempotency key mengarah ke transaksi yang sudah direversal. Jangan ulangi tanpa audit Owner.');
+    if(response.ok===false||['ERROR','FAILED','CANCELED','CANCELLED'].includes(status))
+      throw new Error(String(response.message||response.error||name+' ditolak backend.'));
+    if(response.ok!==true&&status!=='POSTED')
+      throw new Error(name+': belum ada konfirmasi sukses yang jelas dari backend. Periksa Riwayat/Audit.');
+    return response;
+  }
   const opsWriteInFlightV43=new Set();
   async function writeDirect(action,method,payload){
     if(opsWriteInFlightV43.has(action)){toast('Transaksi sedang diproses; jangan tekan Simpan dua kali.','warning');return null;}
-    opsWriteInFlightV43.add(action);const idem=idemKey(action);beginBusy('Menyimpan…');try{const r=await bridge.call(method,state.token,payload||{},idem);if(r&&r.ok===false)throw new Error(r.message||'Transaksi gagal');localStorage.removeItem('ww_gh_idem_'+action);toast('Berhasil disimpan'+(r&&r.txnId?' · '+r.txnId:''));closeSheet();invalidateDataModules();refreshBootstrapLight().catch(err=>console.warn('[Wills Warehouse] refresh ringan:',err.message));return r}catch(e){toast(e.message);throw e}finally{opsWriteInFlightV43.delete(action);endBusy()}}
+    opsWriteInFlightV43.add(action);beginBusy('Menyimpan…');try{const idem=await lockedMutationIdemV160(action,method,payload||{});const r=await bridge.call(method,state.token,payload||{},idem);requireConfirmedWarehouseWriteV160(r,'Transaksi '+action);localStorage.removeItem('ww_gh_idem_'+action);toast('Berhasil disimpan'+(r&&r.txnId?' · '+r.txnId:''));closeSheet();invalidateDataModules();refreshBootstrapLight().catch(err=>console.warn('[Wills Warehouse] refresh ringan:',err.message));return r}catch(e){toast(e.message);throw e}finally{opsWriteInFlightV43.delete(action);endBusy()}}
   async function reloadDeliveryModule(){const m=await bridge.call('getAppModule',state.token,'delivery');Object.assign(state.data,m||{});state.moduleReady.delivery=true;return m;}
   function upsertFreshDeliveryV1354(d){if(!d||!d.sjId)return;state.data=state.data||{};const list=Array.isArray(state.data.deliveries)?state.data.deliveries:[];const i=list.findIndex(x=>String(x.sjId)===String(d.sjId));if(i>=0)list[i]=d;else list.unshift(d);state.data.deliveries=list;}
   // v4.4: persistent uncertainty guard: a slow Bridge response is never permission to dispatch again.
   const WW_DISPATCH_PENDING_PREFIX_V44='ww_dispatch_pending_v44_';
   function dispatchPendingKeyV44(id){return WW_DISPATCH_PENDING_PREFIX_V44+String(id||'').replace(/[^a-zA-Z0-9_-]/g,'').slice(0,100);}
-  function dispatchPendingV44(id){try{return JSON.parse(localStorage.getItem(dispatchPendingKeyV44(id))||'null')}catch(_){return null}}
-  function dispatchStorePendingV44(id,idem){try{localStorage.setItem(dispatchPendingKeyV44(id),JSON.stringify({sjId:String(id),idem:String(idem),startedAt:Date.now()}))}catch(_){}}
+  // Fail closed if dispatch state is corrupt or browser storage is unavailable.
+  // An unreadable lock must never be interpreted as "safe to dispatch".
+  function dispatchPendingV44(id){
+    try{
+      const raw=localStorage.getItem(dispatchPendingKeyV44(id));
+      if(raw===null)return null;
+      const entry=JSON.parse(raw);
+      if(!entry||typeof entry!=='object'||String(entry.sjId||'')!==String(id)||
+         !String(entry.idem||'').trim())
+        return {sjId:String(id),invalid:true};
+      return entry;
+    }catch(_){return {sjId:String(id),invalid:true};}
+  }
+  function dispatchStorePendingV44(id,idem){
+    if(!String(idem||'').trim())throw new Error('Idempotency key Kirim SJ tidak tersedia. Kirim ditahan.');
+    if(dispatchPendingV44(id))throw new Error('Pengunci SJ sudah aktif atau tidak dapat dibaca. Kirim ditahan.');
+    const key=dispatchPendingKeyV44(id),value=JSON.stringify({sjId:String(id),idem:String(idem),startedAt:Date.now()});
+    try{
+      localStorage.setItem(key,value);
+      const persisted=dispatchPendingV44(id);
+      if(!persisted||persisted.invalid||String(persisted.idem)!==String(idem))
+        throw new Error('Pengunci SJ tidak terverifikasi.');
+    }catch(_){
+      throw new Error('Pengunci pengiriman tidak dapat disimpan secara aman. SJ tidak dikirim. Periksa penyimpanan browser lalu Cek Status.');
+    }
+  }
   function dispatchClearPendingV44(id){try{localStorage.removeItem(dispatchPendingKeyV44(id));localStorage.removeItem('ww_gh_idem_dispatch_'+id)}catch(_){}}
   function dispatchUpdateIfVisibleV44(id){
     const key=currentSheetKey();
     if(key==='delivery-detail:'+id)directDeliveryDetail(id);
     else if(key==='delivery-list')directDelivery();
   }
+  // Never release an uncertain dispatch lock based on a missing or unknown status.
+  // Only confirmed downstream SJ states prove dispatch is no longer a DRAFT.
+  const WW_DISPATCH_CONFIRMED_STATES_V160=Object.freeze([
+    'DIKIRIM','DITERIMA','DITERIMA_SEBAGIAN','SELISIH','SELESAI'
+  ]);
   function dispatchApplyStatusV44(id,fresh){
     if(!fresh||String(fresh.sjId||'')!==String(id))return false;
+    const status=String(fresh.status||'').trim().toUpperCase();
+    if(!WW_DISPATCH_CONFIRMED_STATES_V160.includes(status))return false;
     upsertFreshDeliveryV1354(fresh);
-    if(String(fresh.status||'').toUpperCase()==='DRAFT')return false;
     dispatchClearPendingV44(id);
     dispatchUpdateIfVisibleV44(id);
     return true;
@@ -700,7 +824,9 @@
     finally{opsWriteInFlightV43.delete('status_'+id);endBusy();}
   }
   function dispatchAcceptResponseV44(id,response){
-    if(!response||response.ok===false){
+    const txStatus=String(response&&response.status||'').trim().toUpperCase();
+    if(!response||response.ok!==true||response.pendingRecovery===true||
+       ['POSTING','PENDING','PENDING_RECOVERY','RECOVERY_PENDING','REVERSED','FAILED','ERROR'].includes(txStatus)){
       toast('Hasil Kirim belum berhasil dikonfirmasi. Jangan kirim ulang; gunakan Cek Status.','warning',12000);
       dispatchUpdateIfVisibleV44(id);return;
     }
@@ -725,10 +851,11 @@
       dispatchUpdateIfVisibleV44(sjId);return {ok:false,pending:true};
     }
     opsWriteInFlightV43.add(action);
-    const idem=idemKey(action),fromKey=currentSheetKey();
-    if(dispatch)dispatchStorePendingV44(sjId,idem);
+    const fromKey=currentSheetKey();
     beginBusy(dispatch?'Konfirmasi Kirim SJ…':'Memproses Surat Jalan…');
     try{
+      const idem=await lockedMutationIdemV160(action,method,payload||{});
+      if(dispatch)dispatchStorePendingV44(sjId,idem);
       if(dispatch){
         const remote=bridge.call(method,state.token,payload||{},idem);
         const guarded=remote.then(value=>({type:'value',value}),error=>({type:'error',error}));
@@ -752,7 +879,7 @@
         return result.value;
       }
       const result=await bridge.call(method,state.token,payload||{},idem);
-      if(result&&result.ok===false)throw new Error(result.message||'Proses SJ gagal.');
+      requireConfirmedWarehouseWriteV160(result,'Surat Jalan '+action);
       localStorage.removeItem('ww_gh_idem_'+action);
       toast('Berhasil disimpan'+(result&&result.txnId?' · '+result.txnId:''),'success');
       // Keep the original follow-up navigation, but refresh outside this spinner.
@@ -944,15 +1071,29 @@
     const root=$('#wwPickingContentV1525'),form=$('#wwPickingFormV1525'),save=$('#wwPickingSaveV1525'),
       status=$('#wwPickingSavedStateV1525'),thermal=$('#opsV43RequestThermal'),print=$('#opsV43RequestPrint');
     $('#opsV43RequestBack').onclick=directDelivery;
+    let printRecordBusyV160=false;
     const printAndRecord=async(format)=>{
-      const issued=format==='THERMAL'?opsPrintRequestThermalV43(requestId):opsPrintRequestV43(requestId);
-      if(issued===false)return;
+      if(printRecordBusyV160)return toast('Perintah cetak sebelumnya masih diproses.','warning');
+      printRecordBusyV160=true;thermal.disabled=true;print.disabled=true;
       try{
-        await withBusy('Mencatat perintah cetak…',()=>bridge.call('markWarehousePickingPrintRequestedV1526',state.token,
-          {requestId:id,sjId:source&&source.sjId,reviewId:source&&source.reviewId,format},idemKey('print_'+format+'_'+id.length+'_'+id.slice(-9))));
+        // Preserve existing print flow. Audit recording is separate from physical printing.
+        const issued=format==='THERMAL'?opsPrintRequestThermalV43(requestId):opsPrintRequestV43(requestId);
+        if(issued===false)return;
+        const method='markWarehousePickingPrintRequestedV1526',
+          action='print_'+format+'_'+String(id).replace(/[^a-zA-Z0-9_-]/g,'').slice(0,100),
+          payload={requestId:id,sjId:source&&source.sjId,reviewId:source&&source.reviewId,format};
+        const idem=await lockedMutationIdemV160(action,method,payload);
+        const result=await withBusy('Mencatat perintah cetak…',()=>bridge.call(method,state.token,payload,idem));
+        requireConfirmedWarehouseWriteV160(result,'Pencatatan cetak SJ');
+        localStorage.removeItem('ww_gh_idem_'+action);
         wwQueueV1526=null;
         status.textContent='Perintah cetak '+format+' telah dicatat. Surat Jalan tetap DRAFT sampai dikonfirmasi Kirim.';
-      }catch(err){toast('Perintah cetak terbuka, tetapi status cetak belum tercatat: '+err.message,'warning')}
+      }catch(err){
+        toast('Perintah cetak mungkin sudah dibuka, tetapi pencatatan belum terverifikasi: '+String(err&&err.message||err)+'. Periksa Riwayat sebelum mencoba ulang.','warning');
+      }finally{
+        printRecordBusyV160=false;
+        togglePrint();
+      }
     };
     thermal.onclick=()=>printAndRecord('THERMAL');
     print.onclick=()=>printAndRecord('A4');
@@ -1051,12 +1192,15 @@
       try{
         // The server validates every SJ line, role, idempotency and DRAFT status.
         const safePickAction='pick_'+Array.from(id).reduce((h,c)=>Math.imul(h^c.charCodeAt(0),16777619)>>>0,2166136261).toString(16)+'_'+id.length;
-        const result=await bridge.call('saveWarehouseRequestAvailabilityV1525',state.token,
-          {requestId:id,sjId:source.sjId,items:items},idemKey(safePickAction));
-        if(!result||result.ok!==true)throw new Error('Simpan pemeriksaan belum terkonfirmasi.');
-        localStorage.removeItem('ww_gh_idem_'+safePickAction);
+        const method='saveWarehouseRequestAvailabilityV1525',
+          pickPayload={requestId:id,sjId:source.sjId,items:items},
+          idem=await lockedMutationIdemV160(safePickAction,method,pickPayload);
+        const result=await bridge.call(method,state.token,pickPayload,idem);
+        requireConfirmedWarehouseWriteV160(result,'Pemeriksaan bahan gudang');
         const fresh=await bridge.call('getWarehouseRequestAvailabilityV1525',state.token,id);
-        if(!fresh||!fresh.checked)throw new Error('Sudah tersimpan tetapi pemeriksaan terbaru belum terverifikasi. Buka ulang rincian.');
+        verifySavedPickingV160(fresh,source,items);
+        // Only release the local key after server acknowledgement AND fresh matching data.
+        localStorage.removeItem('ww_gh_idem_'+safePickAction);
         render(fresh);wwQueueV1526=null;
         toast('Cek ketersediaan tersimpan. Barang kosong/sebagian tercatat di SJ.','success');
         reloadDeliveryModule().catch(()=>{});
@@ -1067,6 +1211,31 @@
         toast('Simpan belum terverifikasi; cetak tetap terkunci.','warning');
       }finally{loading=false;save.disabled=!!(source&&source.lockedForStaff&&currentRole()!=='OWNER');endBusy();}
     };
+  }
+  // v1.6: a positive write acknowledgement is not enough when the reloaded
+  // DRAFT SJ still carries different picking quantities. Keep the retry key locked.
+  function verifySavedPickingV160(fresh,source,items){
+    if(!fresh||!fresh.checked||!Array.isArray(fresh.lines))
+      throw new Error('Hasil picking terbaru belum terverifikasi. Jangan ulangi dengan jumlah berbeda.');
+    if(source&&source.sjId&&fresh.sjId&&String(source.sjId)!==String(fresh.sjId))
+      throw new Error('Referensi Surat Jalan berubah setelah simpan. Periksa Audit.');
+    if(!Array.isArray(items)||!items.length||fresh.lines.length!==items.length)
+      throw new Error('Jumlah baris picking tidak sesuai dengan hasil backend. Periksa Audit.');
+    const seen=new Set();
+    for(const item of items){
+      const key=String(item.lineNo)+'|'+String(item.code);
+      if(seen.has(key))throw new Error('Baris picking ganda. Periksa Audit.');
+      seen.add(key);
+      const matches=fresh.lines.filter(x=>Number(x.lineNo)===Number(item.lineNo)&&String(x.code)===String(item.code));
+      const line=matches.length===1?matches[0]:null;
+      if(!line||line.approvedQtyUnit==null||String(line.approvedQtyUnit).trim()===''||
+         !Number.isFinite(Number(line.approvedQtyUnit))||
+         Math.abs(Number(line.approvedQtyUnit)-Number(item.approvedQtyUnit))>0.000001)
+        throw new Error('Jumlah picking terverifikasi berbeda untuk '+String(item.code)+'. Periksa Audit sebelum input ulang.');
+      if(String(line.reason||'').trim()!==String(item.reason||'').trim())
+        throw new Error('Alasan picking terverifikasi berbeda untuk '+String(item.code)+'. Periksa Audit sebelum input ulang.');
+    }
+    return fresh;
   }
   function opsPrintRequestThermalV43(requestId) {
     const req=opsRequestV43(requestId),lines=wwPickingPrintLinesV1525(requestId);
@@ -1509,7 +1678,7 @@
             items},WW_SO3110_POST_KEY_V1527);
         });
         if(!output)return;
-        if(output.ok===false)throw Error(output.error||'Posting koreksi ditolak backend');
+        requireConfirmedWarehouseWriteV160(output,'Koreksi SO 31 Oktober');
         toast('Koreksi SO telah dikirim ke backend canonical. Verifikasi Ledger Stok dan transaksi adjustment sebelum menyatakan selesai.','success');
       }catch(err){
         toast('Status posting belum pasti: '+(err.message||err)+'. Periksa Ledger Stok dahulu, jangan mengulang secara manual.','warning',14000);
@@ -1517,7 +1686,47 @@
     };
   }
 
-  function directAdjustment(){if(currentRole()!=='OWNER')return toast('Penyesuaian stok hanya dapat dilakukan Owner.');sheetHtml('Opname / Koreksi',`<button type="button" class="btn btn-soft" id="wwSo3110Open">Rekonsiliasi SO Fisik 31 Oktober · Owner</button><div class="ww-life-note">Referensi SO telah diproteksi. Koreksi harus dicatat lewat Ledger Stok, tidak boleh menimpa tabel stok.</div><form id="ghAdj"><label class="field"><span>Alasan</span><select name="reason"><option value="SELISIH_OPNAME">Selisih opname</option><option value="STOK_AWAL_TERLEWAT">Stok awal terlewat</option><option value="BARANG_DITEMUKAN">Barang ditemukan</option><option value="BARANG_RUSAK">Barang rusak</option><option value="BARANG_HILANG">Barang hilang</option><option value="KESALAHAN_PENCATATAN">Kesalahan pencatatan</option><option value="KOREKSI_INVESTIGASI">Koreksi investigasi</option><option value="LAINNYA">Lainnya</option></select></label><div id="ghAdjLines"></div><button class="btn btn-soft" type="button" id="ghAddAdj">+ Tambah bahan</button><label class="field"><span>Catatan</span><textarea name="note"></textarea></label><div class="actions"><button class="btn btn-line" type="button" id="ghCancel">Tutup</button><button class="btn btn-primary">Posting Koreksi</button></div></form>`);const box=$('#ghAdjLines'),add=()=>{const el=document.createElement('div');el.className='direct-line';el.innerHTML=`<select class="code"><option value="">Pilih bahan</option>${matOpts(false)}</select><input class="physical" type="number" min="0" step="0.000001" placeholder="Stok fisik unit"><input class="cost" type="number" min="0" step="0.01" placeholder="Modal/unit jika perlu"><button class="line-remove" type="button">×</button>`;el.querySelector('.line-remove').onclick=()=>el.remove();box.appendChild(el)};add();$('#ghAddAdj').onclick=add;$('#wwSo3110Open').onclick=directSO3110V1527;$('#ghCancel').onclick=closeSheet;$('#ghAdj').onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.target),mm=matByCode(),items=[...box.querySelectorAll('.direct-line')].map(x=>{const m=mm[x.querySelector('.code').value],physical=Number(x.querySelector('.physical').value||0),cost=x.querySelector('.cost').value;return{code:m.code,physicalQtyBase:physical*Number(m.factor||1),unitCostBase:cost===''?'':Number(cost)/Number(m.factor||1)}});await writeDirect('adjustment','ownerPostStockAdjustmentV1527',{reason:fd.get('reason'),note:fd.get('note'),items})};}
+
+  // V1.6 safety guard: an empty stock-count field must NEVER become a physical count of zero.
+  // This is a client preflight; backend validation/authorization remains mandatory.
+  function validateOwnerStockAdjustmentV160(rawLines, materials){
+    if(!Array.isArray(rawLines)||rawLines.length===0)throw new Error('Tambahkan minimal satu bahan.');
+    const seen=new Set();
+    return rawLines.map((line,index)=>{
+      const row=index+1,code=String((line&&line.code)||'').trim(),m=materials[code];
+      if(!code||!m)throw new Error('Baris '+row+': pilih bahan yang valid.');
+      if(seen.has(code))throw new Error('Bahan '+code+' dipilih dua kali; gabungkan menjadi satu baris.');
+      seen.add(code);
+      const factor=Number(m.factor);
+      if(!Number.isFinite(factor)||factor<=0)throw new Error('Konversi bahan '+code+' belum valid; posting ditahan.');
+      const raw=String(line.physical==null?'':line.physical).trim();
+      if(!/^\d+(?:\.\d+)?$/.test(raw))throw new Error('Baris '+row+': jumlah fisik wajib diisi, termasuk 0 jika benar-benar kosong.');
+      const physical=Number(raw),physicalQtyBase=physical*factor;
+      if(!Number.isFinite(physicalQtyBase)||physicalQtyBase<0)throw new Error('Baris '+row+': jumlah fisik tidak valid.');
+      const costRaw=String(line.cost==null?'':line.cost).trim();
+      if(costRaw!==''&&!/^\d+(?:\.\d+)?$/.test(costRaw))throw new Error('Baris '+row+': modal per unit tidak valid.');
+      const unitCostBase=costRaw===''?'':Number(costRaw)/factor;
+      if(unitCostBase!==''&&!Number.isFinite(unitCostBase))throw new Error('Baris '+row+': modal melebihi batas angka.');
+      return {code,physicalQtyBase,unitCostBase};
+    });
+  }
+  function directAdjustment(){if(currentRole()!=='OWNER')return toast('Penyesuaian stok hanya dapat dilakukan Owner.');sheetHtml('Opname / Koreksi',`<button type="button" class="btn btn-soft" id="wwSo3110Open">Rekonsiliasi SO Fisik 31 Oktober · Owner</button><div class="ww-life-note">Referensi SO telah diproteksi. Koreksi harus dicatat lewat Ledger Stok, tidak boleh menimpa tabel stok.</div><form id="ghAdj"><label class="field"><span>Alasan</span><select name="reason"><option value="SELISIH_OPNAME">Selisih opname</option><option value="STOK_AWAL_TERLEWAT">Stok awal terlewat</option><option value="BARANG_DITEMUKAN">Barang ditemukan</option><option value="BARANG_RUSAK">Barang rusak</option><option value="BARANG_HILANG">Barang hilang</option><option value="KESALAHAN_PENCATATAN">Kesalahan pencatatan</option><option value="KOREKSI_INVESTIGASI">Koreksi investigasi</option><option value="LAINNYA">Lainnya</option></select></label><div id="ghAdjLines"></div><button class="btn btn-soft" type="button" id="ghAddAdj">+ Tambah bahan</button><label class="field"><span>Catatan</span><textarea name="note"></textarea></label><div class="actions"><button class="btn btn-line" type="button" id="ghCancel">Tutup</button><button class="btn btn-primary">Posting Koreksi</button></div></form>`);const box=$('#ghAdjLines'),add=()=>{const el=document.createElement('div');el.className='direct-line';el.innerHTML=`<select class="code"><option value="">Pilih bahan</option>${matOpts(false)}</select><input class="physical" type="number" min="0" step="0.000001" placeholder="Stok fisik unit"><input class="cost" type="number" min="0" step="0.01" placeholder="Modal/unit jika perlu"><button class="line-remove" type="button">×</button>`;el.querySelector('.line-remove').onclick=()=>el.remove();box.appendChild(el)};add();$('#ghAddAdj').onclick=add;$('#wwSo3110Open').onclick=directSO3110V1527;$('#ghCancel').onclick=closeSheet;$('#ghAdj').onsubmit=async e=>{
+      e.preventDefault();
+      const fd=new FormData(e.target),rawLines=[...box.querySelectorAll('.direct-line')].map(row=>({
+        code:row.querySelector('.code').value,
+        physical:row.querySelector('.physical').value,
+        cost:row.querySelector('.cost').value
+      }));
+      let items;
+      try{items=validateOwnerStockAdjustmentV160(rawLines,matByCode());}
+      catch(err){return toast(err.message,'warning');}
+      const summary=items.map(x=>x.code+' = '+num(x.physicalQtyBase)+' (satuan dasar)').join('\n');
+      if(!window.confirm('KONFIRMASI KOREKSI STOK OWNER\n\n'+summary+
+        '\n\nKoreksi ini mengubah ledger stok. Pastikan angka sudah cocok dengan opname fisik. Lanjutkan?'))return;
+      try{await writeDirect('adjustment','ownerPostStockAdjustmentV1527',{
+        reason:fd.get('reason'),note:fd.get('note'),items
+      });}catch(_){/* writeDirect has already shown the error; never auto-retry a stock mutation. */}
+    };}
   function directPackingWage(){const rows=((state.data||{}).packingWages||[]).filter(x=>x.outstanding>0);sheetHtml('Bayar Upah Packing',`<form id="ghPw"><label class="field"><span>Sumber</span><select name="paymentSource"><option value="CASH">Kas Gudang</option><option value="BANK">Bank</option></select></label><div class="direct-list">${rows.map(x=>`<label class="direct-card"><b>${esc(x.packer)}</b><small>${esc(x.batchId)} · ${rp(x.outstanding)}</small><input class="pwck" type="checkbox" data-id="${esc(x.batchId)}" data-packer="${esc(x.packer)}"><input class="pwamt" data-id="${esc(x.batchId)}" type="number" value="${x.outstanding}" min="0.01" max="${x.outstanding}"></label>`).join('')||'<div class="empty">Tidak ada upah terhutang.</div>'}</div><label class="field"><span>Catatan</span><textarea name="note"></textarea></label><div class="actions"><button class="btn btn-line" type="button" id="ghCancel">Tutup</button><button class="btn btn-primary">Posting</button></div></form>`);$('#ghCancel').onclick=closeSheet;$('#ghPw').onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.target),cks=$$('.pwck:checked'),pack=[...new Set(cks.map(x=>x.dataset.packer))];if(!cks.length)return toast('Pilih upah.');if(pack.length>1)return toast('Pilih satu packer.');await writeDirect('packingWage','postPackingWagePayment',{paymentSource:fd.get('paymentSource'),note:fd.get('note'),allocations:cks.map(x=>({batchId:x.dataset.id,amount:$(`.pwamt[data-id="${CSS.escape(x.dataset.id)}"]`).value}))})};}
 
 
@@ -1642,7 +1851,7 @@
   async function directFinanceActualV1300(){
     let r;await withBusy('Membaca posisi dana…',async()=>{r=await callDirect('getFinancialPositionActualV1300')});const a=r.actual||null,d=r.currentDifference||null,stale=r.actualStale,canWrite=!!r.canWrite;const badge=(v)=>Math.abs(Number(v||0))<0.5?'<span class="badge ok">Rp0 · SESUAI</span>':`<span class="badge bad">Selisih ${rp(v)}</span>`;
     sheetHtml('Posisi Dana Warehouse',`<div class="role-guide"><b>Sederhana: isi saldo yang benar sekarang</b><span>Masukkan saldo rekening Bank dan uang fisik Kas Gudang yang benar. Saat disimpan, Saldo Sistem langsung disamakan ke angka ini melalui koreksi ledger yang tercatat di Audit.</span><span>Saldo Awal tetap Rp0. Stok, HPP, Surat Jalan, piutang, hutang, dan data outlet tidak berubah.</span></div>${stale?'<div class="demo-box"><b>Perlu cek ulang.</b><br>Ada transaksi Bank/Kas setelah posisi terakhir disimpan.</div>':''}<div class="stats-mini"><div class="demo-box"><b>Bank Warehouse</b><br>Sistem ${rp(r.system.bank)}<br>Posisi terakhir ${a?rp(a.bankActual):'Belum diinput'}<br>${a?badge(d.bank):''}</div><div class="demo-box"><b>Kas Gudang</b><br>Sistem ${rp(r.system.cash)}<br>Posisi terakhir ${a?rp(a.cashActual):'Belum diinput'}<br>${a?badge(d.cash):''}</div></div>${a?`<div class="demo-box">Terakhir disimpan ${esc(a.time)} oleh ${esc(a.user)}${a.note?'<br>'+esc(a.note):''}</div>`:''}${canWrite?`<form id="ghFinanceActual"><label class="field"><span>Saldo Bank Sekarang</span><input name="bankActual" type="number" min="0" step="1" value="${a?Number(a.bankActual):Math.max(0,Number(r.system.bank||0))}" required></label><label class="field"><span>Kas Gudang Sekarang</span><input name="cashActual" type="number" min="0" step="1" value="${a?Number(a.cashActual):Math.max(0,Number(r.system.cash||0))}" required></label><label class="field"><span>Catatan</span><textarea name="note" placeholder="Contoh: posisi sesuai mobile banking dan kas fisik"></textarea></label><button class="btn btn-primary">Simpan Posisi Sekarang</button></form>`:'<div class="demo-box">Mode baca saja. Hanya Owner yang dapat mengubah posisi dana.</div>'}`);
-    const f=$('#ghFinanceActual');if(f)f.onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.target),idem=idemKey('finance_actual');beginBusy('Menyamakan saldo sistem…');try{await bridge.call('saveFinancialPositionActualV1300',state.token,{bankActual:fd.get('bankActual'),cashActual:fd.get('cashActual'),note:fd.get('note')},idem);localStorage.removeItem('ww_gh_idem_finance_actual');toast('Posisi dana tersimpan. Saldo sistem sudah disamakan.');closeSheet();refreshBootstrapLight().catch(()=>{});}catch(err){toast(err.message)}finally{endBusy()}};
+    const f=$('#ghFinanceActual');if(f)f.onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.target),payload={bankActual:fd.get('bankActual'),cashActual:fd.get('cashActual'),note:fd.get('note')};try{await writeDirect('finance_actual','saveFinancialPositionActualV1300',payload);}catch(_){/* writeDirect reports error; uncertain write retains its idempotency key. */}};
   }
   let lastStockReportV1300=null;
   function todayIsoV1300(){const d=new Date(),p=n=>String(n).padStart(2,'0');return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`}
@@ -1972,7 +2181,7 @@
       reloadingForUpdate = true;
       window.location.reload();
     });
-    window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=1.5.2.8', { updateViaCache: 'none' }).then(reg => reg.update()).catch(() => {}));
+    window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=1.6.0-safety-rc1', { updateViaCache: 'none' }).then(reg => reg.update()).catch(() => {}));
   }
 
 
@@ -1980,5 +2189,6 @@
   // bukan dengan membatalkan touchmove sehingga tarikan layar tetap terasa normal.
 
 
+  window.addEventListener('storage',onWarehouseAuthStorageV160);
   boot();
 })();
