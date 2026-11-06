@@ -66,28 +66,27 @@ test('dashboard top area is real SJ list and filtered by selected outlet',()=>{
   assert.ok(!output.html.includes('<summary>Surat Jalan Terbaru'),'SJ no longer hidden in bottom collapsed section');
 });
 
-test('SJ details expose four simple actions and keep dispatch behind existing guards',()=>{
+test('SJ detail renders verified preparation stage before showing Send',()=>{
   const detail=part('  function directDeliveryDetail(id){','  function findRequestForDelivery(d){');
-  const actions=part('  function wwSjActionMarkupV15211(','  async function wwSjWithLoadingV15211(');
-  assert.match(actions,/ghPrintSj/);
-  assert.match(actions,/wwSjCheckMaterialsV15210/);
-  assert.match(actions,/ghCancelSj/);
-  assert.match(actions,/ghSendSj/);
-  assert.match(actions,/canPrepare&&req&&req.requestId/);
-  assert.match(actions,/permissions.canDispatch/);
-  assert.match(detail,/inspect\.onclick=\(\)=>opsRequestDetailV43\(req\.requestId\)/);
-  assert.match(detail,/writeDeliveryDirect\('dispatch_'\+id,'dispatchDelivery'/);
-  assert.match(detail,/wwSjWithLoadingV15211\(k,/);
+  const stages=part('  function wwSjWorkflowMarkupV15212(','  function directDeliveryDetail(id){');
+  assert.match(stages,/MENUNGGU_DISIAPKAN/);
+  assert.match(stages,/SIAP_CEK_ULANG/);
+  assert.match(stages,/SIAP_KIRIM/);
+  assert.match(stages,/ghSendSj/);
+  assert.match(detail,/wwPrepGetV15212\(req\.requestId\)/);
+  assert.match(detail,/prepare\.onclick=\(\)=>opsRequestDetailV43\(req\.requestId\)/);
+  assert.match(detail,/review\.onclick=\(\)=>wwReviewPreparationV15212\(req\.requestId\)/);
+  assert.match(detail,/dispatchWarehouseVerifiedV15212/);
 });
-test('saved picking can navigate directly to SJ confirm without re-posting stock',()=>{
-  const pick=part('  function opsRequestDetailV43(requestId) {','  function opsPrintRequestThermalV43(');
-  assert.match(pick,/id="wwPickingGoDeliveryV15210" disabled/);
-  assert.match(pick,/goDelivery\.onclick=returnToSjV15210/);
-  assert.match(pick,/goDelivery\.disabled=true;/);
-  assert.match(pick,/if\(report\.checked\)\{/);
-  assert.match(pick,/goDelivery\.disabled=!/);
-  assert.match(pick,/directDeliveryDetail\(sj\.sjId\)/);
-  assert.doesNotMatch(pick,/goDelivery\.onclick=.*dispatchDelivery/);
+
+test('saved picking now proceeds to Cek Ulang and never sends or prints directly',()=>{
+  const pick=part('  function opsRequestDetailV43(requestId) {','  // Second physical review.');
+  assert.match(pick,/id="wwPickingGoDeliveryV15210" disabled>Cek Ulang Bahan/);
+  assert.match(pick,/goDelivery\.onclick=\(\)=>wwReviewPreparationV15212\(id\)/);
+  assert.match(pick,/goDelivery\.disabled=true/);
+  assert.match(pick,/saveWarehouseRequestAvailabilityV1525/);
+  assert.doesNotMatch(pick,/dispatchDelivery|dispatchWarehouseVerifiedV15212/);
+  assert.doesNotMatch(pick,/opsV43RequestThermal|opsV43RequestPrint/);
 });
 
 test('canonical queue and module request lookup preserve linked SJ identity',()=>{
@@ -102,7 +101,7 @@ test('canonical queue and module request lookup preserve linked SJ identity',()=
 });
 
 test('cache-busting version is consistent in app, index and service worker',()=>{
-  const ver='1.5.2.11-sj-simple';
+  const ver='1.5.2.12-preparation';
   assert.ok(index.includes('app.js?v='+ver));
   assert.ok(sw.includes('app.js?v='+ver));
   assert.ok(sw.includes('wills-warehouse-shell-v'+ver));

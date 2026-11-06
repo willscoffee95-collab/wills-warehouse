@@ -9,6 +9,9 @@ on:
       - 'sw.js'
       - 'tests/warehouse-sj-top-ui.test.cjs'
       - 'tests/warehouse-sj-draft-ui.test.cjs'
+      - 'tests/warehouse-preparation-lifecycle.test.cjs'
+      - 'backend-addon/Code_Preparation_V15212.gs'
+      - 'backend-addon/Bridge_V15212_PREP_VERIFIED.html'
       - '.github/workflows/warehouse-sj-first-ui.yml'
   workflow_dispatch:
 
@@ -27,5 +30,12 @@ jobs:
         run: |
           node --check app.js
           node --check sw.js
-      - name: Check SJ list and workflow
-        run: node --test tests/warehouse-sj-top-ui.test.cjs tests/warehouse-sj-draft-ui.test.cjs
+      - name: Check preparation backend addon syntax
+        run: |
+          node - <<'NODE'
+          const fs=require('node:fs');
+          new Function(fs.readFileSync('backend-addon/Code_Preparation_V15212.gs','utf8'));
+          console.log('Apps Script JavaScript syntax valid');
+          NODE
+      - name: Check SJ list and preparation workflow
+        run: node --test tests/warehouse-sj-top-ui.test.cjs tests/warehouse-sj-draft-ui.test.cjs tests/warehouse-preparation-lifecycle.test.cjs

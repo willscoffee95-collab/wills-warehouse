@@ -37,6 +37,11 @@ const actions=vm.runInNewContext(
   part('  function wwSjActionMarkupV15211(','  async function wwSjWithLoadingV15211(')+'\nwwSjActionMarkupV15211',
   {icons:{printer:'<svg></svg>',clipboard:'<svg></svg>',warning:'<svg></svg>',truck:'<svg></svg>',clock:'<svg></svg>'},String,Array}
 );
+const workflow=vm.runInNewContext(
+  part('  function wwSjWorkflowMarkupV15212(','  function directDeliveryDetail(id){')+'\nwwSjWorkflowMarkupV15212',
+  {icons:{printer:'<svg></svg>',clipboard:'<svg></svg>',warning:'<svg></svg>',truck:'<svg></svg>',clock:'<svg></svg>'},
+   String,Array}
+);
 const owner={canPrint:true,canPrepare:true,canCancel:true,canDispatch:true};
 const admin={canPrint:true,canPrepare:true,canCancel:false,canDispatch:true};
 
@@ -56,23 +61,30 @@ test('visible latest SJ list remains available for printing after dispatch',()=>
   assert.deepEqual(Array.from(fn(items,'RB'),x=>x.status),['DRAFT','DIKIRIM','SELESAI']);
 });
 
-test('draft owner sees exactly thermal, check, cancel and confirm, no extra active toolbar controls',()=>{
-  const markup=actions(items[0],{requestId:'REQ-1'},owner,false);
-  for(const id of ['ghPrintSj','wwSjCheckMaterialsV15210','ghCancelSj','ghSendSj'])
-    assert.equal((markup.match(new RegExp('id="'+id+'"','g'))||[]).length,1,id);
-  assert.equal((markup.match(/<button /g)||[]).length,4);
-  for(const id of ['ghAdjustSj','ghSyncSj','ghCheckSjStatus'])
-    assert.ok(!markup.includes('id="'+id+'"'),id);
-  assert.match(markup,/ww-sj-action-panel/);
+test('DRAFT fallback renders no print/send; one step at a time is shown from backend stage',()=>{
+  assert.equal((actions(items[0],{requestId:'REQ-1'},owner,false).match(/<button /g)||[]).length,0);
+  const stages=[
+    ['MENUNGGU_DISIAPKAN','Siapkan Bahan'],
+    ['SIAP_CEK_ULANG','Cek Ulang'],
+    ['SIAP_KIRIM','Konfirmasi Kirim']
+  ];
+  for(const [phase,action] of stages){
+    const view=workflow(phase,owner,false);
+    assert.ok(view.includes(action));
+    assert.equal((view.match(/<button /g)||[]).length,2);
+    assert.ok(view.includes('ghCancelSj'));
+    assert.ok(!view.includes('ghPrintSj'),'no pre-dispatch printing');
+  }
 });
 
-test('admin sees only permitted actions, and pending dispatch replaces Send with Check Status',()=>{
-  const adminMarkup=actions(items[0],{requestId:'REQ-1'},admin,false);
+test('staff permissions and unresolved dispatch hide unsafe controls',()=>{
+  const adminMarkup=workflow('SIAP_KIRIM',admin,false);
   assert.ok(!adminMarkup.includes('ghCancelSj'));
   assert.ok(adminMarkup.includes('ghSendSj'));
-  const pending=actions(items[0],{requestId:'REQ-1'},owner,true);
+  const pending=workflow('SIAP_KIRIM',owner,true);
   assert.ok(pending.includes('ghCheckSjStatus'));
   assert.ok(!pending.includes('ghSendSj'));
+  assert.ok(!pending.includes('ghCancelSj'));
 });
 
 test('after confirmed DIKIRIM status, action changes to one SIAP KIRIM thermal print',()=>{
@@ -85,11 +97,11 @@ test('after confirmed DIKIRIM status, action changes to one SIAP KIRIM thermal p
   assert.ok(!actions(items[4],null,owner,false).includes('ghPrintSj'),'canceled SJ cannot print as ready');
 });
 
-test('role restrictions are preserved when request linkage or permissions are missing',()=>{
-  const m=actions(items[0],null,{canPrint:true,canPrepare:true,canCancel:false,canDispatch:false},false);
-  assert.equal((m.match(/<button /g)||[]).length,1);
+test('roles without prepare and dispatch permissions never receive action buttons',()=>{
+  const m=workflow('SIAP_CEK_ULANG',{canPrepare:false,canCancel:false,canDispatch:false},false);
+  assert.equal((m.match(/<button /g)||[]).length,0);
   assert.ok(!m.includes('ghSendSj'));
-  assert.ok(!m.includes('wwSjCheckMaterialsV15210'));
+  assert.ok(!m.includes('wwSjReviewV15212'));
 });
 
 test('while async Send is running, clicked button is disabled and visibly spinning',async()=>{
@@ -166,7 +178,7 @@ test('notification SJ content and KPI derive from DRAFT status, not PREPARE coun
 });
 
 test('candidate CSS, app, index and service worker are version-aligned',()=>{
-  const version='1.5.2.11-sj-simple';
+  const version='1.5.2.12-preparation';
   assert.ok(html.includes('app.js?v='+version));
   assert.ok(html.includes('app.css?v='+version));
   assert.ok(sw.includes('app.js?v='+version));
@@ -177,11 +189,11 @@ test('candidate CSS, app, index and service worker are version-aligned',()=>{
   assert.ok(css.includes('.ww-sj-action.is-loading::after'));
 });
 
-test('dispatch button still uses existing guarded write, never dispatch on print',()=>{
+test('dispatch uses the verified backend method and thermal has no stock posting',()=>{
   const detail=part('  function directDeliveryDetail(id){','  function findRequestForDelivery(d){');
-  assert.match(detail,/wwSjWithLoadingV15211\(k,\(\)=>writeDeliveryDirect\('dispatch_'\+id,'dispatchDelivery'/);
-  assert.match(detail,/confirm\('Hanya qty yang sudah disiapkan/);
-  assert.match(detail,/if\(String\(d.status\|\|''\).toUpperCase\(\)==='DRAFT'\|\|pendingDispatch\)/);
+  assert.match(detail,/dispatchWarehouseVerifiedV15212/);
+  assert.match(detail,/wwPrepGetV15212\(req\.requestId\)/);
+  assert.match(detail,/confirm\('Persiapan dan Cek Ulang telah selesai/);
   const thermal=part('  function directPrintDeliveryDraft(id){','  function printRawBt(text){');
-  assert.doesNotMatch(thermal,/dispatchDelivery/);
+  assert.doesNotMatch(thermal,/dispatchDelivery|dispatchWarehouseVerifiedV15212/);
 });
