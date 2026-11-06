@@ -20,7 +20,7 @@ const materials=[
 ];
 const current={
   checked:true,sjId:'SJID-1',
-  lines:[{lineNo:1,code:'B01',approvedQtyUnit:0},{lineNo:2,code:'B03',approvedQtyUnit:2.5}]
+  lines:[{lineNo:1,code:'B01',approvedQtyUnit:0,reason:'stok kosong'},{lineNo:2,code:'B03',approvedQtyUnit:2.5,reason:''}]
 };
 
 test('fresh readback with exact picked quantities is accepted, including explicit zero',()=>{
@@ -65,4 +65,28 @@ test('SO correction must verify backend response before success notification',()
   const i=body.indexOf("requireConfirmedWarehouseWriteV160(output,'Koreksi SO 31 Oktober')");
   const success=body.indexOf("toast('Koreksi SO telah dikirim");
   assert.ok(i>=0&&success>i,'SO success message is behind acknowledgement guard');
+});
+
+
+test('fresh picking with mismatched shortage reason is rejected',()=>{
+  const altered={...current,lines:[
+    {...current.lines[0],reason:'tidak ada di rak'},current.lines[1]
+  ]};
+  assert.throws(()=>verify(altered,{sjId:'SJID-1'},materials),/Alasan picking/);
+});
+
+test('missing, blank or duplicate picked quantity is never silently converted to zero',()=>{
+  const empty={...current,lines:[{...current.lines[0],approvedQtyUnit:''},current.lines[1]]};
+  const missing={...current,lines:[{...current.lines[0],approvedQtyUnit:null},current.lines[1]]};
+  const duplicate={...current,lines:[current.lines[0],current.lines[0]]};
+  assert.throws(()=>verify(empty,{sjId:'SJID-1'},materials),/Jumlah picking/);
+  assert.throws(()=>verify(missing,{sjId:'SJID-1'},materials),/Jumlah picking/);
+  assert.throws(()=>verify(duplicate,{sjId:'SJID-1'},materials),/Jumlah picking/);
+});
+
+test('additional or missing picking lines are rejected rather than considered verified',()=>{
+  const extra={...current,lines:[...current.lines,{lineNo:3,code:'B04',approvedQtyUnit:1,reason:''}]};
+  const fewer={...current,lines:[current.lines[0]]};
+  assert.throws(()=>verify(extra,{sjId:'SJID-1'},materials),/Jumlah baris/);
+  assert.throws(()=>verify(fewer,{sjId:'SJID-1'},materials),/Jumlah baris/);
 });
