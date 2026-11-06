@@ -1416,7 +1416,7 @@
     // verified backend read. Never reveal legacy direct-print/Send controls here.
     if(status==='DIKIRIM'&&permissions.canPrint){
       actions.push(button('ghPrintSj','ready',icons.printer,'Cetak Thermal · SIAP KIRIM'));
-    }else if(status!=='DIBATALKAN'&&permissions.canPrint){
+    }else if(['DITERIMA','DITERIMA_SEBAGIAN','SELISIH','SELESAI'].includes(status)&&permissions.canPrint){
       actions.push(button('ghPrintSj','thermal',icons.printer,'Cetak Thermal'));
     }
     return actions.length?'<div class="ww-sj-action-panel'+(actions.length===1?' is-single':'')+
