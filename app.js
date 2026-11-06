@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  window.WW_FRONTEND_BUILD='2026-11-01.1.5.2.9-so-owner-admin-lock';
+  window.WW_FRONTEND_BUILD='2026-11-06.1.5.2.10-sj-top';
 
 
   const $ = (q, root = document) => root.querySelector(q);
@@ -2031,7 +2031,7 @@
       reloadingForUpdate = true;
       window.location.reload();
     });
-    window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=1.5.2.8', { updateViaCache: 'none' }).then(reg => reg.update()).catch(() => {}));
+    window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=1.5.2.10-sj-top', { updateViaCache: 'none' }).then(reg => reg.update()).catch(() => {}));
   }
 
 
