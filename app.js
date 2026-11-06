@@ -1412,17 +1412,9 @@
     const actions=[];
     const button=(id,style,icon,label)=>
       '<button type="button" class="btn ww-sj-action ww-sj-action--'+style+'" id="'+id+'">'+icon+'<span>'+label+'</span></button>';
-    if(status==='DRAFT'){
-      if(permissions.canPrint)actions.push(button('ghPrintSj','thermal',icons.printer,'Cetak Thermal'));
-      if(permissions.canPrepare&&req&&req.requestId)
-        actions.push(button('wwSjCheckMaterialsV15210','check',icons.clipboard,'Periksa Bahan'));
-      if(permissions.canCancel)
-        actions.push(button('ghCancelSj','cancel',icons.warning,'Batalkan'));
-      if(pendingDispatch)
-        actions.push(button('ghCheckSjStatus','status',icons.clock,'Cek Status Kirim'));
-      else if(permissions.canDispatch)
-        actions.push(button('ghSendSj','send',icons.truck,'Konfirmasi Kirim'));
-    }else if(status==='DIKIRIM'&&permissions.canPrint){
+    // DRAFT is exclusively controlled by wwSjWorkflowMarkupV15212, after a
+    // verified backend read. Never reveal legacy direct-print/Send controls here.
+    if(status==='DIKIRIM'&&permissions.canPrint){
       actions.push(button('ghPrintSj','ready',icons.printer,'Cetak Thermal · SIAP KIRIM'));
     }else if(status!=='DIBATALKAN'&&permissions.canPrint){
       actions.push(button('ghPrintSj','thermal',icons.printer,'Cetak Thermal'));
