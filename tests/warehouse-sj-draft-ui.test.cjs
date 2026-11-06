@@ -166,7 +166,7 @@ test('notification SJ content and KPI derive from DRAFT status, not PREPARE coun
 });
 
 test('candidate CSS, app, index and service worker are version-aligned',()=>{
-  const version='1.5.2.11-sj-simple';
+  const version='1.5.2.13-inline-sj';
   assert.ok(html.includes('app.js?v='+version));
   assert.ok(html.includes('app.css?v='+version));
   assert.ok(sw.includes('app.js?v='+version));
@@ -177,11 +177,13 @@ test('candidate CSS, app, index and service worker are version-aligned',()=>{
   assert.ok(css.includes('.ww-sj-action.is-loading::after'));
 });
 
-test('dispatch button still uses existing guarded write, never dispatch on print',()=>{
+test('dispatch action remains guarded and printing never triggers a shipment',()=>{
   const detail=part('  function directDeliveryDetail(id){','  function findRequestForDelivery(d){');
-  assert.match(detail,/wwSjWithLoadingV15211\(k,\(\)=>writeDeliveryDirect\('dispatch_'\+id,'dispatchDelivery'/);
-  assert.match(detail,/confirm\('Hanya qty yang sudah disiapkan/);
-  assert.match(detail,/if\(String\(d.status\|\|''\).toUpperCase\(\)==='DRAFT'\|\|pendingDispatch\)/);
+  const binder=part('  function wwSjBindActionsV15213(id,d,req){','  function directDeliveryDetail(id){');
+  assert.match(detail,/wwSjBindActionsV15213\(id,d,req\)/);
+  assert.match(binder,/wwSjWithLoadingV15211\(k,\(\)=>writeDeliveryDirect\('dispatch_'\+id,'dispatchDelivery'/);
+  assert.match(binder,/confirm\('Hanya qty yang sudah disiapkan/);
+  assert.match(detail,/dispatchMaybeRefreshFreshV45\(id\)/);
   const thermal=part('  function directPrintDeliveryDraft(id){','  function printRawBt(text){');
   assert.doesNotMatch(thermal,/dispatchDelivery/);
 });
