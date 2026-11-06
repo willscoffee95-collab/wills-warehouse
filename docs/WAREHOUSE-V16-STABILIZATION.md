@@ -133,3 +133,13 @@ Perampingan dinyatakan selesai hanya jika fungsi operasional asli tetap berjalan
 - GitHub Actions pada kandidat menjalankan **68 regresi + syntax checks**, lulus seluruhnya (tanpa pengujian write live). Tes terbaru mensimulasikan dua tab berbagi storage, payload berbeda, logout/login dari tab lain, dan ketepatan versi pendaftaran SW.
 
 **Release tetap tertahan** sampai source Apps Script deployment aktif tersedia dan test end-to-end lintas perangkat di staging terisolasi selesai. Kriteria penerimaan: replay idempotent, transaksi request→picking→cetak→dispatch→terima tepat sekali, status offline/timeout, pemisahan role, saldo ledger, SO 31 Okt terkunci, dan prosedur rollback.
+
+## Tahap 8 — print audit, data picking lengkap, dan PIN admin (6 November 2026)
+- `markWarehousePickingPrintRequestedV1526` sebelumnya dipanggil memakai `idemKey()` legacy (kedaluwarsa 24 jam), tanpa validasi acknowledgement sebelum menandai pencatatan berhasil, dan tombol cetak dapat ditekan berulang saat pencatatan berjalan.
+- Draft v1.6 kini mempertahankan alur membuka cetakan terlebih dahulu, tetapi membatasi klik ganda selama pencatatan, memakai key terikat method/payload, dan hanya menghapus idempotency key setelah backend mengembalikan acknowledgement yang valid. Kegagalan mencatat **tidak** disamakan dengan kegagalan membuka dialog cetak. Tidak ada posting stok/ledger dari perubahan cetak ini.
+- `saveUser` dengan PIN baru **tidak menyimpan SHA-256 payload yang memuat PIN** di localStorage: nilai PIN pendek (misal 0000) dapat ditebak dari hash tanpa salt. Sebagai gantinya, hanya penanda `secretPayload:true`, method, waktu dan ID acak tersimpan. Bila status hasil belum pasti, percobaan berikutnya wajib audit Owner alih-alih mengulang mutation otomatis.
+- Pembuatan ID idempotency menormalisasi karakter yang tidak didukung dan membatasi panjang prefix. Username yang mengandung `@` tidak lagi menyebabkan format key tidak valid.
+- `verifySavedPickingV160` mengharuskan jumlah baris sesuai, identitas tiap baris unik, kuantitas benar-benar ada dan cocok (termasuk nol yang dimasukkan eksplisit), serta alasan kekurangan cocok dengan hasil baca ulang. Hanya setelah itu key picking boleh dilepas.
+- GitHub Actions **78 dari 78 tes berhasil** (Run #42), termasuk regresi cetak, PIN, karakter username, dan readback picking. Ini pengujian unit/mock, bukan tes Apps Script produksi.
+
+**Batas yang masih belum teruji:** response live dari addon cetak/picking/finance, idempotency transaksi lintas dua perangkat dan role/permission backend deploy aktif, serta tes update PWA terpasang. Draft tetap tidak boleh dimerge sebelum gate rilis terpenuhi.
