@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  window.WW_FRONTEND_BUILD='2026-11-06.1.5.2.11-sj-simple';
+  window.WW_FRONTEND_BUILD='2026-11-06.1.5.2.12-preparation';
 
 
   const $ = (q, root = document) => root.querySelector(q);
@@ -1075,8 +1075,7 @@
       {key:'preparation-review:'+id});
     const box=$('#wwPrepReviewBodyV15212'),button=$('#wwPrepVerifyV15212');
     $('#wwPrepBackV15212').onclick=()=>opsRequestDetailV43(id);
-    withBusy('Memeriksa hasil persiapan di server…',async()=>{
-      const p=await bridge.call('getWarehousePreparationV15212',state.token,id);
+    wwPrepGetV15212(id).then(async p=>{
       if(!p||p.ok!==true||String(p.requestId)!==id||String(p.status)!=='DRAFT'||
          !p.checked||!p.reviewId||!Array.isArray(p.lines)||!p.lines.length)
         throw new Error('Persiapan belum selesai atau hasil server belum dapat dibaca.');
@@ -1108,7 +1107,8 @@
           ()=>bridge.call('verifyWarehousePreparationV15212',state.token,payload,idemKey(action)));
         if(!result||result.ok!==true||result.verified!==true)
           throw new Error('Cek Ulang belum dikonfirmasi server. Jangan Kirim.');
-        const fresh=await bridge.call('getWarehousePreparationV15212',state.token,id);
+        wwPrepClearV15212(id);
+        const fresh=await wwPrepGetV15212(id,true);
         if(!fresh||fresh.ok!==true||fresh.verified!==true||fresh.phase!=='SIAP_KIRIM'||
            String(fresh.reviewId)!==String(p.reviewId))
           throw new Error('Hasil Cek Ulang belum terverifikasi dari pembacaan ulang.');
@@ -2206,7 +2206,7 @@
       reloadingForUpdate = true;
       window.location.reload();
     });
-    window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=1.5.2.11-sj-simple', { updateViaCache: 'none' }).then(reg => reg.update()).catch(() => {}));
+    window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=1.5.2.12-preparation', { updateViaCache: 'none' }).then(reg => reg.update()).catch(() => {}));
   }
 
 
