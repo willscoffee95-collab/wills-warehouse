@@ -625,9 +625,17 @@
     }
     if(!window.crypto||!window.crypto.subtle||typeof TextEncoder==='undefined')
       throw new Error('Verifikasi transaksi aman tidak tersedia di browser ini. Gunakan browser HTTPS terbaru.');
-    const json=JSON.stringify({method:String(method||''),payload:canonicalMutationPayloadV160(payload||{})});
-    const bytes=await window.crypto.subtle.digest('SHA-256',new TextEncoder().encode(json));
-    const fingerprint=Array.from(new Uint8Array(bytes),b=>b.toString(16).padStart(2,'0')).join('');
+    // A stored unsalted fingerprint of a short PIN can be brute-forced offline.
+    // For user maintenance with a new PIN, do not persist a PIN-derived digest at all.
+    // An uncertain secret-bearing write must be reconciled before any new attempt.
+    const secretPayload=String(method||'')==='saveUser'&&
+      payload&&Object.prototype.hasOwnProperty.call(payload,'pin')&&String(payload.pin||'').length>0;
+    let fingerprint='';
+    if(!secretPayload){
+      const json=JSON.stringify({method:String(method||''),payload:canonicalMutationPayloadV160(payload||{})});
+      const bytes=await window.crypto.subtle.digest('SHA-256',new TextEncoder().encode(json));
+      fingerprint=Array.from(new Uint8Array(bytes),b=>b.toString(16).padStart(2,'0')).join('');
+    }
     // Check again after asynchronous hashing: another tab could have written the key meanwhile.
     const currentRaw=localStorage.getItem(key);
     if(currentRaw!==null){
@@ -635,6 +643,8 @@
       try{current=JSON.parse(currentRaw);}catch(_){throw new Error('Kunci transaksi berubah/rusak. Periksa Riwayat/Audit.');}
       if(!current||typeof current!=='object'||!current.id)
         throw new Error('Kunci transaksi berubah. Periksa Riwayat/Audit.');
+      if(current.secretPayload===true||secretPayload)
+        throw new Error('Perubahan data pengguna dengan PIN belum terverifikasi. Periksa Audit Owner sebelum mencoba lagi.');
       if(!current.payloadHash)
         throw new Error('Ada transaksi versi lama yang belum terverifikasi. Periksa Riwayat/Audit sebelum posting baru.');
       if(current.payloadHash!==fingerprint||String(current.method||'')!==String(method||''))
@@ -642,12 +652,14 @@
       return String(current.id);
     }
     if(previous)throw new Error('Kunci transaksi berubah saat diverifikasi. Periksa Riwayat/Audit.');
-    const actionKey=String(action||'');
+    const actionKey=String(action||'').replace(/[^a-zA-Z0-9._:-]/g,'_').slice(0,54)||'write';
     const random=window.crypto.randomUUID?window.crypto.randomUUID():Math.random().toString(36).slice(2);
     const id=actionKey+':'+Date.now()+':'+random;
     if(!/^[A-Za-z0-9._:-]{12,120}$/.test(id))
       throw new Error('Idempotency key transaksi tidak valid.');
-    localStorage.setItem(key,JSON.stringify({id,ts:Date.now(),method:String(method||''),payloadHash:fingerprint}));
+    localStorage.setItem(key,JSON.stringify(secretPayload?
+      {id,ts:Date.now(),method:String(method||''),secretPayload:true}:
+      {id,ts:Date.now(),method:String(method||''),payloadHash:fingerprint}));
     return id;
   }
   // v1.6: fail closed when a mutation response is missing, reversed or pending recovery.
