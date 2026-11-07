@@ -597,6 +597,11 @@
     // A short status acknowledgement must not erase saved SJ lines needed for thermal print.
     if(i>=0){
       const previous=list[i];
+      if(String(previous.status||'').toUpperCase()!=='DRAFT'&&
+         String(d.status||'').toUpperCase()==='DRAFT'){
+        // Late stale reads must never downgrade an acknowledged shipped SJ.
+        return;
+      }
       if((!Array.isArray(d.lines)||!d.lines.length)&&Array.isArray(previous.lines)&&previous.lines.length)
         d={...previous,...d,lines:previous.lines};
       list[i]=d;
@@ -607,7 +612,14 @@
   const WW_DISPATCH_PENDING_PREFIX_V44='ww_dispatch_pending_v44_';
   function dispatchPendingKeyV44(id){return WW_DISPATCH_PENDING_PREFIX_V44+String(id||'').replace(/[^a-zA-Z0-9_-]/g,'').slice(0,100);}
   function dispatchPendingV44(id){try{return JSON.parse(localStorage.getItem(dispatchPendingKeyV44(id))||'null')}catch(_){return null}}
-  function dispatchStorePendingV44(id,idem){try{localStorage.setItem(dispatchPendingKeyV44(id),JSON.stringify({sjId:String(id),idem:String(idem),startedAt:Date.now()}))}catch(_){}}
+  function dispatchStorePendingV44(id,idem){
+    const key=dispatchPendingKeyV44(id);
+    const encoded=JSON.stringify({sjId:String(id),idem:String(idem),startedAt:Date.now()});
+    try{
+      localStorage.setItem(key,encoded);
+      return localStorage.getItem(key)===encoded;
+    }catch(_){return false;}
+  }
   function dispatchClearPendingV44(id){try{localStorage.removeItem(dispatchPendingKeyV44(id));localStorage.removeItem('ww_gh_idem_dispatch_'+id)}catch(_){}}
   // v1.5.2.13: update the active SJ in place. Never rebuild sheetHtml
   // or replace the staff's current screen just because a status changed.
@@ -859,6 +871,7 @@
   }
   function dispatchAcceptResponseV44(id,response){
     if(!response||response.ok===false){
+      if(wwDispatchWatchConfirmedV15214.has(String(id)))return;
       toast('Hasil Kirim belum berhasil dikonfirmasi. Jangan kirim ulang; gunakan Cek Status.','warning',12000);
       dispatchUpdateIfVisibleV44(id);return;
     }
@@ -889,7 +902,11 @@
     }
     opsWriteInFlightV43.add(action);
     const idem=idemKey(action),fromKey=currentSheetKey();
-    if(dispatch)dispatchStorePendingV44(sjId,idem);
+    if(dispatch&&!dispatchStorePendingV44(sjId,idem)){
+      opsWriteInFlightV43.delete(action);
+      toast('Penyimpanan pengunci Kirim gagal. Tidak ada permintaan pengiriman dikirim ke backend. Periksa penyimpanan browser.','error',12000);
+      return {ok:false,blocked:true};
+    }
     beginBusy(dispatch?'Konfirmasi Kirim SJ…':'Memproses Surat Jalan…');
     try{
       if(dispatch){
