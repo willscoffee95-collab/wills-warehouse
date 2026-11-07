@@ -148,7 +148,7 @@ test('the detail template has stable live-update slots and reuses action handler
 });
 
 test('version bump covers JS, CSS and installed PWA shell',()=>{
-  const v='1.5.2.13-inline-sj';
+  const v='1.5.2.14-fast-ack';
   assert.ok(index.includes('app.js?v='+v));
   assert.ok(index.includes('app.css?v='+v));
   assert.ok(sw.includes('app.js?v='+v));

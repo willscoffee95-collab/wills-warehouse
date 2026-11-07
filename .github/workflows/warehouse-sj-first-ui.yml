@@ -10,6 +10,7 @@ on:
       - 'tests/warehouse-sj-top-ui.test.cjs'
       - 'tests/warehouse-sj-draft-ui.test.cjs'
       - 'tests/warehouse-sj-inline-status.test.cjs'
+      - 'tests/warehouse-sj-fast-canonical-ack.test.cjs'
       - '.github/workflows/warehouse-sj-first-ui.yml'
   workflow_dispatch:
 
@@ -29,4 +30,4 @@ jobs:
           node --check app.js
           node --check sw.js
       - name: Check SJ list and workflow
-        run: node --test tests/warehouse-sj-top-ui.test.cjs tests/warehouse-sj-draft-ui.test.cjs tests/warehouse-sj-inline-status.test.cjs
+        run: node --test tests/warehouse-sj-top-ui.test.cjs tests/warehouse-sj-draft-ui.test.cjs tests/warehouse-sj-inline-status.test.cjs tests/warehouse-sj-fast-canonical-ack.test.cjs

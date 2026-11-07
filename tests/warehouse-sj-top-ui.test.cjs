@@ -104,10 +104,10 @@ test('canonical queue and module request lookup preserve linked SJ identity',()=
 });
 
 test('cache-busting version is consistent in app, index and service worker',()=>{
-  const ver='1.5.2.13-inline-sj';
+  const ver='1.5.2.14-fast-ack';
   assert.ok(index.includes('app.js?v='+ver));
   assert.ok(sw.includes('app.js?v='+ver));
   assert.ok(sw.includes('wills-warehouse-shell-v'+ver));
   assert.ok(app.includes("serviceWorker.register('./sw.js?v="+ver+"'"));
-  assert.ok(app.includes("WW_FRONTEND_BUILD='2026-11-06."+ver+"'"));
+  assert.ok(app.includes("WW_FRONTEND_BUILD='2026-11-07."+ver+"'"));
 });
