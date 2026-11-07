@@ -178,3 +178,30 @@ html{background:#fbf7f2!important;color-scheme:light;max-width:100%;min-height:1
 @media(prefers-reduced-motion:reduce){
   .ww-sj-inline-status-v15213 .ww-spin-v1526{animation-duration:1.6s}
 }
+
+/* Warehouse SJ 1.5.2.15 — patient, visible dispatch progress */
+.ww-sj-inline-status-v15213:has(.ww-sj-progress-v15215){
+  padding:13px 14px;border-color:var(--line,#e9d6c7);background:var(--surface,#fffaf5)
+}
+.ww-sj-progress-v15215{
+  width:100%;display:flex;align-items:flex-start;gap:11px;min-width:0;
+}
+.ww-sj-progress-v15215 .ww-spin-v1526{
+  width:19px;height:19px;margin:2px 0 0;flex:0 0 19px;
+}
+.ww-sj-progress-copy{flex:1;min-width:0;display:flex;flex-direction:column;gap:5px}
+.ww-sj-progress-copy strong{font-size:13px;line-height:1.45;letter-spacing:.01em}
+.ww-sj-progress-copy small{font-size:11.5px;font-weight:500;line-height:1.5}
+.ww-sj-progress-copy .ww-sj-progress-time{
+  width:max-content;font-variant-numeric:tabular-nums;font-weight:750;
+  border:1px solid currentColor;border-radius:7px;padding:3px 8px;opacity:.8;
+}
+.ww-sj-progress--done{color:#23613e}
+.ww-sj-progress--uncertain{color:#866221}
+.ww-sj-action-panel #wwSjWaitingV15215{
+  opacity:1!important;cursor:wait;pointer-events:none;color:#886325;
+  background:#fff9e9;border-color:#f1dfb6
+}
+@media(prefers-reduced-motion:reduce){
+  .ww-sj-progress-v15215 .ww-spin-v1526{animation-duration:1.7s}
+}

@@ -143,7 +143,7 @@ test('existing guard prevents a second dispatch while the status is unknown',()=
 });
 
 test('PWA version uses new fast acknowledgment script in index and service worker',()=>{
-  const version='1.5.2.14-fast-ack';
+  const version='1.5.2.15-progress';
   assert.match(app,/wwDispatchStartWatchV15214/);
   assert.ok(index.includes('app.js?v='+version));
   assert.ok(sw.includes('app.js?v='+version));

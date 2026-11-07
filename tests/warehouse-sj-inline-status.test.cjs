@@ -20,7 +20,11 @@ function part(a,b){
 function mountedDetail({status='DRAFT',pending=false,active=false}={}){
   const elements={
     status:{innerHTML:'<span>DRAFT</span>'},
-    note:{innerHTML:''},
+    note:{innerHTML:'',querySelector(selector){
+      if(selector!=='[data-ww-sj-stage-v15215]')return null;
+      const match=this.innerHTML.match(/data-ww-sj-stage-v15215="([^"]+)"/);
+      return match?{getAttribute:()=>match[1]}:null;
+    }},
     actions:{innerHTML:'<button id="ghSendSj">Konfirmasi Kirim</button>',dataset:{wwSjKey:'DRAFT|false|true'}},
     items:{innerHTML:''}
   };
@@ -69,10 +73,11 @@ test('DRAFT to DIKIRIM updates existing sheet badge and action without opening a
   const h=mountedDetail();
   const before=h.rootNode.firstElementChild;
   h.data.deliveries[0].status='DIKIRIM';
+  h.data.deliveries[0].dispatchTxnId='DSP-1';
   h.api.dispatchUpdateIfVisibleV44('SJID-1');
   assert.strictEqual(h.rootNode.firstElementChild,before,'same sheet object remains mounted');
   assert.match(h.elements.status.innerHTML,/DIKIRIM/);
-  assert.match(h.elements.note.innerHTML,/Pengiriman terkonfirmasi/);
+  assert.match(h.elements.note.innerHTML,/Berhasil dikirim — silakan Cetak SJ/);
   assert.match(h.elements.actions.innerHTML,/Cetak Thermal · SIAP KIRIM/);
   assert.equal(h.records.binds,1);
   assert.equal(h.records.rebuilds,0);
@@ -87,7 +92,7 @@ test('while dispatch is working, existing button spinner is not replaced',()=>{
   assert.equal(h.elements.actions.innerHTML,before);
   assert.equal(h.records.binds,0);
   assert.match(h.elements.note.innerHTML,/ww-spin-v1526/);
-  assert.match(h.elements.note.innerHTML,/Mengonfirmasi status Kirim/);
+  assert.match(h.elements.note.innerHTML,/Sedang memproses pengiriman/);
   h.inFlight.delete('dispatch_SJID-1');
   h.api.dispatchUpdateIfVisibleV44('SJID-1');
   assert.match(h.elements.actions.innerHTML,/Cek Status Kirim/);
@@ -148,7 +153,7 @@ test('the detail template has stable live-update slots and reuses action handler
 });
 
 test('version bump covers JS, CSS and installed PWA shell',()=>{
-  const v='1.5.2.14-fast-ack';
+  const v='1.5.2.15-progress';
   assert.ok(index.includes('app.js?v='+v));
   assert.ok(index.includes('app.css?v='+v));
   assert.ok(sw.includes('app.js?v='+v));

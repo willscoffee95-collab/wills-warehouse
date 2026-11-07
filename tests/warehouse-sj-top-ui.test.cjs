@@ -104,7 +104,7 @@ test('canonical queue and module request lookup preserve linked SJ identity',()=
 });
 
 test('cache-busting version is consistent in app, index and service worker',()=>{
-  const ver='1.5.2.14-fast-ack';
+  const ver='1.5.2.15-progress';
   assert.ok(index.includes('app.js?v='+ver));
   assert.ok(sw.includes('app.js?v='+ver));
   assert.ok(sw.includes('wills-warehouse-shell-v'+ver));
