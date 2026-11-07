@@ -20,7 +20,11 @@ function part(a,b){
 function mountedDetail({status='DRAFT',pending=false,active=false}={}){
   const elements={
     status:{innerHTML:'<span>DRAFT</span>'},
-    note:{innerHTML:''},
+    note:{innerHTML:'',querySelector(selector){
+      if(selector!=='[data-ww-sj-stage-v15215]')return null;
+      const match=this.innerHTML.match(/data-ww-sj-stage-v15215="([^"]+)"/);
+      return match?{getAttribute:()=>match[1]}:null;
+    }},
     actions:{innerHTML:'<button id="ghSendSj">Konfirmasi Kirim</button>',dataset:{wwSjKey:'DRAFT|false|true'}},
     items:{innerHTML:''}
   };
