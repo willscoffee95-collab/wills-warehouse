@@ -630,19 +630,19 @@
       pending=!!dispatchPendingV44(id),working=
         opsWriteInFlightV43.has('dispatch_'+id)||wwDispatchWatchersV15214.has(String(id));
     if(pending&&status==='DRAFT'&&working)
-      return '<div class="ww-sj-progress-v15215" data-ww-sj-progress-v15215>'+
+      return '<div class="ww-sj-progress-v15215" data-ww-sj-stage-v15215="working" data-ww-sj-progress-v15215>'+
         '<span class="ww-spin-v1526" aria-hidden="true"></span>'+
         '<div class="ww-sj-progress-copy"><strong>Sedang memproses pengiriman…</strong>'+
         '<small data-ww-sj-progress-guidance>Permintaan sudah dikirim. Mohon tunggu; jangan tekan tombol Kirim lagi.</small>'+
         '<small class="ww-sj-progress-time" data-ww-sj-progress-time>Waktu proses: 00:00</small></div></div>';
     if(pending&&status==='DRAFT')
-      return '<div class="ww-sj-progress-v15215 ww-sj-progress--uncertain"><div class="ww-sj-progress-copy">'+
+      return '<div class="ww-sj-progress-v15215 ww-sj-progress--uncertain" data-ww-sj-stage-v15215="uncertain"><div class="ww-sj-progress-copy">'+
         '<strong>Status Kirim belum dapat dipastikan</strong>'+
         '<small>Jangan Kirim ulang. Pilih Cek Status Kirim untuk membaca transaksi tanpa memotong stok lagi.</small>'+
         '</div></div>';
     if(['DIKIRIM','DITERIMA','DITERIMA_SEBAGIAN','SELISIH','SELESAI'].includes(status)&&
        String(d.dispatchTxnId||'').trim())
-      return '<div class="ww-sj-progress-v15215 ww-sj-progress--done"><div class="ww-sj-progress-copy">'+
+      return '<div class="ww-sj-progress-v15215 ww-sj-progress--done" data-ww-sj-stage-v15215="done"><div class="ww-sj-progress-copy">'+
         '<strong>Berhasil dikirim — silakan Cetak SJ</strong>'+
         '<small>Transaksi sudah dikonfirmasi Warehouse. Jangan tekan Kirim lagi.</small>'+
         '</div></div>';
@@ -712,8 +712,13 @@
     status.innerHTML=deliveryStatusBadge(d.status);
     const pending=dispatchPendingV44(id),active=opsWriteInFlightV43.has('dispatch_'+id),
       autoChecking=wwDispatchWatchersV15214.has(String(id));
-    const noteHtml=wwSjDispatchNoteV15213(id,d);
-    if(note.innerHTML!==noteHtml)note.innerHTML=noteHtml;
+    const noteHtml=wwSjDispatchNoteV15213(id,d),
+      nextStage=noteHtml.includes('data-ww-sj-stage-v15215="working"')?'working':
+        noteHtml.includes('data-ww-sj-stage-v15215="uncertain"')?'uncertain':
+        noteHtml.includes('data-ww-sj-stage-v15215="done"')?'done':'',
+      currentStage=note.querySelector('[data-ww-sj-stage-v15215]')?.getAttribute('data-ww-sj-stage-v15215')||'';
+    // Preserve the existing spinner/counter nodes between backend polls.
+    if(currentStage!==nextStage)note.innerHTML=noteHtml;
     wwSjProgressEnsureV15215(id);
     // Preserve the clicked button and its spinner while dispatch is pending.
     if(!(active&&String(d.status||'').toUpperCase()==='DRAFT')){
@@ -1651,6 +1656,15 @@
     finally{
       if(button.isConnected){
         button.disabled=false;button.classList.remove('is-loading');button.removeAttribute('aria-busy');
+        // In case the request was blocked before reaching backend (e.g. localStorage
+        // quota), unlock sibling controls. During real dispatch the panel is replaced
+        // by the pending-only action and this old button is disconnected.
+        if(button.id==='ghSendSj'){
+          const panel=button.closest('[data-ww-sj-live-actions]');
+          if(panel)panel.querySelectorAll('button').forEach(sibling=>{
+            if(sibling!==button)sibling.disabled=false;
+          });
+        }
       }
     }
   }
