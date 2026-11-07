@@ -73,10 +73,11 @@ test('DRAFT to DIKIRIM updates existing sheet badge and action without opening a
   const h=mountedDetail();
   const before=h.rootNode.firstElementChild;
   h.data.deliveries[0].status='DIKIRIM';
+  h.data.deliveries[0].dispatchTxnId='DSP-1';
   h.api.dispatchUpdateIfVisibleV44('SJID-1');
   assert.strictEqual(h.rootNode.firstElementChild,before,'same sheet object remains mounted');
   assert.match(h.elements.status.innerHTML,/DIKIRIM/);
-  assert.match(h.elements.note.innerHTML,/Pengiriman terkonfirmasi/);
+  assert.match(h.elements.note.innerHTML,/Berhasil dikirim — silakan Cetak SJ/);
   assert.match(h.elements.actions.innerHTML,/Cetak Thermal · SIAP KIRIM/);
   assert.equal(h.records.binds,1);
   assert.equal(h.records.rebuilds,0);
@@ -91,7 +92,7 @@ test('while dispatch is working, existing button spinner is not replaced',()=>{
   assert.equal(h.elements.actions.innerHTML,before);
   assert.equal(h.records.binds,0);
   assert.match(h.elements.note.innerHTML,/ww-spin-v1526/);
-  assert.match(h.elements.note.innerHTML,/Mengonfirmasi status Kirim/);
+  assert.match(h.elements.note.innerHTML,/Sedang memproses pengiriman/);
   h.inFlight.delete('dispatch_SJID-1');
   h.api.dispatchUpdateIfVisibleV44('SJID-1');
   assert.match(h.elements.actions.innerHTML,/Cek Status Kirim/);
