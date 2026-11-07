@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  window.WW_FRONTEND_BUILD='2026-11-06.1.5.2.13-inline-sj';
+  window.WW_FRONTEND_BUILD='2026-11-07.1.5.2.14-fast-ack';
 
 
   const $ = (q, root = document) => root.querySelector(q);
@@ -613,7 +613,8 @@
   // or replace the staff's current screen just because a status changed.
   function wwSjDispatchNoteV15213(id,d){
     const pending=!!dispatchPendingV44(id),active=opsWriteInFlightV43.has('dispatch_'+id)||
-      opsWriteInFlightV43.has('status_'+id);
+      opsWriteInFlightV43.has('status_'+id)||
+      wwDispatchWatchersV15214.has(String(id));
     if(active&&String(d.status||'').toUpperCase()==='DRAFT')
       return '<span class="ww-spin-v1526" aria-hidden="true"></span> Mengonfirmasi status Kirim ke Warehouse…';
     if(pending&&String(d.status||'').toUpperCase()==='DRAFT')
@@ -694,6 +695,65 @@
     if(section)section.textContent=count;
     return true;
   }
+  // v1.5.2.14: canonical read-only verifier. Backend may be posting stock
+  // while independently pushing an outlet feed; never dispatch a second time.
+  // This watcher can only read getDeliveryDetailFreshV1354 and update the UI.
+  const wwDispatchWatchersV15214=new Map(),wwDispatchWatchConfirmedV15214=new Set();
+  const WW_DISPATCH_POLL_DELAYS_V15214=[3500,6500,10000,14000,20000,25000];
+  function wwDispatchConfirmedV15214(id,fresh){
+    return !!fresh&&String(fresh.sjId||'')===String(id)&&
+      ['DIKIRIM','DITERIMA','DITERIMA_SEBAGIAN','SELISIH','SELESAI'].includes(
+        String(fresh.status||'').toUpperCase())&&
+      !!String(fresh.dispatchTxnId||'').trim();
+  }
+  function wwDispatchStopWatchV15214(id){
+    const key=String(id),item=wwDispatchWatchersV15214.get(key);
+    if(!item)return;
+    item.stopped=true;
+    if(item.timer!=null)clearTimeout(item.timer);
+    wwDispatchWatchersV15214.delete(key);
+  }
+  function wwDispatchStartWatchV15214(id){
+    const key=String(id);
+    if(wwDispatchWatchersV15214.has(key))return;
+    if(!dispatchPendingV44(key))return;
+    const item={stopped:false,timer:null,attempt:0},attempts=WW_DISPATCH_POLL_DELAYS_V15214.length;
+    wwDispatchWatchersV15214.set(key,item);
+    const schedule=()=>{
+      if(item.stopped||!dispatchPendingV44(key)){
+        wwDispatchStopWatchV15214(key);return;
+      }
+      if(item.attempt>=attempts){
+        wwDispatchStopWatchV15214(key);
+        dispatchUpdateIfVisibleV44(key);return;
+      }
+      item.timer=setTimeout(async()=>{
+        item.timer=null;
+        if(item.stopped)return;
+        try{
+          const fresh=await bridge.call('getDeliveryDetailFreshV1354',state.token,key);
+          if(item.stopped)return;
+          if(wwDispatchConfirmedV15214(key,fresh)){
+            wwDispatchWatchConfirmedV15214.add(key);
+            dispatchApplyStatusV44(key,fresh);
+            wwDispatchStopWatchV15214(key);
+            toast((fresh.noSj||'Surat Jalan')+' · DIKIRIM sudah terkonfirmasi. Cetak Thermal siap.','success');
+            return;
+          }
+          // An older DRAFT snapshot cannot release a pending dispatch guard.
+        }catch(error){
+          console.warn('[Warehouse] Status SJ belum tersedia (read-only):',
+            String(error&&error.message||error));
+        }
+        if(!item.stopped){
+          item.attempt+=1;
+          schedule();
+        }
+      },WW_DISPATCH_POLL_DELAYS_V15214[item.attempt]);
+    };
+    dispatchUpdateIfVisibleV44(key);
+    schedule();
+  }
   function dispatchUpdateIfVisibleV44(id){
     const key=currentSheetKey();
     if(key==='delivery-detail:'+id)wwSjUpdateDetailV15213(id);
@@ -704,6 +764,7 @@
     upsertFreshDeliveryV1354(fresh);
     if(String(fresh.status||'').toUpperCase()==='DRAFT')return false;
     dispatchClearPendingV44(id);
+    wwDispatchStopWatchV15214(id);
     dispatchUpdateIfVisibleV44(id);
     return true;
   }
@@ -802,6 +863,11 @@
       dispatchUpdateIfVisibleV44(id);return;
     }
     const fresh=response.deliveryV1354||null;
+    if(wwDispatchWatchConfirmedV15214.has(String(id))){
+      // Canonical commit was already read while the backend pushed the outlet feed.
+      wwDispatchStopWatchV15214(id);
+      return;
+    }
     if(!dispatchApplyStatusV44(id,fresh)){
       toast('Backend merespons, tetapi status SJ belum terverifikasi. Gunakan Cek Status; jangan kirim ulang.','warning',12000);
       dispatchUpdateIfVisibleV44(id);
@@ -828,6 +894,7 @@
     try{
       if(dispatch){
         const remote=bridge.call(method,state.token,payload||{},idem);
+        wwDispatchStartWatchV15214(sjId);
         const guarded=remote.then(value=>({type:'value',value}),error=>({type:'error',error}));
         let timer;
         const result=await Promise.race([
@@ -836,11 +903,15 @@
         ]);
         clearTimeout(timer);
         if(result.type==='slow'){
-          toast('Proses Kirim lebih dari 25 detik. Spinner dihentikan; backend mungkin masih bekerja. Jangan kirim ulang. Pilih Cek Status Kirim.','warning',12000);
+          if(!wwDispatchWatchConfirmedV15214.has(String(sjId)))
+            toast('Kirim masih diverifikasi otomatis. Spinner tetap menunjukkan proses; jangan klik Kirim ulang.','warning',12000);
           dispatchUpdateIfVisibleV44(sjId);
           guarded.then(out=>{
             if(out.type==='value')dispatchAcceptResponseV44(sjId,out.value);
-            else{toast('Respons pengiriman tertunda/gagal. Jangan kirim ulang; cek status SJ.','warning',12000);dispatchUpdateIfVisibleV44(sjId);}
+            else if(!wwDispatchWatchConfirmedV15214.has(String(sjId))){
+              toast('Respons Kirim terlambat/gagal. Sistem terus cek status; jangan Kirim ulang.','warning',12000);
+              dispatchUpdateIfVisibleV44(sjId);
+            }
           });
           return {ok:false,pending:true};
         }
@@ -857,6 +928,8 @@
       return result;
     }catch(err){
       if(dispatch){
+        if(wwDispatchWatchConfirmedV15214.has(String(sjId)))
+          return {ok:true,verified:true,source:'CANONICAL_READ_ONLY'};
         toast('Konfirmasi Kirim belum pasti: '+String(err&&err.message||err)+'. Jangan kirim ulang sebelum Cek Status.','warning',12000);
         dispatchUpdateIfVisibleV44(sjId);
         return {ok:false,pending:true};
@@ -2190,7 +2263,7 @@
       reloadingForUpdate = true;
       window.location.reload();
     });
-    window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=1.5.2.13-inline-sj', { updateViaCache: 'none' }).then(reg => reg.update()).catch(() => {}));
+    window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=1.5.2.14-fast-ack', { updateViaCache: 'none' }).then(reg => reg.update()).catch(() => {}));
   }
 
 
