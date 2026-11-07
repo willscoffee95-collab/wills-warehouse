@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  window.WW_FRONTEND_BUILD='2026-11-07.1.5.2.14-fast-ack';
+  window.WW_FRONTEND_BUILD='2026-11-07.1.5.2.15-progress';
 
 
   const $ = (q, root = document) => root.querySelector(q);
@@ -976,7 +976,7 @@
         clearTimeout(timer);
         if(result.type==='slow'){
           if(!wwDispatchWatchConfirmedV15214.has(String(sjId)))
-            toast('Kirim masih diverifikasi otomatis. Spinner tetap menunjukkan proses; jangan klik Kirim ulang.','warning',12000);
+            toast('Pengiriman masih diproses di Warehouse. Lihat spinner dan waktu tunggu di SJ; jangan tekan Kirim lagi.','info',10000);
           dispatchUpdateIfVisibleV44(sjId);
           guarded.then(out=>{
             if(out.type==='value')dispatchAcceptResponseV44(sjId,out.value);
@@ -1607,21 +1607,28 @@
   function directNewSj(){const d=state.data||{},outs=(d.outlets||[]).filter(x=>x.active==='YA'),mats=(d.materials||[]).filter(x=>x.active==='YA'&&x.distributable!==false);sheetHtml('Buat Surat Jalan Manual',`<form id="ghSj"><label class="field"><span>Outlet</span><select name="outletCode" required><option value="">Pilih</option>${outs.map(x=>`<option value="${esc(x.code)}">${esc(x.name)}</option>`).join('')}</select></label><div id="ghSjLines"></div><button type="button" class="btn btn-soft" id="ghAddSj">+ Tambah bahan</button><label class="field"><span>Catatan</span><textarea name="note"></textarea></label><div class="actions"><button class="btn btn-line" type="button" id="ghCancel">Tutup</button><button class="btn btn-primary">Buat DRAFT</button></div></form>`);const box=$('#ghSjLines'),opts=mats.map(x=>`<option value="${esc(x.code)}">${esc(x.name)} · ${esc(x.receiveUnit||'')}</option>`).join(''),add=()=>{const el=document.createElement('div');el.className='direct-line';el.innerHTML=`<select class="code"><option value="">Pilih bahan</option>${opts}</select><input class="qty" type="number" min="0.000001" step="0.000001" placeholder="Qty unit"><span></span><button class="line-remove" type="button">×</button>`;el.querySelector('.line-remove').onclick=()=>el.remove();box.appendChild(el)};add();$('#ghAddSj').onclick=add;$('#ghCancel').onclick=closeSheet;$('#ghSj').onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.target),items=[...box.querySelectorAll('.direct-line')].map(x=>({code:x.querySelector('.code').value,qtyUnit:x.querySelector('.qty').value}));await writeDirect('manualSj','createDeliveryDraft',{outletCode:fd.get('outletCode'),note:fd.get('note'),items})};}
   function directReverse(txnId){const reason=prompt('Alasan pembatalan / reversal transaksi '+txnId+':');if(!reason)return;writeDirect('reverse_'+txnId,'reverseTransaction',{txnId:txnId,reason:reason}).catch(()=>{});}
   // Four clear operational actions for DRAFT; never expose a second Send while status is uncertain.
-  function wwSjActionMarkupV15211(d,req,permissions,pendingDispatch){
+  function wwSjActionMarkupV15211(d,req,permissions,pendingDispatch,stillWorking=false){
     const status=String(d&&d.status||'').trim().toUpperCase();
     const actions=[];
     const button=(id,style,icon,label)=>
       '<button type="button" class="btn ww-sj-action ww-sj-action--'+style+'" id="'+id+'">'+icon+'<span>'+label+'</span></button>';
     if(status==='DRAFT'){
-      if(permissions.canPrint)actions.push(button('ghPrintSj','thermal',icons.printer,'Cetak Thermal'));
-      if(permissions.canPrepare&&req&&req.requestId)
-        actions.push(button('wwSjCheckMaterialsV15210','check',icons.clipboard,'Periksa Bahan'));
-      if(permissions.canCancel)
-        actions.push(button('ghCancelSj','cancel',icons.warning,'Batalkan'));
-      if(pendingDispatch)
-        actions.push(button('ghCheckSjStatus','status',icons.clock,'Cek Status Kirim'));
-      else if(permissions.canDispatch)
-        actions.push(button('ghSendSj','send',icons.truck,'Konfirmasi Kirim'));
+      if(pendingDispatch){
+        // During an uncertain commit, do not allow Cancel, qty edits or new
+        // Send. Only offer a read-only status check after automatic checking.
+        if(stillWorking)
+          actions.push('<button type="button" class="btn ww-sj-action ww-sj-action--status is-loading" disabled aria-busy="true" id="wwSjWaitingV15215">'+
+            icons.clock+'<span>Sedang diproses · Jangan klik ulang</span></button>');
+        else actions.push(button('ghCheckSjStatus','status',icons.clock,'Cek Status Kirim'));
+      }else{
+        if(permissions.canPrint)actions.push(button('ghPrintSj','thermal',icons.printer,'Cetak Thermal'));
+        if(permissions.canPrepare&&req&&req.requestId)
+          actions.push(button('wwSjCheckMaterialsV15210','check',icons.clipboard,'Periksa Bahan'));
+        if(permissions.canCancel)
+          actions.push(button('ghCancelSj','cancel',icons.warning,'Batalkan'));
+        if(permissions.canDispatch)
+          actions.push(button('ghSendSj','send',icons.truck,'Konfirmasi Kirim'));
+      }
     }else if(status==='DIKIRIM'&&permissions.canPrint){
       actions.push(button('ghPrintSj','ready',icons.printer,'Cetak Thermal · SIAP KIRIM'));
     }else if(status!=='DIBATALKAN'&&permissions.canPrint){
@@ -1634,6 +1641,12 @@
   async function wwSjWithLoadingV15211(button,operation){
     if(!button||button.disabled)return null;
     button.disabled=true;button.classList.add('is-loading');button.setAttribute('aria-busy','true');
+    if(button.id==='ghSendSj'){
+      const panel=button.closest('[data-ww-sj-live-actions]');
+      if(panel)panel.querySelectorAll('button').forEach(sibling=>{
+        if(sibling!==button)sibling.disabled=true;
+      });
+    }
     try{return await operation();}
     finally{
       if(button.isConnected){
@@ -2337,7 +2350,7 @@
       reloadingForUpdate = true;
       window.location.reload();
     });
-    window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=1.5.2.14-fast-ack', { updateViaCache: 'none' }).then(reg => reg.update()).catch(() => {}));
+    window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=1.5.2.15-progress', { updateViaCache: 'none' }).then(reg => reg.update()).catch(() => {}));
   }
 
 
