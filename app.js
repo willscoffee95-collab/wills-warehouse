@@ -623,17 +623,68 @@
   function dispatchClearPendingV44(id){try{localStorage.removeItem(dispatchPendingKeyV44(id));localStorage.removeItem('ww_gh_idem_dispatch_'+id)}catch(_){}}
   // v1.5.2.13: update the active SJ in place. Never rebuild sheetHtml
   // or replace the staff's current screen just because a status changed.
+  // A consistent processing notice remains visible while the canonical stock
+  // transaction is still being acknowledged. The elapsed timer is UI-only.
   function wwSjDispatchNoteV15213(id,d){
-    const pending=!!dispatchPendingV44(id),active=opsWriteInFlightV43.has('dispatch_'+id)||
-      opsWriteInFlightV43.has('status_'+id)||
-      wwDispatchWatchersV15214.has(String(id));
-    if(active&&String(d.status||'').toUpperCase()==='DRAFT')
-      return '<span class="ww-spin-v1526" aria-hidden="true"></span> Mengonfirmasi status Kirim ke Warehouse…';
-    if(pending&&String(d.status||'').toUpperCase()==='DRAFT')
-      return '<b>Status pengiriman belum pasti.</b> Jangan Kirim ulang. Gunakan Cek Status Kirim; stok mungkin sudah berkurang.';
-    if(String(d.status||'').toUpperCase()==='DIKIRIM')
-      return '<b>Pengiriman terkonfirmasi.</b> SJ siap dicetak thermal.';
+    const status=String(d.status||'').toUpperCase(),
+      pending=!!dispatchPendingV44(id),working=
+        opsWriteInFlightV43.has('dispatch_'+id)||wwDispatchWatchersV15214.has(String(id));
+    if(pending&&status==='DRAFT'&&working)
+      return '<div class="ww-sj-progress-v15215" data-ww-sj-progress-v15215>'+
+        '<span class="ww-spin-v1526" aria-hidden="true"></span>'+
+        '<div class="ww-sj-progress-copy"><strong>Sedang memproses pengiriman…</strong>'+
+        '<small data-ww-sj-progress-guidance>Permintaan sudah dikirim. Mohon tunggu; jangan tekan tombol Kirim lagi.</small>'+
+        '<small class="ww-sj-progress-time" data-ww-sj-progress-time>Waktu proses: 00:00</small></div></div>';
+    if(pending&&status==='DRAFT')
+      return '<div class="ww-sj-progress-v15215 ww-sj-progress--uncertain"><div class="ww-sj-progress-copy">'+
+        '<strong>Status Kirim belum dapat dipastikan</strong>'+
+        '<small>Jangan Kirim ulang. Pilih Cek Status Kirim untuk membaca transaksi tanpa memotong stok lagi.</small>'+
+        '</div></div>';
+    if(['DIKIRIM','DITERIMA','DITERIMA_SEBAGIAN','SELISIH','SELESAI'].includes(status)&&
+       String(d.dispatchTxnId||'').trim())
+      return '<div class="ww-sj-progress-v15215 ww-sj-progress--done"><div class="ww-sj-progress-copy">'+
+        '<strong>Berhasil dikirim — silakan Cetak SJ</strong>'+
+        '<small>Transaksi sudah dikonfirmasi Warehouse. Jangan tekan Kirim lagi.</small>'+
+        '</div></div>';
     return '';
+  }
+  const wwSjProgressTimersV15215=new Map();
+  function wwSjProgressStopV15215(id){
+    const key=String(id),timer=wwSjProgressTimersV15215.get(key);
+    if(timer!=null)clearInterval(timer);
+    wwSjProgressTimersV15215.delete(key);
+  }
+  function wwSjProgressTickV15215(id){
+    const key=String(id),root=$('#sheetRoot'),sheet=root&&root.firstElementChild,
+      progress=sheet&&String(sheet.dataset.sheetKey)==='delivery-detail:'+key?
+        sheet.querySelector('[data-ww-sj-progress-v15215]'):null;
+    if(!progress){wwSjProgressStopV15215(key);return false;}
+    const pending=dispatchPendingV44(key),working=
+      opsWriteInFlightV43.has('dispatch_'+key)||wwDispatchWatchersV15214.has(key);
+    if(!pending||!working){wwSjProgressStopV15215(key);return false;}
+    const start=Number(pending.startedAt);
+    const seconds=Number.isFinite(start)&&start>0?
+      Math.max(0,Math.floor((Date.now()-start)/1000)):0;
+    const clock=progress.querySelector('[data-ww-sj-progress-time]');
+    if(clock){
+      const mm=String(Math.floor(seconds/60)).padStart(2,'0'),
+        ss=String(seconds%60).padStart(2,'0');
+      clock.textContent='Waktu proses: '+mm+':'+ss;
+    }
+    const guide=progress.querySelector('[data-ww-sj-progress-guidance]');
+    if(guide)guide.textContent=seconds>=35?
+      'Masih memeriksa status di Warehouse. Transaksi mungkin sudah tercatat; jangan Kirim ulang.':
+      seconds>=15?
+      'Proses lebih lama dari biasanya. Sistem tetap memeriksa status otomatis; jangan klik berulang.':
+      'Permintaan sudah dikirim. Mohon tunggu; jangan tekan tombol Kirim lagi.';
+    return true;
+  }
+  function wwSjProgressEnsureV15215(id){
+    const key=String(id);
+    if(!wwSjProgressTickV15215(key))return;
+    if(!wwSjProgressTimersV15215.has(key)){
+      wwSjProgressTimersV15215.set(key,setInterval(()=>wwSjProgressTickV15215(key),1000));
+    }
   }
   function wwSjRenderLinesV15213(d){
     return (d.lines||[]).map(l=>{
@@ -659,15 +710,19 @@
       items=sheet.querySelector('[data-ww-sj-live-lines]');
     if(!status||!actions||!note||!items)return false;
     status.innerHTML=deliveryStatusBadge(d.status);
-    const pending=dispatchPendingV44(id),active=opsWriteInFlightV43.has('dispatch_'+id);
-    note.innerHTML=wwSjDispatchNoteV15213(id,d);
+    const pending=dispatchPendingV44(id),active=opsWriteInFlightV43.has('dispatch_'+id),
+      autoChecking=wwDispatchWatchersV15214.has(String(id));
+    const noteHtml=wwSjDispatchNoteV15213(id,d);
+    if(note.innerHTML!==noteHtml)note.innerHTML=noteHtml;
+    wwSjProgressEnsureV15215(id);
     // Preserve the clicked button and its spinner while dispatch is pending.
     if(!(active&&String(d.status||'').toUpperCase()==='DRAFT')){
       const req=findRequestForDelivery(d),html=wwSjActionMarkupV15211(d,req,{
         canPrint:actionAllowed('draftPrint'),canPrepare:roleCan('DELIVERY_PREPARE'),
         canCancel:roleCan('OWNER_ONLY'),canDispatch:roleCan('DELIVERY_DISPATCH')
-      },pending);
-      const key=String(d.status||'')+'|'+!!pending+'|'+!!(req&&req.requestId);
+      },pending,active||autoChecking);
+      const key=String(d.status||'')+'|'+!!pending+'|'+!!(req&&req.requestId)+
+        '|'+!!(active||autoChecking);
       if(actions.dataset.wwSjKey!==key){
         actions.innerHTML=html;actions.dataset.wwSjKey=key;
         wwSjBindActionsV15213(id,d,req);
@@ -1614,12 +1669,14 @@
     const receiptMeta=`<div class="delivery-date-meta"><b>Tanggal Diterima Outlet</b><span>${esc(receiptLabel)}</span></div>`;
     const sjActions=wwSjActionMarkupV15211(d,req,{
       canPrint:actionAllowed('draftPrint'),canPrepare,canCancel,canDispatch
-    },pendingDispatch);
+    },pendingDispatch,opsWriteInFlightV43.has('dispatch_'+id)||
+      wwDispatchWatchersV15214.has(String(id)));
     // Keep audited local recovery available to Owner, but outside the four main actions.
     const recoveryOnly=sjRecoveryEligibleV1527(id,d)?
       '<details class="ww-sj-recovery-tools"><summary>Pemulihan Owner</summary><button class="btn btn-line" type="button" id="ghRecoveryLocalSJ">Audit Recovery Owner</button></details>':'';
-    sheetHtml(d.noSj,`<p><b>${esc(d.outletName)}</b> · <span data-ww-sj-live-status>${deliveryStatusBadge(d.status)}</span>${d.createdBy?' · dibuat '+esc(d.createdBy):''}</p>${dateMeta}${requestMeta}${receiptMeta}<div class="ww-sj-inline-status-v15213" data-ww-sj-live-note role="status">${wwSjDispatchNoteV15213(id,d)}</div><div class="direct-list" data-ww-sj-live-lines>${wwSjRenderLinesV15213(d)}</div><div data-ww-sj-live-actions data-ww-sj-key="${esc(String(d.status||'')+'|'+!!pendingDispatch+'|'+!!(req&&req.requestId))}">${sjActions}</div>${recoveryOnly}`,{key:'delivery-detail:'+id});
+    sheetHtml(d.noSj,`<p><b>${esc(d.outletName)}</b> · <span data-ww-sj-live-status>${deliveryStatusBadge(d.status)}</span>${d.createdBy?' · dibuat '+esc(d.createdBy):''}</p>${dateMeta}${requestMeta}${receiptMeta}<div class="ww-sj-inline-status-v15213" data-ww-sj-live-note role="status">${wwSjDispatchNoteV15213(id,d)}</div><div class="direct-list" data-ww-sj-live-lines>${wwSjRenderLinesV15213(d)}</div><div data-ww-sj-live-actions data-ww-sj-key="${esc(String(d.status||'')+'|'+!!pendingDispatch+'|'+!!(req&&req.requestId)+'|'+!!(opsWriteInFlightV43.has('dispatch_'+id)||wwDispatchWatchersV15214.has(String(id))))}">${sjActions}</div>${recoveryOnly}`,{key:'delivery-detail:'+id});
     wwSjBindActionsV15213(id,d,req);
+    wwSjProgressEnsureV15215(id);
     if(String(d.status||'').toUpperCase()==='DRAFT'||pendingDispatch)dispatchMaybeRefreshFreshV45(id);
   }
 
