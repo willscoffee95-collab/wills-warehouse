@@ -109,5 +109,5 @@ test('cache-busting version is consistent in app, index and service worker',()=>
   assert.ok(sw.includes('app.js?v='+ver));
   assert.ok(sw.includes('wills-warehouse-shell-v'+ver));
   assert.ok(app.includes("serviceWorker.register('./sw.js?v="+ver+"'"));
-  assert.ok(app.includes("WW_FRONTEND_BUILD='2026-11-06."+ver+"'"));
+  assert.ok(app.includes("WW_FRONTEND_BUILD='2026-11-07."+ver+"'"));
 });
