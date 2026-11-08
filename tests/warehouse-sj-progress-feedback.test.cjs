@@ -146,13 +146,13 @@ test('progress remains on same SJ sheet, no extra dispatch write calls or full r
 });
 
 test('new version and CSS styles included in PWA assets',()=>{
-  const v='1.5.2.15-progress';
+  const v='1.5.2.16-so-fisik-0811';
   assert.ok(index.includes('app.js?v='+v));
   assert.ok(index.includes('app.css?v='+v));
   assert.ok(sw.includes('app.js?v='+v));
   assert.ok(sw.includes('app.css?v='+v));
   assert.ok(sw.includes('wills-warehouse-shell-v'+v));
-  assert.ok(app.includes("WW_FRONTEND_BUILD='2026-11-07."+v+"'"));
+  assert.ok(app.includes("WW_FRONTEND_BUILD='2026-11-08."+v+"'"));
   assert.match(css,/\.ww-sj-progress-copy/);
   assert.match(css,/\.ww-sj-progress--done/);
 });

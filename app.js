@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  window.WW_FRONTEND_BUILD='2026-11-07.1.5.2.15-progress';
+  window.WW_FRONTEND_BUILD='2026-11-08.1.5.2.16-so-fisik-0811';
 
 
   const $ = (q, root = document) => root.querySelector(q);
@@ -1807,6 +1807,140 @@
   }
   function directExpense(){const cats=(state.data||{}).expenseCategories||[];sheetHtml('Pengeluaran Operasional',`<form id="ghExp"><label class="field"><span>Kategori</span><select name="category">${cats.map(x=>`<option value="${esc(x.code)}">${esc(x.label)}</option>`).join('')}</select></label><div class="form-2"><label class="field"><span>Sumber</span><select name="paymentSource"><option value="CASH">Kas Gudang</option><option value="BANK">Bank</option></select></label><label class="field"><span>Nominal</span><input name="amount" type="number" min="1" required></label></div><label class="field"><span>Referensi</span><input name="reference"></label><label class="field"><span>Catatan</span><textarea name="note"></textarea></label><div class="actions"><button class="btn btn-line" type="button" id="ghCancel">Tutup</button><button class="btn btn-primary">Posting</button></div></form>`);$('#ghCancel').onclick=closeSheet;$('#ghExp').onsubmit=async e=>{e.preventDefault();await writeDirect('expense','postOperationalExpense',Object.fromEntries(new FormData(e.target).entries()))};}
   function directSupplierPayment(){const rows=((state.data||{}).payables||[]).filter(x=>x.outstanding>0);sheetHtml('Bayar Supplier',`<form id="ghPaySup"><label class="field"><span>Sumber</span><select name="paymentSource"><option value="CASH">Kas Gudang</option><option value="BANK">Bank</option></select></label><div class="direct-list">${rows.map(x=>`<label class="direct-card"><b>${esc(x.supplier)}</b><small>${esc(x.purchaseTxnId)} · ${rp(x.outstanding)}</small><input class="spck" type="checkbox" data-id="${esc(x.purchaseTxnId)}" data-sup="${esc(x.supplierId)}"><input class="spamt" data-id="${esc(x.purchaseTxnId)}" type="number" value="${x.outstanding}" min="0.01" max="${x.outstanding}"></label>`).join('')||'<div class="empty">Tidak ada hutang.</div>'}</div><label class="field"><span>Catatan</span><textarea name="note"></textarea></label><div class="actions"><button class="btn btn-line" type="button" id="ghCancel">Tutup</button><button class="btn btn-primary">Posting</button></div></form>`);$('#ghCancel').onclick=closeSheet;$('#ghPaySup').onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.target),cks=$$('.spck:checked'),sup=[...new Set(cks.map(x=>x.dataset.sup))];if(!cks.length)return toast('Pilih hutang.');if(sup.length>1)return toast('Pilih satu supplier.');await writeDirect('supplierPayment','postSupplierPayment',{paymentSource:fd.get('paymentSource'),note:fd.get('note'),allocations:cks.map(x=>({purchaseTxnId:x.dataset.id,amount:$(`.spamt[data-id="${CSS.escape(x.dataset.id)}"]`).value}))})};}
+  // SO Owner 08 Nov 2026 — fixed physically-counted target, not a historical
+  // adjustment delta. Always convert to base units from the live master, and
+  // let the canonical OWNER backend perform the stock + HPP journal posting.
+  const WW_SO0811_TARGET_V15216=Object.freeze([
+    ['B01',299],['B02',45],['B03',33],['B04',5],['B05',6],['B06',1],
+    ['B21',12],['B-EVP',0],['B-LMN',2],['B-ORG',1],['B-SAR',0],
+    ['B07',142],['B08',137],['B09',2],['B10',273],['B11',327],
+    ['WH-RAW-CREAMER',38],['WH-RAW-MATCHA',7],['WH-RAW-COKLAT',7],
+    ['WH-RAW-MANGGA',640],['WH-RAW-CHOCO-DILO',750],
+    ['B12',6165],['B13',450],['B14',5],['B15',0],['B16',9],
+    ['B17',7],['B23',0],['B24',11],['B25',0],['B26',0],
+    ['WH-CUP-KERTAS-6OZ',79],['WH-PLASTIK-KLIP-5X8',0],
+    ['WH-PLASTIK-KLIP-6X10',0],['WH-PLASTIK-TOMAT',0],
+    ['B18',8],['B19',2],['B20',10],['B22',6],
+    ['WH-BATERAI-AAA',7],['WH-TALI-TIES',0],['WH-STIK-MIXER-HAND',0]
+  ]);
+  const WW_SO0811_POST_KEY_V15216='SO08112026_FISIK_OWNER_42_CANONICAL_ONCE_V15216';
+  const WW_SO0811_PENDING_V15216='ww_owner_so0811_post_started_v15216';
+  function wwSo0811PreparedV15216(bootstrap){
+    if(!bootstrap||!Array.isArray(bootstrap.stock)||!Array.isArray(bootstrap.materials))
+      throw Error('Data master/stok belum lengkap; penyesuaian ditahan.');
+    const stock=new Map(bootstrap.stock.map(x=>[x.code,x])),
+      master=new Map(bootstrap.materials.map(x=>[x.code,x])),seen=new Set();
+    if(WW_SO0811_TARGET_V15216.length!==42)throw Error('Daftar SO tidak lengkap (42 bahan).');
+    return WW_SO0811_TARGET_V15216.map(([code,physical])=>{
+      if(seen.has(code))throw Error('Kode SO duplikat: '+code);
+      seen.add(code);
+      const m=master.get(code),st=stock.get(code);
+      if(!m||!st||!(Number(m.factor)>0)||m.active!=='YA')
+        throw Error('Master/stok tidak valid: '+code);
+      const current=Number(st.qty),factor=Number(m.factor),target=physical*factor,
+        avg=Number(st.avgCost||0),delta=target-current;
+      if(!Number.isFinite(current)||current<0||!Number.isFinite(target)||target<0||
+        !Number.isFinite(avg)||avg<0)
+        throw Error('Nilai stok invalid: '+code);
+      return {code,name:m.name,unit:m.receiveUnit||m.baseUnit,factor,physical,
+        current,target,delta,avg,needsCost:delta>1e-8&&avg<=0};
+    });
+  }
+  async function directSO0811V15216(){
+    if(currentRole()!=='OWNER')return toast('SO 8 November hanya dapat diposting Owner.','warning');
+    let original,rows;
+    try{
+      original=await withBusy('Membaca saldo gudang terbaru…',()=>bridge.call('getAppBootstrap',state.token));
+      rows=wwSo0811PreparedV15216(original);
+    }catch(e){return toast('SO 8 November ditahan: '+String(e&&e.message||e),'warning',12000)}
+    const changed=rows.filter(x=>Math.abs(x.delta)>1e-8),
+      cards=rows.map(x=>'<div class="direct-card" data-ww-so0811="'+esc(x.code)+'">'+
+        '<b>'+esc(x.name)+'</b><small>'+esc(x.code)+' · '+esc(x.unit)+'</small>'+
+        '<small>Sistem: '+num(x.current/x.factor)+' → Fisik: <b>'+num(x.physical)+
+        '</b> '+esc(x.unit)+' · Selisih '+num(x.delta/x.factor)+'</small>'+
+        (x.needsCost?'<label class="field"><span>Modal per '+esc(x.unit)+
+          ' (wajib karena modal sistem kosong)</span><input class="ww-so0811-cost" type="number" min="0.01" step="0.01" inputmode="decimal" placeholder="Harga modal per unit"></label>':'')+
+        '</div>').join('');
+    const maybePosted=(()=>{try{return localStorage.getItem(WW_SO0811_PENDING_V15216)}catch(e){return 'STORAGE_ERROR'}})();
+    const warning=maybePosted?
+      '<p><b>Pengiriman posting SO ini pernah dimulai di perangkat ini.</b> Jangan mengulang; audit transaksi ADJ dan stok dulu.</p>':'';
+    sheetHtml('SO Fisik 8 November · Owner',
+      '<div class="ww-preprint-summary"><b>Stock Opname 8 November 2026 · 42 bahan</b>'+
+      '<p>Angka berdasarkan hitung langsung Owner. Target akan diposting melalui STOCK_ADJUSTMENT canonical, bukan mengubah SO 31 Oktober yang terkunci.</p>'+
+      '<p><b>'+changed.length+' bahan selisih</b> · '+(42-changed.length)+
+      ' bahan sudah cocok. Pastikan staf berhenti sementara dari transaksi gudang sebelum POSTING.</p>'+
+      warning+'</div><div class="direct-list">'+cards+'</div>'+
+      '<div class="actions"><button class="btn btn-line" type="button" id="wwSo0811Back">Kembali</button>'+
+      (maybePosted?'<button class="btn btn-soft" type="button" disabled>Posting sebelumnya perlu audit</button>':
+        changed.length?'<button class="btn btn-primary" type="button" id="wwSo0811Post">Terapkan 42 Stok Fisik · Owner</button>':
+        '<button class="btn btn-soft" type="button" disabled>42 bahan sudah cocok</button>')+
+      '</div>',{key:'ww-so0811-owner'});
+    $('#wwSo0811Back').onclick=directAdjustment;
+    const button=$('#wwSo0811Post');if(!button)return;
+    button.onclick=async()=>{
+      if(currentRole()!=='OWNER'||button.disabled)return;
+      button.disabled=true;button.classList.add('is-loading');button.setAttribute('aria-busy','true');
+      let sent=false;
+      try{
+        const costs=new Map();
+        for(const x of rows.filter(x=>x.needsCost)){
+          const input=$('[data-ww-so0811="'+x.code+'"] .ww-so0811-cost');
+          const value=Number(input&&input.value);
+          if(!(value>0))throw Error('Isi modal '+x.name+' terlebih dahulu.');
+          costs.set(x.code,value/x.factor);
+        }
+        const latest=await withBusy('Memverifikasi ulang saldo dan 42 bahan…',
+          ()=>bridge.call('getAppBootstrap',state.token));
+        const fresh=wwSo0811PreparedV15216(latest);
+        for(let i=0;i<rows.length;i++){
+          if(rows[i].code!==fresh[i].code||rows[i].factor!==fresh[i].factor||
+            Math.abs(rows[i].current-fresh[i].current)>1e-8)
+            throw Error('Stok sistem berubah sejak pratinjau. Buka SO 8 November lagi untuk pemeriksaan ulang.');
+        }
+        if(!fresh.some(x=>Math.abs(x.delta)>1e-8)){
+          toast('Seluruh 42 bahan sudah cocok dengan stok fisik. Tidak perlu transaksi baru.','success');
+          return directSO0811V15216();
+        }
+        if(!confirm('POSTING STOCK OPNAME 8 NOVEMBER 2026?\n\n'+
+          '42 target stok fisik Owner akan dipakai. '+changed.length+' bahan selisih dicatat via Ledger Stok canonical.\n'+
+          'Ini memengaruhi saldo dan nilai persediaan, TANPA mengubah SO 31 Oktober atau kas.\n'+
+          'Pastikan tidak sedang ada transaksi gudang. Lanjutkan SATU KALI?'))return;
+        // Fail closed: do not submit a write without a durable local one-attempt guard.
+        try{localStorage.setItem(WW_SO0811_PENDING_V15216,JSON.stringify({at:Date.now(),status:'SUBMITTED'}));
+          if(!localStorage.getItem(WW_SO0811_PENDING_V15216))throw Error('not persisted');
+        }catch(e){throw Error('Pengunci lokal gagal disimpan. POSTING dibatalkan sebelum backend dipanggil.')}
+        sent=true;
+        const items=fresh.map(x=>({
+          code:x.code,physicalQtyBase:x.target,
+          unitCostBase:x.needsCost?costs.get(x.code):''
+        }));
+        const result=await withBusy('Posting koreksi fisik 42 bahan ke Ledger Stok…',
+          ()=>bridge.call('ownerPostStockAdjustmentV1527',state.token,{
+            reason:'SELISIH_OPNAME',
+            note:'SO FISIK 08-11-2026 OWNER | 42 bahan | baseline operasional | one-time canonical adjustment',
+            items
+          },WW_SO0811_POST_KEY_V15216));
+        if(!result||result.ok===false)throw Error(result&&result.error||'Respons posting tidak valid');
+        // No second write or retry. Independently verify all 42 live balances.
+        const verification=await withBusy('Memastikan 42 saldo gudang terbaru…',
+          ()=>bridge.call('getAppBootstrap',state.token));
+        const checked=wwSo0811PreparedV15216(verification),
+          mismatches=checked.filter(x=>Math.abs(x.delta)>1e-8);
+        if(mismatches.length)throw Error('Posting telah dijalankan, tetapi '+mismatches.length+
+          ' saldo masih berbeda saat verifikasi. Periksa transaksi ADJ; JANGAN posting ulang.');
+        try{localStorage.setItem(WW_SO0811_PENDING_V15216,JSON.stringify({at:Date.now(),
+          status:'CONFIRMED',txnId:result.txnId||''}));}catch(e){}
+        toast('Stock Opname 8 November sudah POSTED dan 42 saldo terverifikasi.','success',13000);
+        return directSO0811V15216();
+      }catch(e){
+        toast((sent?'Status POSTING belum pasti; jangan coba lagi sebelum audit Ledger Stok. ':'')+
+          String(e&&e.message||e),'warning',14000);
+      }finally{
+        if(button.isConnected){button.disabled=false;button.classList.remove('is-loading');button.removeAttribute('aria-busy')}
+      }
+    };
+  }
+
   // SO fisik 31 Oktober 2026 (before the first 1 Nov dispatch).
   // Only the 16 discrepancies are posted through the existing canonical stock adjustment.
   // Source: protected tab "SO 31-10-2026 TERKUNCI"; never overwrite Stok Gudang cells.
@@ -1910,7 +2044,7 @@
     };
   }
 
-  function directAdjustment(){if(currentRole()!=='OWNER')return toast('Penyesuaian stok hanya dapat dilakukan Owner.');sheetHtml('Opname / Koreksi',`<button type="button" class="btn btn-soft" id="wwSo3110Open">Rekonsiliasi SO Fisik 31 Oktober · Owner</button><div class="ww-life-note">Referensi SO telah diproteksi. Koreksi harus dicatat lewat Ledger Stok, tidak boleh menimpa tabel stok.</div><form id="ghAdj"><label class="field"><span>Alasan</span><select name="reason"><option value="SELISIH_OPNAME">Selisih opname</option><option value="STOK_AWAL_TERLEWAT">Stok awal terlewat</option><option value="BARANG_DITEMUKAN">Barang ditemukan</option><option value="BARANG_RUSAK">Barang rusak</option><option value="BARANG_HILANG">Barang hilang</option><option value="KESALAHAN_PENCATATAN">Kesalahan pencatatan</option><option value="KOREKSI_INVESTIGASI">Koreksi investigasi</option><option value="LAINNYA">Lainnya</option></select></label><div id="ghAdjLines"></div><button class="btn btn-soft" type="button" id="ghAddAdj">+ Tambah bahan</button><label class="field"><span>Catatan</span><textarea name="note"></textarea></label><div class="actions"><button class="btn btn-line" type="button" id="ghCancel">Tutup</button><button class="btn btn-primary">Posting Koreksi</button></div></form>`);const box=$('#ghAdjLines'),add=()=>{const el=document.createElement('div');el.className='direct-line';el.innerHTML=`<select class="code"><option value="">Pilih bahan</option>${matOpts(false)}</select><input class="physical" type="number" min="0" step="0.000001" placeholder="Stok fisik unit"><input class="cost" type="number" min="0" step="0.01" placeholder="Modal/unit jika perlu"><button class="line-remove" type="button">×</button>`;el.querySelector('.line-remove').onclick=()=>el.remove();box.appendChild(el)};add();$('#ghAddAdj').onclick=add;$('#wwSo3110Open').onclick=directSO3110V1527;$('#ghCancel').onclick=closeSheet;$('#ghAdj').onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.target),mm=matByCode(),items=[...box.querySelectorAll('.direct-line')].map(x=>{const m=mm[x.querySelector('.code').value],physical=Number(x.querySelector('.physical').value||0),cost=x.querySelector('.cost').value;return{code:m.code,physicalQtyBase:physical*Number(m.factor||1),unitCostBase:cost===''?'':Number(cost)/Number(m.factor||1)}});await writeDirect('adjustment','ownerPostStockAdjustmentV1527',{reason:fd.get('reason'),note:fd.get('note'),items})};}
+  function directAdjustment(){if(currentRole()!=='OWNER')return toast('Penyesuaian stok hanya dapat dilakukan Owner.');sheetHtml('Opname / Koreksi',`<button type="button" class="btn btn-primary" id="wwSo0811Open">Terapkan SO Fisik 8 November · 42 Bahan</button><button type="button" class="btn btn-soft" id="wwSo3110Open">Rekonsiliasi SO Fisik 31 Oktober · Owner</button><div class="ww-life-note">Referensi SO telah diproteksi. Koreksi harus dicatat lewat Ledger Stok, tidak boleh menimpa tabel stok.</div><form id="ghAdj"><label class="field"><span>Alasan</span><select name="reason"><option value="SELISIH_OPNAME">Selisih opname</option><option value="STOK_AWAL_TERLEWAT">Stok awal terlewat</option><option value="BARANG_DITEMUKAN">Barang ditemukan</option><option value="BARANG_RUSAK">Barang rusak</option><option value="BARANG_HILANG">Barang hilang</option><option value="KESALAHAN_PENCATATAN">Kesalahan pencatatan</option><option value="KOREKSI_INVESTIGASI">Koreksi investigasi</option><option value="LAINNYA">Lainnya</option></select></label><div id="ghAdjLines"></div><button class="btn btn-soft" type="button" id="ghAddAdj">+ Tambah bahan</button><label class="field"><span>Catatan</span><textarea name="note"></textarea></label><div class="actions"><button class="btn btn-line" type="button" id="ghCancel">Tutup</button><button class="btn btn-primary">Posting Koreksi</button></div></form>`);const box=$('#ghAdjLines'),add=()=>{const el=document.createElement('div');el.className='direct-line';el.innerHTML=`<select class="code"><option value="">Pilih bahan</option>${matOpts(false)}</select><input class="physical" type="number" min="0" step="0.000001" placeholder="Stok fisik unit"><input class="cost" type="number" min="0" step="0.01" placeholder="Modal/unit jika perlu"><button class="line-remove" type="button">×</button>`;el.querySelector('.line-remove').onclick=()=>el.remove();box.appendChild(el)};add();$('#ghAddAdj').onclick=add;$('#wwSo0811Open').onclick=directSO0811V15216;$('#wwSo3110Open').onclick=directSO3110V1527;$('#ghCancel').onclick=closeSheet;$('#ghAdj').onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.target),mm=matByCode(),items=[...box.querySelectorAll('.direct-line')].map(x=>{const m=mm[x.querySelector('.code').value],physical=Number(x.querySelector('.physical').value||0),cost=x.querySelector('.cost').value;return{code:m.code,physicalQtyBase:physical*Number(m.factor||1),unitCostBase:cost===''?'':Number(cost)/Number(m.factor||1)}});await writeDirect('adjustment','ownerPostStockAdjustmentV1527',{reason:fd.get('reason'),note:fd.get('note'),items})};}
   function directPackingWage(){const rows=((state.data||{}).packingWages||[]).filter(x=>x.outstanding>0);sheetHtml('Bayar Upah Packing',`<form id="ghPw"><label class="field"><span>Sumber</span><select name="paymentSource"><option value="CASH">Kas Gudang</option><option value="BANK">Bank</option></select></label><div class="direct-list">${rows.map(x=>`<label class="direct-card"><b>${esc(x.packer)}</b><small>${esc(x.batchId)} · ${rp(x.outstanding)}</small><input class="pwck" type="checkbox" data-id="${esc(x.batchId)}" data-packer="${esc(x.packer)}"><input class="pwamt" data-id="${esc(x.batchId)}" type="number" value="${x.outstanding}" min="0.01" max="${x.outstanding}"></label>`).join('')||'<div class="empty">Tidak ada upah terhutang.</div>'}</div><label class="field"><span>Catatan</span><textarea name="note"></textarea></label><div class="actions"><button class="btn btn-line" type="button" id="ghCancel">Tutup</button><button class="btn btn-primary">Posting</button></div></form>`);$('#ghCancel').onclick=closeSheet;$('#ghPw').onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.target),cks=$$('.pwck:checked'),pack=[...new Set(cks.map(x=>x.dataset.packer))];if(!cks.length)return toast('Pilih upah.');if(pack.length>1)return toast('Pilih satu packer.');await writeDirect('packingWage','postPackingWagePayment',{paymentSource:fd.get('paymentSource'),note:fd.get('note'),allocations:cks.map(x=>({batchId:x.dataset.id,amount:$(`.pwamt[data-id="${CSS.escape(x.dataset.id)}"]`).value}))})};}
 
 
@@ -2364,7 +2498,7 @@
       reloadingForUpdate = true;
       window.location.reload();
     });
-    window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=1.5.2.15-progress', { updateViaCache: 'none' }).then(reg => reg.update()).catch(() => {}));
+    window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=1.5.2.16-so-fisik-0811', { updateViaCache: 'none' }).then(reg => reg.update()).catch(() => {}));
   }
 
 
