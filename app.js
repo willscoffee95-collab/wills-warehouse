@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  window.WW_FRONTEND_BUILD='2026-11-07.1.5.2.16-so-fisik-0811';
+  window.WW_FRONTEND_BUILD='2026-11-08.1.5.2.16-so-fisik-0811';
 
 
   const $ = (q, root = document) => root.querySelector(q);
