@@ -146,7 +146,7 @@ test('progress remains on same SJ sheet, no extra dispatch write calls or full r
 });
 
 test('new version and CSS styles included in PWA assets',()=>{
-  const v='1.5.2.16-so-fisik-0811';
+  const v='1.5.2.17-so-fisik-revisi';
   assert.ok(index.includes('app.js?v='+v));
   assert.ok(index.includes('app.css?v='+v));
   assert.ok(sw.includes('app.js?v='+v));

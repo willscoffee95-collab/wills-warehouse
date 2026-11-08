@@ -166,7 +166,7 @@ test('notification SJ content and KPI derive from DRAFT status, not PREPARE coun
 });
 
 test('candidate CSS, app, index and service worker are version-aligned',()=>{
-  const version='1.5.2.16-so-fisik-0811';
+  const version='1.5.2.17-so-fisik-revisi';
   assert.ok(html.includes('app.js?v='+version));
   assert.ok(html.includes('app.css?v='+version));
   assert.ok(sw.includes('app.js?v='+version));
