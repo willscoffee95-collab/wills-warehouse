@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  window.WW_FRONTEND_BUILD='2026-11-08.1.5.2.16-so-fisik-0811';
+  window.WW_FRONTEND_BUILD='2026-11-08.1.5.2.17-so-fisik-revisi';
 
 
   const $ = (q, root = document) => root.querySelector(q);
@@ -1812,15 +1812,15 @@
   // let the canonical OWNER backend perform the stock + HPP journal posting.
   const WW_SO0811_TARGET_V15216=Object.freeze([
     ['B01',299],['B02',45],['B03',33],['B04',5],['B05',6],['B06',1],
-    ['B21',12],['B-EVP',0],['B-LMN',2],['B-ORG',1],['B-SAR',0],
+    ['B21',12],['B-EVP',0],['B-LMN',2],['B-ORG',6],['B-SAR',0],
     ['B07',142],['B08',137],['B09',2],['B10',273],['B11',327],
     ['WH-RAW-CREAMER',38],['WH-RAW-MATCHA',7],['WH-RAW-COKLAT',7],
     ['WH-RAW-MANGGA',640],['WH-RAW-CHOCO-DILO',750],
-    ['B12',6165],['B13',450],['B14',5],['B15',0],['B16',9],
+    ['B12',6165],['B13',450],['B14',5],['B15',20],['B16',19],
     ['B17',7],['B23',0],['B24',11],['B25',0],['B26',0],
     ['WH-CUP-KERTAS-6OZ',79],['WH-PLASTIK-KLIP-5X8',0],
     ['WH-PLASTIK-KLIP-6X10',0],['WH-PLASTIK-TOMAT',0],
-    ['B18',8],['B19',2],['B20',10],['B22',6],
+    ['B18',8],['B19',2],['B20',60],['B22',6],
     ['WH-BATERAI-AAA',7],['WH-TALI-TIES',0],['WH-STIK-MIXER-HAND',0]
   ]);
   const WW_SO0811_POST_KEY_V15216='SO08112026_FISIK_OWNER_42_CANONICAL_ONCE_V15216';
@@ -2498,7 +2498,7 @@
       reloadingForUpdate = true;
       window.location.reload();
     });
-    window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=1.5.2.16-so-fisik-0811', { updateViaCache: 'none' }).then(reg => reg.update()).catch(() => {}));
+    window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=1.5.2.17-so-fisik-revisi', { updateViaCache: 'none' }).then(reg => reg.update()).catch(() => {}));
   }
 
 
