@@ -1713,7 +1713,7 @@
     $$('[data-ww-request-outlet]').forEach(b=>b.onclick=()=>{wwSelectedOutletV1522=b.dataset.wwRequestOutlet;directDelivery(false)});
     $$('[data-request-id]').forEach(b=>b.onclick=()=>{const x=(wwQueueV1526&&wwQueueV1526.rows||[]).find(q=>String(q.requestId)===b.dataset.requestId);if(x&&x.sjStatus==='MISSING_SJ')wwRequestLifecycleDetailV1526(x.requestId);else opsRequestDetailV43(b.dataset.requestId)});
     $$('[data-ww-progress-id]').forEach(b=>b.onclick=()=>wwRequestLifecycleDetailV1526(b.dataset.wwProgressId));
-    $('[data-sjid]').forEach(b=>b.onclick=()=>wwSJOpenFreshV15219(b.dataset.sjid));
+    Array.from(document.querySelectorAll('[data-sjid]')).forEach(b=>b.onclick=()=>wwSJOpenFreshV15219(b.dataset.sjid));
     const refresh=$('#wwSJRefreshNowV15219');if(refresh)refresh.onclick=()=>
       wwSjWithLoadingV15211(refresh,()=>wwSJRefreshV15219(true))
         .catch(e=>toast('Pembaruan SJ belum berhasil: '+e.message,'warning',12000));
