@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  window.WW_FRONTEND_BUILD='2026-11-08.1.5.2.17-so-fisik-revisi';
+  window.WW_FRONTEND_BUILD='2026-11-08.1.5.2.18-request-sync-so-rev4';
 
 
   const $ = (q, root = document) => root.querySelector(q);
@@ -1585,8 +1585,25 @@
       {key:'delivery-list'});
     const newSj=$('#ghNewSj');if(newSj)newSj.onclick=directNewSj;
     const syncReq=$('#ghSyncReq');if(syncReq)syncReq.onclick=async()=>{
-      try{await withBusy('Memperbarui permintaan…',async()=>{await callDirect('syncOutletMaterialRequestsNowV1250');await reloadDeliveryModule();wwQueueV1526=null;await wwReloadQueueV1526(true)});toast('Permintaan disinkronkan.');}
-      catch(e){toast(e.message,'warning')}
+      try{
+        let result;
+        await withBusy('Memperbarui permintaan outlet…',async()=>{
+          const outlet=String(wwSelectedOutletV1522||'ALL').toUpperCase();
+          if(outlet!=='ALL'){
+            try{result=await callDirect('syncOutletMaterialRequestsByOutletV15217',outlet);}
+            catch(e){
+              const msg=String(e&&e.message||e);
+              if(!/tidak diizinkan oleh Wills Warehouse Bridge|is not a function|not found|not defined/i.test(msg))throw e;
+              result=await callDirect('syncOutletMaterialRequestsNowV1250');
+            }
+          }else result=await callDirect('syncOutletMaterialRequestsNowV1250');
+          await reloadDeliveryModule();wwQueueV1526=null;await wwReloadQueueV1526(true);
+        });
+        const errors=Array.isArray(result&&result.errors)?result.errors:[];
+        if(result&&result.ok===false || errors.length){
+          toast('Sinkronisasi sebagian belum berhasil: '+(errors.slice(0,2).join(' | ')||'Periksa log sinkronisasi Warehouse.'),'warning',12000);
+        }else toast('Permintaan sudah diperbarui'+(result&&result.createdDrafts?' · '+result.createdDrafts+' SJ DRAFT baru':'')+'.');
+      }catch(e){toast('Sinkronisasi gagal: '+String(e&&e.message||e),'warning',12000)}
     };
     const syncRec=$('#ghSyncRec');if(syncRec)syncRec.onclick=async()=>{
       try{await withBusy('Sinkron penerimaan…',async()=>{await callDirect('syncOutletReceipts');await reloadDeliveryModule();wwQueueV1526=null;await wwReloadQueueV1526(true)});toast('Penerimaan diperbarui.')}
@@ -1846,6 +1863,99 @@
         current,target,delta,avg,needsCost:delta>1e-8&&avg<=0};
     });
   }
+  // V1.5.2.18: SO base 42 bahan sudah POSTED; hanya empat revisi fisik ini
+  // yang berhak menerima koreksi baru dengan idempotency key berbeda.
+  const WW_SO0811_REV4_POST_KEY_V15218='SO08112026_FISIK_OWNER_REVISI_4_V15218';
+  const WW_SO0811_REV4_PENDING_V15218='ww_owner_so0811_rev4_started_v15218';
+  const WW_SO0811_REV4_BASE_V15218=Object.freeze({
+    'B-ORG':300,'B15':0,'B16':900,'B20':10
+  });
+  function wwSo0811IsRevisionV15218(rows){
+    if(!Array.isArray(rows)||rows.length!==42)return false;
+    return rows.every(x=>{
+      if(!Object.prototype.hasOwnProperty.call(WW_SO0811_REV4_BASE_V15218,x.code))
+        return Math.abs(x.delta)<1e-8;
+      return Math.abs(x.current-WW_SO0811_REV4_BASE_V15218[x.code])<1e-8 ||
+        Math.abs(x.current-x.target)<1e-8;
+    }) && rows.some(x=>Object.prototype.hasOwnProperty.call(WW_SO0811_REV4_BASE_V15218,x.code)&&Math.abs(x.delta)>1e-8);
+  }
+  function directSO0811RevisionV15218(rows){
+    const selected=rows.filter(x=>Object.prototype.hasOwnProperty.call(WW_SO0811_REV4_BASE_V15218,x.code));
+    const pending=selected.filter(x=>Math.abs(x.delta)>1e-8);
+    const earlier=(()=>{try{return localStorage.getItem(WW_SO0811_REV4_PENDING_V15218)}catch(e){return 'STORAGE_ERROR'}})();
+    const cards=selected.map(x=>'<div class="direct-card" data-ww-so0811-rev4="'+esc(x.code)+'">'+
+      '<b>'+esc(x.name)+'</b><small>'+esc(x.code)+' · '+esc(x.unit)+'</small>'+
+      '<small>Stok: '+num(x.current/x.factor)+' → Target '+num(x.target/x.factor)+
+      ' · Koreksi '+num(x.delta/x.factor)+'</small>'+
+      (x.code==='B15'&&Math.abs(x.delta)>1e-8?
+       '<label class="field"><span>Modal Plastik PE 1 Cup per pack (isi 100 pcs)</span>'+
+       '<input id="wwSo0811Rev4CostB15" type="number" min="0.01" step="0.01" value="4500" inputmode="decimal">'+
+       '<small>Rp4.500 per pack = Rp45 per pcs dasar. Ini HPP, bukan harga transfer outlet.</small></label>':'')+
+      '</div>').join('');
+    sheetHtml('Revisi SO 8 November · Owner',
+      '<div class="ww-preprint-summary"><b>SO 8 November: posting dasar 42 bahan sudah dilakukan.</b>'+
+      '<p>Empat revisi fisik setelah posting awal: Syrup Orange, Plastik 1 Cup, Plastik 2 Cup, dan Tisu. Transaksi baru hanya memuat empat bahan tersebut.</p>'+
+      (earlier?'<p><b>Posting revisi pernah dimulai di perangkat ini.</b> Periksa ledger sebelum mengulangi tindakan.</p>':'')+
+      '</div><div class="direct-list">'+cards+'</div>'+
+      '<div class="actions"><button class="btn btn-line" id="wwSo0811Rev4Back" type="button">Kembali</button>'+
+      (!earlier&&pending.length?'<button class="btn btn-primary" id="wwSo0811Rev4Post" type="button">Terapkan Revisi 4 Bahan · Owner</button>':
+       '<button class="btn btn-soft" type="button" disabled>'+(earlier?'Posting revisi perlu verifikasi':'Revisi sudah sesuai')+'</button>')+
+      '</div>',{key:'ww-so0811-revision'});
+    $('#wwSo0811Rev4Back').onclick=directAdjustment;
+    const button=$('#wwSo0811Rev4Post');if(!button)return;
+    button.onclick=async()=>{
+      if(button.disabled||currentRole()!=='OWNER')return;
+      button.disabled=true;button.classList.add('is-loading');button.setAttribute('aria-busy','true');
+      let sent=false;
+      try{
+        const b15=pending.find(x=>x.code==='B15');
+        const costPerPack=b15?Number($('#wwSo0811Rev4CostB15').value):0;
+        if(b15&&!(costPerPack>0))throw Error('Harga modal B15 per pack wajib lebih dari nol.');
+        const latest=await withBusy('Verifikasi ulang 42 saldo dan 4 revisi…',
+          ()=>bridge.call('getAppBootstrap',state.token));
+        const fresh=wwSo0811PreparedV15216(latest);
+        if(!wwSo0811IsRevisionV15218(fresh))throw Error('Saldo sudah berubah; koreksi revisi ditahan demi keamanan ledger.');
+        for(const original of selected){
+          const now=fresh.find(x=>x.code===original.code);
+          if(!now||Math.abs(now.current-original.current)>1e-8||
+            Math.abs(now.factor-original.factor)>1e-8)throw Error('Saldo '+original.code+' berubah. Muat ulang dan audit sebelum posting.');
+        }
+        const changes=fresh.filter(x=>Object.prototype.hasOwnProperty.call(WW_SO0811_REV4_BASE_V15218,x.code)&&Math.abs(x.delta)>1e-8);
+        if(!changes.length)return toast('Keempat bahan sudah sesuai target SO.','success');
+        if(!confirm('POSTING 4 REVISI SO 8 NOVEMBER?\n\nSO dasar 42 bahan sudah POSTED. Hanya koreksi Syrup Orange, Plastik 1 Cup, Plastik 2 Cup, dan Tisu yang berbeda akan diposting. HPP Plastik 1 Cup: Rp'+num(costPerPack)+' per pack isi 100 pcs.\n\nTidak mengulang SO dasar dan tidak mencatat kas. Lanjutkan sekali?'))return;
+        try{
+          localStorage.setItem(WW_SO0811_REV4_PENDING_V15218,JSON.stringify({at:Date.now(),status:'SUBMITTED'}));
+          if(!localStorage.getItem(WW_SO0811_REV4_PENDING_V15218))throw Error('Guard tidak tersimpan');
+        }catch(e){throw Error('Pengunci posting tidak dapat disimpan; tidak ada transaksi dikirim.')}
+        sent=true;
+        const items=changes.map(x=>({
+          code:x.code,physicalQtyBase:x.target,
+          unitCostBase:x.code==='B15'&&x.needsCost?costPerPack/x.factor:''
+        }));
+        const result=await withBusy('Posting revisi SO 4 bahan canonical…',
+          ()=>bridge.call('ownerPostStockAdjustmentV1527',state.token,{
+            reason:'SELISIH_OPNAME',
+            note:'Revisi tambahan SO FISIK 08-11-2026 Owner | hanya B-ORG B15 B16 B20 | B15 modal/pack '+costPerPack,
+            items
+          },WW_SO0811_REV4_POST_KEY_V15218));
+        if(!result||result.ok===false)throw Error(result&&result.error||'Backend tidak mengonfirmasi posting.');
+        const verify=await withBusy('Verifikasi saldo hasil revisi SO…',
+          ()=>bridge.call('getAppBootstrap',state.token));
+        const checked=wwSo0811PreparedV15216(verify);
+        const mismatch=checked.filter(x=>Object.prototype.hasOwnProperty.call(WW_SO0811_REV4_BASE_V15218,x.code)&&Math.abs(x.delta)>1e-8);
+        if(mismatch.length)throw Error('Posting diterima tetapi '+mismatch.length+' saldo berbeda. Jangan kirim transaksi kedua.');
+        try{localStorage.setItem(WW_SO0811_REV4_PENDING_V15218,JSON.stringify({at:Date.now(),status:'CONFIRMED',txnId:result.txnId||''}));}catch(e){}
+        toast('Revisi SO 8 November berhasil POSTED; empat saldo cocok.','success',12000);
+        directSO0811V15216();
+      }catch(e){
+        toast((sent?'Status transaksi perlu audit; jangan ulangi posting. ':'')+
+          String(e&&e.message||e),'warning',14000);
+      }finally{
+        if(button.isConnected){button.disabled=false;button.classList.remove('is-loading');button.removeAttribute('aria-busy');}
+      }
+    };
+  }
+
   async function directSO0811V15216(){
     if(currentRole()!=='OWNER')return toast('SO 8 November hanya dapat diposting Owner.','warning');
     let original,rows;
@@ -1853,6 +1963,7 @@
       original=await withBusy('Membaca saldo gudang terbaru…',()=>bridge.call('getAppBootstrap',state.token));
       rows=wwSo0811PreparedV15216(original);
     }catch(e){return toast('SO 8 November ditahan: '+String(e&&e.message||e),'warning',12000)}
+    if(wwSo0811IsRevisionV15218(rows))return directSO0811RevisionV15218(rows);
     const changed=rows.filter(x=>Math.abs(x.delta)>1e-8),
       cards=rows.map(x=>'<div class="direct-card" data-ww-so0811="'+esc(x.code)+'">'+
         '<b>'+esc(x.name)+'</b><small>'+esc(x.code)+' · '+esc(x.unit)+'</small>'+
