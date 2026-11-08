@@ -205,3 +205,12 @@ html{background:#fbf7f2!important;color-scheme:light;max-width:100%;min-height:1
 @media(prefers-reduced-motion:reduce){
   .ww-sj-progress-v15215 .ww-spin-v1526{animation-duration:1.7s}
 }
+
+/* v1.5.2.21 — responsive Warehouse refresh control */
+.ww-refresh-btn-v15221{flex:0 0 40px;width:40px;height:40px;border-radius:13px;color:var(--brand-3)}
+.ww-refresh-btn-v15221 svg{width:20px;height:20px}
+.ww-refresh-btn-v15221:disabled{cursor:wait;opacity:.75}
+.ww-refresh-btn-v15221.is-loading svg{animation:wwRefreshSpinV15221 .75s linear infinite}
+@keyframes wwRefreshSpinV15221{to{transform:rotate(360deg)}}
+@media(max-width:380px){.topbar{padding-inline:12px}.topbar-actions{gap:6px}.ww-refresh-btn-v15221{flex-basis:38px;width:38px;height:38px}.topbar .brand-lockup.compact{gap:7px}}
+@media(prefers-reduced-motion:reduce){.ww-refresh-btn-v15221.is-loading svg{animation-duration:2s}}
