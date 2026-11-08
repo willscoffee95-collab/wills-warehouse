@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  window.WW_FRONTEND_BUILD='2026-11-08.1.5.2.19-sj-refresh-print-safe';
+  window.WW_FRONTEND_BUILD='2026-11-08.1.5.2.20-november-sj-archive';
 
 
   const $ = (q, root = document) => root.querySelector(q);
@@ -1477,20 +1477,49 @@
       const v=String(x.needDate||x.requestDate||x.createdAt||'');
       return /^\d{4}-\d{2}-\d{2}/.test(v)?v.slice(0,10).replaceAll('-',''):/^\d{2}\/\d{2}\/\d{4}/.test(v)?v.slice(6,10)+v.slice(3,5)+v.slice(0,2):'';
     };
-    return [...all.values()].sort((a,b)=>dateKey(b).localeCompare(dateKey(a))||String(b.createdAt||'').localeCompare(String(a.createdAt||'')));
+    return [...all.values()].filter(x=>!wwSjArchivedV15220(x))
+      .sort((a,b)=>dateKey(b).localeCompare(dateKey(a))||String(b.createdAt||'').localeCompare(String(a.createdAt||'')));
   }
-  // UI only: active SJ first, newest within each state, filtered by outlet (TGM -> TM).
-  // SJ badges count DRAFT only; historical SJ remain visible for audit/reprint.
+  // v1.5.2.20 — Archive display cutoff requested by Owner: BEFORE November 2026.
+  // This is strictly a view-layer policy. Do NOT mutate historical SJ status,
+  // receipts, stock ledger, transit, owner SO, or outbound request state.
+  const WW_SJ_FIRST_VISIBLE_MONTH_V15220='202611';
+  function wwSjMonthKeyV15220(x){
+    if(!x)return '';
+    const no=String(x.noSj||x.linkedNoSj||'').trim();
+    const m=/^SJ-(\d{6})\d{2}-/.exec(no);
+    if(m)return m[1];
+    const date=String(x.createdAt||x.requestDate||x.shipDate||'').trim();
+    const iso=/^(\d{4})-(\d{2})-\d{2}/.exec(date);
+    if(iso)return iso[1]+iso[2];
+    const local=/^\d{2}\/(\d{2})\/(\d{4})/.exec(date);
+    if(local)return local[2]+local[1];
+    return '';
+  }
+  function wwSjArchivedV15220(x){
+    const st=String(x&&((x.status||x.sjStatus))||'').trim().toUpperCase();
+    const month=wwSjMonthKeyV15220(x);
+    return (st==='DRAFT'||st==='DIKIRIM')&&
+      !!month&&month<WW_SJ_FIRST_VISIBLE_MONTH_V15220;
+  }
+  function wwSjOperationalV15220(x){
+    const st=String(x&&x.status||'').trim().toUpperCase();
+    return (st==='DRAFT'||st==='DIKIRIM')&&!wwSjArchivedV15220(x);
+  }
+  // UI only: the active queue is November 2026 onward.
+  // Earlier DRAFT/DIKIRIM remain in canonical sheets and all audit reports.
   function wwDraftSjCountV15211(deliveries,outletCode='ALL'){
     const code=String(outletCode||'ALL').trim().toUpperCase();
     return (Array.isArray(deliveries)?deliveries:[]).filter(x=>
       x&&x.sjId&&String(x.status||'').trim().toUpperCase()==='DRAFT'&&
+      !wwSjArchivedV15220(x)&&
       (code==='ALL'||wwRequestOutletV1522(x)===code)).length;
   }
   function wwRecentSjForOutletV15210(deliveries,outletCode){
     const code=String(outletCode||'ALL').toUpperCase();
     const rows=(Array.isArray(deliveries)?deliveries:[]).filter(d=>
-      d&&d.sjId&&d.noSj&&(code==='ALL'||wwRequestOutletV1522(d)===code));
+      d&&d.sjId&&d.noSj&&wwSjOperationalV15220(d)&&
+      (code==='ALL'||wwRequestOutletV1522(d)===code));
     const priority=d=>{
       const st=String(d.status||'').toUpperCase();
       return st==='DRAFT'?0:['DIKIRIM','DITERIMA','DITERIMA_SEBAGIAN','SELISIH'].includes(st)?1:2;
@@ -1572,7 +1601,9 @@
       all=wwVisibleQueueV1528(),visible=canonical||all.length>0,req=all.filter(x=>x.group==='PREPARE'),
       progress=all.filter(x=>x.group==='IN_TRANSIT'),
       history=all.filter(x=>x.group==='HISTORY'),
-      rows=wwSjQueueRowsV15219(d.deliveries||[],canonical?wwQueueV1526.rows:[]);
+      allSjRows=wwSjQueueRowsV15219(d.deliveries||[],canonical?wwQueueV1526.rows:[]),
+      rows=allSjRows.filter(wwSjOperationalV15220),
+      oldCount=allSjRows.filter(wwSjArchivedV15220).length;
     const tools=[];
     if(roleCan('DELIVERY_CREATE'))tools.push('<button class="btn btn-primary" id="ghNewSj">+ SJ Manual</button>');
     if(roleCan('REQUEST_SYNC'))tools.push('<button class="btn btn-soft" id="ghSyncReq">Perbarui Permintaan</button>');
@@ -1630,8 +1661,10 @@
       '</span><button class="btn btn-soft" id="wwQueueRetryV1526" type="button">Muat Ulang</button></div>':'';
     const n={PREPARE:req.length,IN_TRANSIT:progress.length,HISTORY:history.length};
     sheetHtml('Bahan yang Harus Dikirim Sekarang',
-      '<div class="ww-request-top"><b>Surat Jalan Terbaru</b><span>'+
+      '<div class="ww-request-top"><b>Surat Jalan Terbaru · November 2026</b><span>'+
       num(wwDraftSjCountV15211(entries),0)+' DRAFT</span></div>'+
+      '<div class="ww-life-note">Antrean aktif hanya SJ DRAFT / DIKIRIM sejak November 2026. Arsip sebelumnya tetap tersimpan pada spreadsheet Warehouse.'+
+      (oldCount?' · '+num(oldCount,0)+' SJ lama tersembunyi dari data yang dimuat.':'')+'</div>'+
       '<div class="direct-toolbar"><button class="btn btn-soft" type="button" id="wwSJRefreshNowV15219">Perbarui SJ Semua Outlet</button></div>'+
       loader+
       (wwQueueErrorV1526?'<div class="ww-dispatch-pending-note" role="status">Pembacaan status SJ belum berhasil: '+esc(wwQueueErrorV1526)+'. Data modul Warehouse ditampilkan sementara; jangan buat SJ ganda.</div>':'')+
@@ -1691,7 +1724,8 @@
   }
 
   function directDraftPrintList(){
-    const rows=((state.data||{}).deliveries||[]).filter(x=>String(x.status||'')==='DRAFT');
+    const rows=((state.data||{}).deliveries||[]).filter(x=>
+      String(x.status||'')==='DRAFT'&&!wwSjArchivedV15220(x));
     sheetHtml('Draft Siap Kirim',`<p>Pilih draft yang sudah disiapkan. Checklist ini dicetak ke thermal Bluetooth dan dibawa bersama barang untuk pengecekan barista.</p><div class="direct-list">${rows.map(x=>`<button class="direct-card direct-click" data-print-sjid="${esc(x.sjId)}"><b>${esc(x.noSj)} · ${esc(x.outletName)}</b><small>${(x.lines||[]).length} bahan · ${esc(x.note||'Tanpa catatan')}</small><span class="badge brand">CETAK</span></button>`).join('')||'<div class="empty">Belum ada Surat Jalan berstatus DRAFT.</div>'}</div>`);
     $$('[data-print-sjid]').forEach(b=>b.onclick=()=>directPrintDeliveryDraft(b.dataset.printSjid));
   }
@@ -1703,6 +1737,14 @@
   function wwSjActionMarkupV15211(d,req,permissions,pendingDispatch,stillWorking=false){
     const status=String(d&&d.status||'').trim().toUpperCase();
     const actions=[];
+    // Archived deliveries are read-only on the PWA. Printing is allowed for
+    // audit/reprint, but no prepare, cancel or dispatch action is exposed.
+    if(wwSjArchivedV15220(d)){
+      return permissions.canPrint?
+        '<div class="ww-sj-action-panel is-single" role="group" aria-label="Arsip Surat Jalan">'+
+        '<button type="button" class="btn ww-sj-action ww-sj-action--thermal" id="ghPrintSj">'+
+        icons.printer+'<span>Cetak Arsip · '+esc(status)+'</span></button></div>':'';
+    }
     const button=(id,style,icon,label)=>
       '<button type="button" class="btn ww-sj-action ww-sj-action--'+style+'" id="'+id+'">'+icon+'<span>'+label+'</span></button>';
     if(status==='DRAFT'){
