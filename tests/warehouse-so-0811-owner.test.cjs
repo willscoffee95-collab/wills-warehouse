@@ -39,11 +39,12 @@ test('Owner supplied exactly 42 physical counts including all six last revisions
   const expected={
     B07:142,'WH-RAW-CREAMER':38,'WH-RAW-MATCHA':7,
     'WH-RAW-COKLAT':7,'WH-RAW-MANGGA':640,
-    'WH-RAW-CHOCO-DILO':750
+    'WH-RAW-CHOCO-DILO':750,
+    B20:60,B15:20,B16:19,'B-ORG':6
   };
   for(const [code,value] of Object.entries(expected))
     assert.equal(entries.get(code),value,code);
-  for(const zero of ['B-EVP','B-SAR','B15','B23','B25','B26',
+  for(const zero of ['B-EVP','B-SAR','B23','B25','B26',
     'WH-PLASTIK-KLIP-5X8','WH-PLASTIK-KLIP-6X10','WH-PLASTIK-TOMAT',
     'WH-TALI-TIES','WH-STIK-MIXER-HAND'])assert.equal(entries.get(zero),0);
 });
@@ -65,6 +66,10 @@ test('Physical counts converted to base units with live master factors',()=>{
   assert.equal(byCode.get('B02').target,22050);
   assert.equal(byCode.get('B22').target,60);
   assert.equal(byCode.get('B14').target,1250);
+  assert.equal(byCode.get('B-ORG').target,1800);
+  assert.equal(byCode.get('B15').target,2000);
+  assert.equal(byCode.get('B16').target,1900);
+  assert.equal(byCode.get('B20').target,60);
 });
 
 test('Guard rejects missing or inactive master, negative stock and incomplete bootstrap',()=>{
@@ -111,7 +116,7 @@ test('Existing original 31 October SO actions remain untouched and 8 Nov separat
 });
 
 test('Version is identical across app, HTML and service worker',()=>{
-  const v='1.5.2.16-so-fisik-0811';
+  const v='1.5.2.17-so-fisik-revisi';
   assert.ok(app.includes("WW_FRONTEND_BUILD='2026-11-08."+v+"'"));
   assert.ok(index.includes('app.js?v='+v));
   assert.ok(sw.includes('app.js?v='+v));
