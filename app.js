@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  window.WW_FRONTEND_BUILD='2026-11-08.1.5.2.18-request-sync-so-rev4';
+  window.WW_FRONTEND_BUILD='2026-11-08.1.5.2.19-sj-refresh-print-safe';
 
 
   const $ = (q, root = document) => root.querySelector(q);
@@ -1502,11 +1502,77 @@
     return rows.sort((a,b)=>priority(a)-priority(b)||created(b)-created(a)||
       String(b.noSj||'').localeCompare(String(a.noSj||''))).slice(0,30);
   }
+  // V1.5.2.19: a request can already have a canonical SJ while the
+  // delivery module is still cached on the phone. Show it, then fetch fresh
+  // details from the backend before printing or dispatching.
+  function wwSjQueueRowsV15219(deliveries,requests){
+    const byId=new Map();
+    (Array.isArray(deliveries)?deliveries:[]).forEach(d=>{
+      if(d&&d.sjId)byId.set(String(d.sjId),{...d});
+    });
+    (Array.isArray(requests)?requests:[]).forEach(q=>{
+      const id=String(q&&q.sjId||''),no=String(q&&q.noSj||''),
+        status=String(q&&q.sjStatus||'').toUpperCase();
+      if(!id||!no||!['DRAFT','DIKIRIM','DITERIMA','DITERIMA_SEBAGIAN','SELISIH','SELESAI','DIBATALKAN'].includes(status))return;
+      const old=byId.get(id)||{};
+      // Never downgrade an already acknowledged dispatch to a stale DRAFT.
+      const resolved=String(old.status||'').toUpperCase()!=='DRAFT'&&
+        ['DIKIRIM','DITERIMA','DITERIMA_SEBAGIAN','SELISIH','SELESAI'].includes(String(old.status||'').toUpperCase())&&
+        status==='DRAFT'?String(old.status).toUpperCase():status;
+      byId.set(id,{...old,
+        sjId:id,noSj:no,status:resolved,
+        outletCode:q.outletCode||old.outletCode,
+        outletName:q.outletName||old.outletName,
+        createdAt:old.createdAt||q.createdAt||q.requestDate||'',
+        itemCount:Number(q.itemCount||old.itemCount||(old.lines||[]).length),
+        fromRequestQueue:!old.sjId});
+    });
+    return [...byId.values()];
+  }
+  let wwSJRefreshPromiseV15219=null,wwSJLastModuleAtV15219=0;
+  function wwSJRefreshV15219(force=false){
+    if(wwSJRefreshPromiseV15219)return wwSJRefreshPromiseV15219;
+    if(!force&&Date.now()-wwSJLastModuleAtV15219<30000&&
+       wwQueueV1526&&Date.now()-wwQueueFetchedAtV1526<30000)return Promise.resolve(true);
+    wwSJRefreshPromiseV15219=withBusy('Memuat permintaan dan Surat Jalan semua outlet…',async()=>{
+      // Refresh both sources; one failing must not hide the other.
+      const results=await Promise.allSettled([
+        reloadDeliveryModule(),wwReloadQueueV1526(true)
+      ]);
+      if(results[0].status==='fulfilled')wwSJLastModuleAtV15219=Date.now();
+      if(results[0].status==='rejected'&&results[1].status==='rejected')
+        throw Error('Modul SJ dan status canonical gagal: '+
+          String(results[0].reason&&results[0].reason.message||results[0].reason));
+      if(currentSheetKey()==='delivery-list')directDelivery(false);
+      if(results[0].status==='rejected')
+        toast('Daftar SJ detail belum diperbarui; status permintaan tersedia. Ketuk Perbarui SJ lagi.','warning',10000);
+      if(results[1].status==='rejected')
+        toast('Status permintaan gagal dibaca, tetapi daftar SJ berhasil dimuat.','warning',10000);
+      return true;
+    }).finally(()=>{wwSJRefreshPromiseV15219=null;});
+    return wwSJRefreshPromiseV15219;
+  }
+  async function wwSJOpenFreshV15219(id){
+    try{
+      const fresh=await withBusy('Membuka Surat Jalan terbaru…',
+        ()=>bridge.call('getDeliveryDetailFreshV1354',state.token,id));
+      if(!fresh||String(fresh.sjId||'')!==String(id))
+        throw Error('Surat Jalan tidak ditemukan di backend.');
+      upsertFreshDeliveryV1354(fresh);
+      if(String(fresh.status||'').toUpperCase()!=='DRAFT')
+        dispatchApplyStatusV44(id,fresh);
+      directDeliveryDetail(id);
+    }catch(err){
+      toast('Tidak dapat membaca SJ terbaru: '+String(err&&err.message||err)+
+        '. Coba Perbarui SJ, jangan membuat SJ baru.','warning',12000);
+    }
+  }
   function directDelivery(load=true){
     const d=state.data||{},canonical=wwQueueV1526&&Array.isArray(wwQueueV1526.rows),
       all=wwVisibleQueueV1528(),visible=canonical||all.length>0,req=all.filter(x=>x.group==='PREPARE'),
       progress=all.filter(x=>x.group==='IN_TRANSIT'),
-      history=all.filter(x=>x.group==='HISTORY'),rows=d.deliveries||[];
+      history=all.filter(x=>x.group==='HISTORY'),
+      rows=wwSjQueueRowsV15219(d.deliveries||[],canonical?wwQueueV1526.rows:[]);
     const tools=[];
     if(roleCan('DELIVERY_CREATE'))tools.push('<button class="btn btn-primary" id="ghNewSj">+ SJ Manual</button>');
     if(roleCan('REQUEST_SYNC'))tools.push('<button class="btn btn-soft" id="ghSyncReq">Perbarui Permintaan</button>');
@@ -1556,7 +1622,7 @@
           'Periksa Bahan · Konfirmasi Kirim':'Lihat Detail SJ';
         return '<button class="direct-card direct-click ww-ops-request-card ww-request-item" type="button" data-sjid="'+esc(x.sjId)+'">'+
           '<b>'+esc(x.noSj)+' · '+esc(x.outletName||x.outletCode||'-')+'</b>'+
-          '<small>'+esc(displayDateShort(x.shipDate||x.createdAt))+' · '+num((x.lines||[]).length,0)+' bahan</small>'+
+          '<small>'+esc(displayDateShort(x.shipDate||x.createdAt))+' · '+num((x.itemCount||(x.lines||[]).length),0)+' bahan</small>'+
           deliveryStatusBadge(x.status)+'<span class="ww-request-item-link">'+esc(action)+' ›</span></button>';
       }).join('');
     const loader=!canonical?'<div class="ww-queue-loading"><span class="ww-spin-v1526" aria-hidden="true"></span><span>'+
@@ -1566,6 +1632,7 @@
     sheetHtml('Bahan yang Harus Dikirim Sekarang',
       '<div class="ww-request-top"><b>Surat Jalan Terbaru</b><span>'+
       num(wwDraftSjCountV15211(entries),0)+' DRAFT</span></div>'+
+      '<div class="direct-toolbar"><button class="btn btn-soft" type="button" id="wwSJRefreshNowV15219">Perbarui SJ Semua Outlet</button></div>'+
       loader+
       (wwQueueErrorV1526?'<div class="ww-dispatch-pending-note" role="status">Pembacaan status SJ belum berhasil: '+esc(wwQueueErrorV1526)+'. Data modul Warehouse ditampilkan sementara; jangan buat SJ ganda.</div>':'')+
       '<div class="ww-request-tabs" role="group" aria-label="Pilih outlet">'+(menu||'Belum ada outlet aktif')+'</div>'+
@@ -1613,10 +1680,14 @@
     $$('[data-ww-request-outlet]').forEach(b=>b.onclick=()=>{wwSelectedOutletV1522=b.dataset.wwRequestOutlet;directDelivery(false)});
     $$('[data-request-id]').forEach(b=>b.onclick=()=>{const x=(wwQueueV1526&&wwQueueV1526.rows||[]).find(q=>String(q.requestId)===b.dataset.requestId);if(x&&x.sjStatus==='MISSING_SJ')wwRequestLifecycleDetailV1526(x.requestId);else opsRequestDetailV43(b.dataset.requestId)});
     $$('[data-ww-progress-id]').forEach(b=>b.onclick=()=>wwRequestLifecycleDetailV1526(b.dataset.wwProgressId));
-    $$('[data-sjid]').forEach(b=>b.onclick=()=>directDeliveryDetail(b.dataset.sjid));
-    const retry=$('#wwQueueRetryV1526');if(retry)retry.onclick=async()=>{try{await reloadDeliveryModule();await wwReloadQueueV1526(true);}catch(e){toast(e.message,'warning');directDelivery(false);}};
-    if(load&&(!canonical||Date.now()-wwQueueFetchedAtV1526>30000)&&!wwQueuePromiseV1526)
-      wwReloadQueueV1526(true).catch(e=>toast('Status canonical belum tersedia: '+e.message,'warning'));
+    $('[data-sjid]').forEach(b=>b.onclick=()=>wwSJOpenFreshV15219(b.dataset.sjid));
+    const refresh=$('#wwSJRefreshNowV15219');if(refresh)refresh.onclick=()=>
+      wwSjWithLoadingV15211(refresh,()=>wwSJRefreshV15219(true))
+        .catch(e=>toast('Pembaruan SJ belum berhasil: '+e.message,'warning',12000));
+    const retry=$('#wwQueueRetryV1526');if(retry)retry.onclick=()=>
+      wwSJRefreshV15219(true).catch(e=>toast(e.message,'warning',12000));
+    if(load)wwSJRefreshV15219(false).catch(e=>
+      toast('SJ terbaru belum dapat dibaca: '+e.message,'warning',12000));
   }
 
   function directDraftPrintList(){
@@ -1636,6 +1707,9 @@
       '<button type="button" class="btn ww-sj-action ww-sj-action--'+style+'" id="'+id+'">'+icon+'<span>'+label+'</span></button>';
     if(status==='DRAFT'){
       if(pendingDispatch){
+        // Keep print available as a clearly marked DRAFT CHECKLIST, never as
+        // an acknowledged shipment. Fetch canonical SJ before printing.
+        if(permissions.canPrint)actions.push(button('ghPrintSj','thermal',icons.printer,'Cetak Checklist · DRAFT'));
         // During an uncertain commit, do not allow Cancel, qty edits or new
         // Send. Only offer a read-only status check after automatic checking.
         if(stillWorking)
@@ -1743,7 +1817,7 @@
   function deliveryThermalText(d,width){
     width=Number(width)===48?48:32;const hr='-'.repeat(width),out=[],req=findRequestForDelivery(d),user=(state.data||{}).user||{};
     const sjStatus=String(d.status||'').trim().toUpperCase();
-    const printStage=sjStatus==='DRAFT'?'DRAFT - CEK GUDANG':sjStatus==='DIKIRIM'?'SIAP KIRIM':'CHECKLIST SURAT JALAN';
+    const printStage=sjStatus==='DRAFT'?'DRAFT - BELUM DIKIRIM':sjStatus==='DIKIRIM'?'SIAP KIRIM':'CHECKLIST SURAT JALAN';
     out.push(centerThermal('WILLS COFFEE',width));out.push(centerThermal(printStage,width));out.push(hr);
     wrapThermal('Status SJ: '+sjStatus,width).forEach(x=>out.push(x));
     wrapThermal('No SJ: '+d.noSj,width).forEach(x=>out.push(x));wrapThermal('Outlet: '+d.outletName,width).forEach(x=>out.push(x));
@@ -1753,13 +1827,61 @@
     (d.lines||[]).forEach((l,i)=>{const requested=Number(l.requestedQtyUnit!=null?l.requestedQtyUnit:(l.qtyUnit||0)),approved=Number(l.qtyUnit||0),status=String(l.fulfillmentStatus||'DIPENUHI');wrapThermal('[ ] '+(i+1)+'. '+l.name,width).forEach(x=>out.push(x));wrapThermal('    Diminta: '+num(requested)+' '+(l.sendUnit||''),width).forEach(x=>out.push(x));wrapThermal('    Disiapkan: '+num(approved)+' '+(l.sendUnit||''),width).forEach(x=>out.push(x));if(status!=='DIPENUHI')wrapThermal('    Status: '+status,width).forEach(x=>out.push(x));if(l.fulfillmentReason)wrapThermal('    Alasan: '+l.fulfillmentReason,width).forEach(x=>out.push(x));out.push('');});
     out.push(hr);out.push('CHECK GUDANG');out.push('[ ] Jumlah sesuai draft');out.push('[ ] Kondisi bahan baik');out.push('[ ] Sudah dimuat/dibawa');out.push('');out.push('CHECK BARISTA OUTLET');out.push('[ ] Nama bahan sesuai');out.push('[ ] Jumlah diterima sesuai');out.push('[ ] Kondisi bahan baik');out.push('');wrapThermal('Nama Barista: __________________',width).forEach(x=>out.push(x));wrapThermal('Paraf: _________________________',width).forEach(x=>out.push(x));out.push(hr);wrapThermal('Setelah dicek, foto checklist ini dan kirim ke grup.',width).forEach(x=>out.push(x));{const note=deliveryDisplayNote(d,req);if(note){out.push(hr);wrapThermal('Catatan: '+note,width).forEach(x=>out.push(x));}}out.push('');out.push('');return out.join('\n');
   }
-  function directPrintDeliveryDraft(id){
-    const d=((state.data||{}).deliveries||[]).find(x=>x.sjId===id);if(!d)return toast('SJ tidak ditemukan.');
-    let saved=Number(localStorage.getItem('ww_thermal_width')||32);if(saved!==48)saved=32;const initial=deliveryThermalText(d,saved);
-    sheetHtml('Cetak Thermal Bluetooth',`<p>Format checklist dibuat untuk printer thermal. Pilih lebar printer lalu tekan <b>Cetak Bluetooth (RawBT)</b>.</p><label class="field thermal-width"><span>Lebar Printer</span><select id="thermalWidth"><option value="32" ${saved===32?'selected':''}>58 mm · 32 karakter</option><option value="48" ${saved===48?'selected':''}>80 mm · 48 karakter</option></select></label><pre class="thermal-preview" id="thermalPreview">${esc(initial)}</pre><div class="actions"><button class="btn btn-line" id="thermalBack" type="button">Kembali</button><button class="btn btn-soft" id="thermalBrowser" type="button">Print Sistem</button><button class="btn btn-thermal" id="thermalRawbt" type="button">Cetak Bluetooth (RawBT)</button></div><div class="thermal-note">Checklist fisik diberikan ke barista untuk dicentang. Setelah pengecekan, kertas dapat difoto dan dikirim ke grup sebagai bukti.</div>`,{key:'delivery-thermal:'+id});
-    const sel=$('#thermalWidth'),preview=$('#thermalPreview');const update=()=>{const w=Number(sel.value)===48?48:32;localStorage.setItem('ww_thermal_width',String(w));preview.textContent=deliveryThermalText(d,w);return preview.textContent};
-    sel.onchange=update;$('#thermalBack').onclick=closeSheet;$('#thermalRawbt').onclick=()=>printRawBt(update());$('#thermalBrowser').onclick=()=>printThermalBrowser(update(),Number(sel.value));
+  // V1.5.2.19 — Printer never trusts a stale cached SJ status or item list.
+  // DRAFT prints as CHECKLIST ONLY; DIKIRIM prints as final SJ. No stock write.
+  async function directPrintDeliveryDraft(id){
+    let d;
+    try{
+      const fresh=await withBusy('Mengambil data SJ terbaru sebelum cetak…',
+        ()=>bridge.call('getDeliveryDetailFreshV1354',state.token,id));
+      if(!fresh||String(fresh.sjId||'')!==String(id))
+        throw Error('SJ tidak ditemukan di Warehouse.');
+      if(!Array.isArray(fresh.lines)||fresh.lines.length===0)
+        throw Error('Daftar bahan SJ belum tersedia. Cetak ditahan agar tidak kosong.');
+      if(String(fresh.status||'').toUpperCase()==='DIBATALKAN')
+        throw Error('SJ sudah DIBATALKAN; cetak ditolak.');
+      if(!['DRAFT','DIKIRIM','DITERIMA','DITERIMA_SEBAGIAN','SELISIH','SELESAI'].includes(
+           String(fresh.status||'').toUpperCase()))
+        throw Error('Status SJ belum dikenal: '+String(fresh.status||''));
+      upsertFreshDeliveryV1354(fresh);
+      if(String(fresh.status||'').toUpperCase()!=='DRAFT')
+        dispatchApplyStatusV44(id,fresh);
+      d=((state.data||{}).deliveries||[]).find(x=>String(x.sjId)===String(id));
+      if(!d||!Array.isArray(d.lines)||!d.lines.length)
+        throw Error('Detail SJ tidak tersedia setelah pembaruan.');
+    }catch(err){
+      toast('Cetak tertahan: '+String(err&&err.message||err)+
+        '. Perbarui SJ lalu periksa kembali; jangan Konfirmasi Kirim ulang.','warning',12000);
+      return;
+    }
+    let saved=32;try{saved=Number(localStorage.getItem('ww_thermal_width')||32)}catch(e){}
+    if(saved!==48)saved=32;
+    const stage=String(d.status||'').toUpperCase(),isDraft=stage==='DRAFT',
+      initial=deliveryThermalText(d,saved),
+      guidance=isDraft?
+        '<div class="ww-dispatch-pending-note" role="status"><b>CHECKLIST DRAFT · BELUM DIKIRIM</b><p>Cetak ini untuk pengecekan bahan. Bukan bukti bahwa stok sudah keluar. Konfirmasi Kirim hanya setelah barang benar-benar disiapkan dan statusnya pasti.</p></div>':
+        '<div class="ww-preprint-summary"><b>Surat Jalan dari Warehouse · Status '+esc(stage)+'</b><p>Data dan jumlah bahan dibaca ulang dari Warehouse sebelum cetak.</p></div>';
+    sheetHtml('Cetak Thermal Bluetooth',guidance+
+      '<p>Periksa nomor SJ, outlet, dan jumlah bahan. Pilih lebar printer lalu cetak.</p>'+
+      '<label class="field thermal-width"><span>Lebar Printer</span><select id="thermalWidth">'+
+      '<option value="32" '+(saved===32?'selected':'')+'>58 mm · 32 karakter</option>'+
+      '<option value="48" '+(saved===48?'selected':'')+'>80 mm · 48 karakter</option></select></label>'+
+      '<pre class="thermal-preview" id="thermalPreview">'+esc(initial)+'</pre>'+
+      '<div class="actions"><button class="btn btn-line" id="thermalBack" type="button">Kembali</button>'+
+      '<button class="btn btn-soft" id="thermalBrowser" type="button">Print Sistem</button>'+
+      '<button class="btn btn-thermal" id="thermalRawbt" type="button">Cetak Bluetooth (RawBT)</button></div>'+
+      '<div class="thermal-note">RawBT mencetak ke printer tersambung. Jika masih DRAFT, tulisan BELUM DIKIRIM wajib terlihat.</div>',
+      {key:'delivery-thermal:'+id});
+    const sel=$('#thermalWidth'),preview=$('#thermalPreview');
+    const update=()=>{const w=Number(sel.value)===48?48:32;
+      try{localStorage.setItem('ww_thermal_width',String(w))}catch(e){}
+      preview.textContent=deliveryThermalText(d,w);return preview.textContent};
+    sel.onchange=update;
+    $('#thermalBack').onclick=closeSheet;
+    $('#thermalRawbt').onclick=()=>printRawBt(update());
+    $('#thermalBrowser').onclick=()=>printThermalBrowser(update(),Number(sel.value));
   }
+
   function printRawBt(text){
     try{const a=document.createElement('a');a.href='rawbt:'+encodeURIComponent(String(text||''));a.style.display='none';document.body.appendChild(a);a.click();a.remove();toast('Membuka RawBT. Pilih printer Bluetooth yang sudah tersambung.');}catch(e){toast('RawBT tidak dapat dibuka: '+e.message);}
   }
