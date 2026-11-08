@@ -152,7 +152,7 @@ test('new version and CSS styles included in PWA assets',()=>{
   assert.ok(sw.includes('app.js?v='+v));
   assert.ok(sw.includes('app.css?v='+v));
   assert.ok(sw.includes('wills-warehouse-shell-v'+v));
-  assert.ok(app.includes("WW_FRONTEND_BUILD='2026-11-07."+v+"'"));
+  assert.ok(app.includes("WW_FRONTEND_BUILD='2026-11-08."+v+"'"));
   assert.match(css,/\.ww-sj-progress-copy/);
   assert.match(css,/\.ww-sj-progress--done/);
 });
