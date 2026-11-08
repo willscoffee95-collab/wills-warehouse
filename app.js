@@ -1973,8 +1973,8 @@
           ' (wajib karena modal sistem kosong)</span><input class="ww-so0811-cost" type="number" min="0.01" step="0.01" inputmode="decimal" placeholder="Harga modal per unit"></label>':'')+
         '</div>').join('');
     const maybePosted=(()=>{try{return localStorage.getItem(WW_SO0811_PENDING_V15216)}catch(e){return 'STORAGE_ERROR'}})();
-    const warning=maybePosted?
-      '<p><b>Pengiriman posting SO ini pernah dimulai di perangkat ini.</b> Jangan mengulang; audit transaksi ADJ dan stok dulu.</p>':'';
+    const warning=maybePosted&&changed.length?
+      '<p><b>Posting SO dasar sudah pernah dijalankan.</b> Jangan ulangi transaksi awal; gunakan jalur revisi khusus bila ada penyesuaian.</p>':'';
     sheetHtml('SO Fisik 8 November · Owner',
       '<div class="ww-preprint-summary"><b>Stock Opname 8 November 2026 · 42 bahan</b>'+
       '<p>Angka berdasarkan hitung langsung Owner. Target akan diposting melalui STOCK_ADJUSTMENT canonical, bukan mengubah SO 31 Oktober yang terkunci.</p>'+
@@ -1982,9 +1982,9 @@
       ' bahan sudah cocok. Pastikan staf berhenti sementara dari transaksi gudang sebelum POSTING.</p>'+
       warning+'</div><div class="direct-list">'+cards+'</div>'+
       '<div class="actions"><button class="btn btn-line" type="button" id="wwSo0811Back">Kembali</button>'+
-      (maybePosted?'<button class="btn btn-soft" type="button" disabled>Posting sebelumnya perlu audit</button>':
-        changed.length?'<button class="btn btn-primary" type="button" id="wwSo0811Post">Terapkan 42 Stok Fisik · Owner</button>':
-        '<button class="btn btn-soft" type="button" disabled>42 bahan sudah cocok</button>')+
+      (!changed.length?'<button class="btn btn-soft" type="button" disabled>42 bahan sudah cocok</button>':
+        maybePosted?'<button class="btn btn-soft" type="button" disabled>Posting dasar sudah dilakukan · perlu audit</button>':
+        '<button class="btn btn-primary" type="button" id="wwSo0811Post">Terapkan 42 Stok Fisik · Owner</button>')+
       '</div>',{key:'ww-so0811-owner'});
     $('#wwSo0811Back').onclick=directAdjustment;
     const button=$('#wwSo0811Post');if(!button)return;
