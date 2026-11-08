@@ -112,7 +112,7 @@ test('Existing original 31 October SO actions remain untouched and 8 Nov separat
 
 test('Version is identical across app, HTML and service worker',()=>{
   const v='1.5.2.16-so-fisik-0811';
-  assert.ok(app.includes("WW_FRONTEND_BUILD='2026-11-07."+v+"'"));
+  assert.ok(app.includes("WW_FRONTEND_BUILD='2026-11-08."+v+"'"));
   assert.ok(index.includes('app.js?v='+v));
   assert.ok(sw.includes('app.js?v='+v));
   assert.ok(sw.includes('wills-warehouse-shell-v'+v));
