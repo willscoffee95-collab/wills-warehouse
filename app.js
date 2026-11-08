@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  window.WW_FRONTEND_BUILD='2026-11-08.1.5.2.20-november-sj-archive';
+  window.WW_FRONTEND_BUILD='2026-11-08.1.5.2.21-one-tap-refresh';
 
 
   const $ = (q, root = document) => root.querySelector(q);
@@ -2749,6 +2749,45 @@
 
 
   $$('.nav-item').forEach(btn => btn.addEventListener('click', () => setPage(btn.dataset.page)));
+  // Refresh PWA without clearing session, cached snapshot or pending SJ guards.
+  let wwRefreshBusyV15221=false;
+  async function wwRefreshAppV15221(){
+    if(wwRefreshBusyV15221)return;
+    if(!state.token)return toast('Login dahulu untuk memperbarui Warehouse.','warning');
+    if(opsWriteInFlightV43.size>0||busyDepth>0||wwDispatchWatchersV15214.size>0){
+      toast('Masih ada proses transaksi/SJ. Periksa statusnya sebelum Refresh agar pengiriman tidak terputus.','warning',11000);
+      return;
+    }
+    if(navigator.onLine===false){
+      toast('Internet belum terhubung. Refresh ditunda agar tidak menampilkan data lama.','warning',11000);
+      return;
+    }
+    wwRefreshBusyV15221=true;
+    const btn=$('#refreshBtn');
+    if(btn){btn.disabled=true;btn.classList.add('is-loading');btn.setAttribute('aria-busy','true');btn.setAttribute('aria-label','Sedang memperbarui Warehouse');}
+    try{
+      if('serviceWorker' in navigator){
+        try{
+          const reg=await navigator.serviceWorker.getRegistration();
+          if(reg){
+            let waitTimer;
+            await Promise.race([reg.update().catch(e=>{console.warn('[Warehouse] SW update:',e&&e.message||e);}),
+              new Promise(resolve=>{waitTimer=setTimeout(resolve,7000);})]);
+            clearTimeout(waitTimer);
+          }
+        }catch(e){console.warn('[Warehouse] SW refresh skipped:',e&&e.message||e);}
+      }
+      // Navigation reload stays inside installed PWA, boot() restores login.
+      // Never remove ww_dispatch_pending_v44_* keys or user storage here.
+      window.location.reload();
+    }catch(e){
+      toast('Refresh belum berhasil: '+String(e&&e.message||e),'warning',12000);
+      wwRefreshBusyV15221=false;
+      if(btn){btn.disabled=false;btn.classList.remove('is-loading');btn.removeAttribute('aria-busy');btn.setAttribute('aria-label','Refresh aplikasi dan data Warehouse');}
+    }
+  }
+  const refreshBtnV15221=$('#refreshBtn');
+  if(refreshBtnV15221)refreshBtnV15221.addEventListener('click',wwRefreshAppV15221);
   $('#notifyBtn').addEventListener('click', openNotifications);
   $('#profileBtn').addEventListener('click', () => {
     const d = state.data || {};
@@ -2767,13 +2806,14 @@
 
 
   if ('serviceWorker' in navigator) {
-    let reloadingForUpdate = false;
+    // Do not auto-reload during an in-flight dispatch. Let staff tap Refresh.
     navigator.serviceWorker.addEventListener('controllerchange', () => {
-      if (reloadingForUpdate) return;
-      reloadingForUpdate = true;
-      window.location.reload();
+      if(wwRefreshBusyV15221)return;
+      if(state.token)toast('Versi Warehouse terbaru tersedia. Tekan Refresh di atas setelah transaksi selesai.','info',9000);
     });
-    window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=1.5.2.17-so-fisik-revisi', { updateViaCache: 'none' }).then(reg => reg.update()).catch(() => {}));
+    window.addEventListener('load', () =>
+      navigator.serviceWorker.register('./sw.js?v=1.5.2.21-one-tap-refresh',{updateViaCache:'none'})
+        .then(reg=>reg.update()).catch(e=>console.warn('[Warehouse] SW registration:',e&&e.message||e)));
   }
 
 
