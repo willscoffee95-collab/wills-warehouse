@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  window.WW_FRONTEND_BUILD='2026-11-16.1.5.2.23-sj-lifecycle-view';
+  window.WW_FRONTEND_BUILD='2026-11-16.1.5.2.24-sj-reset-16nov-archive';
 
 
   const $ = (q, root = document) => root.querySelector(q);
@@ -1477,34 +1477,48 @@
       const v=String(x.needDate||x.requestDate||x.createdAt||'');
       return /^\d{4}-\d{2}-\d{2}/.test(v)?v.slice(0,10).replaceAll('-',''):/^\d{2}\/\d{2}\/\d{4}/.test(v)?v.slice(6,10)+v.slice(3,5)+v.slice(0,2):'';
     };
-    return [...all.values()].filter(x=>!wwSjArchivedV15220(x))
+    return [...all.values()].filter(x=>!wwSjArchivedV15220(x)&&
+      wwSjDateKeyV15224(x)>=WW_SJ_RESET_START_V15224&&
+      (!x.createdAt||!wwSjDateOnlyV15224(x.createdAt)||
+        wwSjDateOnlyV15224(x.createdAt)>=WW_SJ_RESET_START_V15224))
       .sort((a,b)=>dateKey(b).localeCompare(dateKey(a))||String(b.createdAt||'').localeCompare(String(a.createdAt||'')));
   }
-  // v1.5.2.20 — Archive display cutoff requested by Owner: BEFORE November 2026.
-  // This is strictly a view-layer policy. Do NOT mutate historical SJ status,
-  // receipts, stock ledger, transit, owner SO, or outbound request state.
+  // RESET OPERASIONAL 16 NOV 2026 — client view only.
+  // Historical SJ/requests stay canonical. No delete, cancellation, dispatch,
+  // stock mutation, ledger reversal, or reposting as part of reset.
   const WW_SJ_FIRST_VISIBLE_MONTH_V15220='202611';
-  function wwSjMonthKeyV15220(x){
-    if(!x)return '';
-    const no=String(x.noSj||x.linkedNoSj||'').trim();
-    const m=/^SJ-(\d{6})\d{2}-/.exec(no);
-    if(m)return m[1];
-    const date=String(x.createdAt||x.requestDate||x.shipDate||'').trim();
-    const iso=/^(\d{4})-(\d{2})-\d{2}/.exec(date);
-    if(iso)return iso[1]+iso[2];
-    const local=/^\d{2}\/(\d{2})\/(\d{4})/.exec(date);
-    if(local)return local[2]+local[1];
+  const WW_SJ_RESET_START_V15224='20261116';
+  function wwSjDateOnlyV15224(raw){
+    const value=String(raw||'').trim();
+    let m=/^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+    if(m)return m[1]+m[2]+m[3];
+    m=/^(\d{2})\/(\d{2})\/(\d{4})/.exec(value);
+    if(m)return m[3]+m[2]+m[1];
     return '';
   }
+  function wwSjDateKeyV15224(x){
+    if(!x)return '';
+    const no=String(x.noSj||x.linkedNoSj||'').trim();
+    const match=/^SJ-(\d{8})-/.exec(no);
+    if(match)return match[1];
+    for(const item of [x.createdAt,x.requestDate,x.shipDate,x.needDate]){
+      const key=wwSjDateOnlyV15224(item);if(key)return key;
+    }
+    return '';
+  }
+  function wwSjMonthKeyV15220(x){
+    return wwSjDateKeyV15224(x).slice(0,6);
+  }
   function wwSjArchivedV15220(x){
-    const st=String(x&&((x.status||x.sjStatus))||'').trim().toUpperCase();
-    const month=wwSjMonthKeyV15220(x);
-    return (st==='DRAFT'||st==='DIKIRIM')&&
-      !!month&&month<WW_SJ_FIRST_VISIBLE_MONTH_V15220;
+    const key=wwSjDateKeyV15224(x);
+    const requestKey=wwSjDateOnlyV15224(x&&x.originalRequestDate);
+    return !!((key&&key<WW_SJ_RESET_START_V15224)||
+      (requestKey&&requestKey<WW_SJ_RESET_START_V15224));
   }
   function wwSjOperationalV15220(x){
     const st=String(x&&x.status||'').trim().toUpperCase();
-    return (st==='DRAFT'||st==='DIKIRIM')&&!wwSjArchivedV15220(x);
+    return (st==='DRAFT'||st==='DIKIRIM')&&
+      !wwSjArchivedV15220(x)&&wwSjDateKeyV15224(x)>=WW_SJ_RESET_START_V15224;
   }
   // v1.5.2.23 — Four distinct lifecycle views, sourced from actual SJ status.
   // No client-side status changes. SELISIH and DITERIMA_SEBAGIAN are NOT SELESAI.
@@ -1517,8 +1531,8 @@
     return '';
   }
   function wwSjIsNovOrLaterV15223(x){
-    const month=wwSjMonthKeyV15220(x);
-    return !!month&&month>=WW_SJ_FIRST_VISIBLE_MONTH_V15220;
+    const key=wwSjDateKeyV15224(x);
+    return !!key&&key>=WW_SJ_RESET_START_V15224&&!wwSjArchivedV15220(x);
   }
   function wwSjShowLifecycleV15223(x){
     return !!x&&!!x.sjId&&!!x.noSj&&wwSjIsNovOrLaterV15223(x)&&!!wwSjStageV15223(x);
@@ -1577,6 +1591,7 @@
         outletCode:q.outletCode||old.outletCode,
         outletName:q.outletName||old.outletName,
         createdAt:old.createdAt||q.createdAt||q.requestDate||'',
+        originalRequestDate:q.createdAt||q.requestDate||old.originalRequestDate||'',
         itemCount:Number(q.itemCount||old.itemCount||(old.lines||[]).length),
         fromRequestQueue:!old.sjId});
     });
@@ -1627,7 +1642,11 @@
       history=all.filter(x=>x.group==='HISTORY'),
       allSjRows=wwSjQueueRowsV15219(d.deliveries||[],canonical?wwQueueV1526.rows:[]),
       rows=allSjRows.filter(wwSjShowLifecycleV15223),
-      oldCount=allSjRows.filter(wwSjArchivedV15220).length;
+      archiveRows=allSjRows.filter(x=>
+        !!x.sjId&&/^SJ-202611(?:0[1-9]|1[0-5])-/.test(String(x.noSj||''))&&
+        wwSjArchivedV15220(x))
+        .sort((a,b)=>String(b.noSj||'').localeCompare(String(a.noSj||''))),
+      oldCount=archiveRows.length;
     const tools=[];
     if(roleCan('DELIVERY_CREATE'))tools.push('<button class="btn btn-primary" id="ghNewSj">+ SJ Manual</button>');
     if(roleCan('REQUEST_SYNC'))tools.push('<button class="btn btn-soft" id="ghSyncReq">Perbarui Permintaan</button>');
@@ -1692,11 +1711,25 @@
       (wwQueueErrorV1526?'Status terbaru belum terbaca: '+esc(wwQueueErrorV1526)+' · ketuk Muat Ulang':'Menyinkronkan status Surat Jalan terbaru…')+
       '</span><button class="btn btn-soft" id="wwQueueRetryV1526" type="button">Muat Ulang</button></div>':'';
     const n={PREPARE:req.length,IN_TRANSIT:progress.length,HISTORY:history.length};
+    const archivePanel=currentRole()==='OWNER'?
+      '<details class="ww-sj-collapse ww-reset-archive-v15224">'+
+      '<summary>Arsip SJ 01–15 Nov 2026 <span>'+num(archiveRows.length,0)+' SJ · Baca saja</span></summary>'+
+      '<div class="ww-reset-archive-notice-v15224">Data asli dan ledger tetap disimpan. '+
+      'Jangan konfirmasi ulang SJ lama. Audit snapshot berada pada tab ARSIP SJ NOV PRA RESET.</div>'+
+      '<div class="direct-list">'+archiveRows.map(x=>
+        '<button class="direct-card direct-click ww-ops-request-card" type="button" data-sjid="'+
+        esc(String(x.sjId))+'"><b>'+esc(x.noSj||'-')+' · '+
+        esc(x.outletName||x.outletCode||'-')+'</b><small>Status saat ini: '+esc(x.status||'-')+
+        ' · tanggal '+esc(displayDateShort(x.createdAt))+'</small>'+
+        '<span class="ww-request-item-link">Lihat arsip (read-only) ›</span></button>'
+      ).join('')+'</div></details>':'';
     sheetHtml('Bahan yang Harus Dikirim Sekarang',
-      '<div class="ww-request-top"><b>Surat Jalan · November 2026</b><span>'+
+      '<div class="ww-request-top"><b>PERIODE BARU · 16 November 2026</b><span>'+
       num(wwDraftSjCountV15211(rows,wwSelectedOutletV1522),0)+' DRAFT</span></div>'+
-      '<div class="ww-life-note">Lihat status asli SJ November 2026 dan seterusnya. DRAFT = belum dikirim; DIKIRIM = menunggu penerimaan; DITERIMA = penerimaan tercatat (termasuk parsial/selisih); SELESAI = sudah direkonsiliasi. Data lama tetap di spreadsheet.'+
-      (oldCount?' · '+num(oldCount,0)+' DRAFT/DIKIRIM lama diarsipkan dari tampilan.':'')+'</div>'+
+      '<div class="ww-life-note ww-reset-alert-v15224"><b>Reset operasional 16 November:</b> Hanya permintaan &amp; SJ yang dibuat mulai 16/11/2026 ditampilkan. '+
+      'SJ tanggal 1–15 November tetap sebagai arsip; tidak otomatis dikirim ulang. '+
+      'Sebelum mengirim barang baru, cocokkan stok fisik dan SJ yang telah dikirim manual.'+
+      (oldCount?' · Arsip '+num(oldCount,0)+' SJ.':'')+'</div>'+
       '<div class="direct-toolbar"><button class="btn btn-soft" type="button" id="wwSJRefreshNowV15219">Perbarui SJ Semua Outlet</button></div>'+
       loader+
       (wwQueueErrorV1526?'<div class="ww-dispatch-pending-note" role="status">Pembacaan status SJ belum berhasil: '+esc(wwQueueErrorV1526)+'. Data modul Warehouse ditampilkan sementara; jangan buat SJ ganda.</div>':'')+
@@ -1705,7 +1738,8 @@
       '<div class="ww-request-section"><div class="ww-request-section-head"><b>'+esc(selected?selected.name:'Semua Outlet')+
       '</b><span>'+num(entries.length,0)+' '+esc(wwSelectedSjStageV15223)+'</span></div><div class="ww-request-scroll">'+
       (sj||'<div class="empty">Belum ada SJ berstatus '+esc(wwSelectedSjStageV15223)+' untuk outlet ini. Tekan Perbarui SJ jika diperlukan.</div>')+'</div></div>'+
-      '<div class="ww-life-note">Pada DRAFT: Periksa Bahan lalu Konfirmasi Kirim. Pada DIKIRIM: tunggu bukti penerimaan outlet. DITERIMA dan SELESAI hanya ditampilkan dari status backend, tidak dapat diubah lewat filter ini. Stok hanya berubah lewat transaksi resmi.</div>'+
+      '<div class="ww-life-note">Pada DRAFT: Periksa Bahan lalu Konfirmasi Kirim. Pada DIKIRIM: tunggu bukti penerimaan outlet. DITERIMA dan SELESAI dibaca dari backend. Stok hanya berubah lewat transaksi resmi.</div>'+
+      archivePanel+
       (missing.length?'<details class="ww-sj-collapse"><summary>Permintaan Belum Ada SJ <span>'+num(missing.length,0)+' permintaan</span></summary>'+
         '<div class="direct-list">'+requests+'</div></details>':'')+
       '<details class="ww-sj-collapse"><summary>Dalam Pengiriman / Penerimaan <span>'+num(n.IN_TRANSIT||0,0)+' permintaan</span></summary>'+
@@ -1718,6 +1752,8 @@
       {key:'delivery-list'});
     const newSj=$('#ghNewSj');if(newSj)newSj.onclick=directNewSj;
     const syncReq=$('#ghSyncReq');if(syncReq)syncReq.onclick=async()=>{
+      if(!window.confirm('PERIODE BARU 16/11/2026. Sinkronisasi hanya untuk mengambil permintaan baru. '+
+        'Pastikan outlet sudah membuat permintaan baru setelah 15 November; jangan memproses permintaan lama dua kali. Lanjut?'))return;
       try{
         let result;
         await withBusy('Memperbarui permintaan outlet…',async()=>{
@@ -1846,13 +1882,16 @@
     const inspect=$('#wwSjCheckMaterialsV15210');if(inspect)inspect.onclick=()=>opsRequestDetailV43(req.requestId);
     const a=$('#ghAdjustSj');if(a)a.onclick=()=>directFulfillment(id);
     const c=$('#ghCancelSj');if(c)c.onclick=()=>{
+      if(wwSjArchivedV15220(d)){toast('SJ lama dikunci sebagai arsip.','warning');return;}
       if(!confirm('Batalkan Surat Jalan '+d.noSj+'? Tindakan ini tidak mengirim barang.'))return;
       return wwSjWithLoadingV15211(c,()=>writeDeliveryDirect('cancel_'+id,'ownerCancelDeliveryDraftV1527',{sjId:id,reason:'Dibatalkan dari GitHub PWA'},id));
     };
     const check=$('#ghCheckSjStatus');if(check)check.onclick=()=>wwSjWithLoadingV15211(check,()=>dispatchCheckStatusV44(id));
     const recovery=$('#ghRecoveryLocalSJ');if(recovery)recovery.onclick=()=>wwSjWithLoadingV15211(recovery,()=>recoverSjLocalV1527(id));
     const k=$('#ghSendSj');if(k)k.onclick=()=>{
-      if(!confirm('Hanya qty yang sudah disiapkan/disetujui yang akan mengurangi stok. Barang benar-benar siap dikirim?'))return;
+      if(wwSjArchivedV15220(d)){toast('SJ sebelum reset hanya arsip. Dilarang konfirmasi ulang.','warning');return;}
+      if(!confirm('PERIODE BARU 16/11. Pastikan stok fisik & pengiriman lama telah direkonsiliasi. '+
+        'Hanya qty yang sudah disiapkan akan mengurangi stok. Barang benar-benar siap dikirim?'))return;
       return wwSjWithLoadingV15211(k,()=>writeDeliveryDirect('dispatch_'+id,'dispatchDelivery',{sjId:id},id));
     };
 
@@ -1970,7 +2009,7 @@
   }
 
 
-  function directFulfillment(id){if(currentRole()!=='OWNER')return toast('Perubahan data pemenuhan hanya dapat dilakukan Owner. Admin wajib melaporkan selisih.','warning');const d=((state.data||{}).deliveries||[]).find(x=>x.sjId===id);if(!d||d.status!=='DRAFT')return toast('SJ bukan DRAFT.');sheetHtml('Atur Ketersediaan',`<p>Permintaan asli outlet tidak diubah. Isi 0 jika tidak tersedia; alasan wajib jika qty dikurangi.</p><form id="ghFulfillment"><div class="direct-list">${(d.lines||[]).map(l=>{const req=Number(l.requestedQtyUnit!=null?l.requestedQtyUnit:(l.qtyUnit||0));return `<div class="direct-card" data-ful-line="${l.lineNo}"><b>${esc(l.name)}</b><small>Diminta ${num(req)} ${esc(l.sendUnit)}</small><label class="field"><span>Qty disetujui</span><input class="approved" type="number" min="0" max="${req}" step="0.000001" value="${Number(l.qtyUnit||0)}" required></label><label class="field"><span>Alasan jika kurang / kosong</span><textarea class="reason">${esc(l.fulfillmentReason||'')}</textarea></label></div>`}).join('')}</div><div class="actions"><button class="btn btn-line" type="button" id="ghBackSj">Kembali</button><button class="btn btn-primary">Simpan</button></div></form>`,{key:'delivery-fulfillment:'+id});$('#ghBackSj').onclick=closeSheet;$('#ghFulfillment').onsubmit=async e=>{e.preventDefault();const items=$$('[data-ful-line]').map(x=>({lineNo:Number(x.dataset.fulLine),approvedQtyUnit:x.querySelector('.approved').value,reason:x.querySelector('.reason').value}));await writeDeliveryDirect('fulfillment_'+id,'ownerAdjustDeliveryDraftFulfillmentV1527',{sjId:id,items},id)};}
+  function directFulfillment(id){if(wwSjArchivedV15220(((state.data||{}).deliveries||[]).find(x=>x.sjId===id)))return toast('SJ periode lama hanya arsip; tidak dapat direvisi.','warning');if(currentRole()!=='OWNER')return toast('Perubahan data pemenuhan hanya dapat dilakukan Owner. Admin wajib melaporkan selisih.','warning');const d=((state.data||{}).deliveries||[]).find(x=>x.sjId===id);if(!d||d.status!=='DRAFT')return toast('SJ bukan DRAFT.');sheetHtml('Atur Ketersediaan',`<p>Permintaan asli outlet tidak diubah. Isi 0 jika tidak tersedia; alasan wajib jika qty dikurangi.</p><form id="ghFulfillment"><div class="direct-list">${(d.lines||[]).map(l=>{const req=Number(l.requestedQtyUnit!=null?l.requestedQtyUnit:(l.qtyUnit||0));return `<div class="direct-card" data-ful-line="${l.lineNo}"><b>${esc(l.name)}</b><small>Diminta ${num(req)} ${esc(l.sendUnit)}</small><label class="field"><span>Qty disetujui</span><input class="approved" type="number" min="0" max="${req}" step="0.000001" value="${Number(l.qtyUnit||0)}" required></label><label class="field"><span>Alasan jika kurang / kosong</span><textarea class="reason">${esc(l.fulfillmentReason||'')}</textarea></label></div>`}).join('')}</div><div class="actions"><button class="btn btn-line" type="button" id="ghBackSj">Kembali</button><button class="btn btn-primary">Simpan</button></div></form>`,{key:'delivery-fulfillment:'+id});$('#ghBackSj').onclick=closeSheet;$('#ghFulfillment').onsubmit=async e=>{e.preventDefault();const items=$$('[data-ful-line]').map(x=>({lineNo:Number(x.dataset.fulLine),approvedQtyUnit:x.querySelector('.approved').value,reason:x.querySelector('.reason').value}));await writeDeliveryDirect('fulfillment_'+id,'ownerAdjustDeliveryDraftFulfillmentV1527',{sjId:id,items},id)};}
   function showDiagnostic(r){sheetHtml('Diagnostik Sinkron Penerimaan',`<p>Audit ini hanya membaca data outlet dan Surat Jalan.</p><div class="direct-list">${((r||{}).diagnostics||[]).map(x=>`<div class="direct-card"><b>${esc(x.noSj)} · ${esc(x.outletName||x.outletCode||'')}</b><small>${x.matched}/${x.receiptCount} receipt cocok · alias ${x.aliasMatched||0}</small><span class="badge ${x.ok?'ok':'bad'}">${x.ok?'COCOK':'PERLU CEK'}</span>${x.issues&&x.issues.length?`<div class="direct-issues">${x.issues.map(i=>esc((i.code||i.name)+' · '+i.reason+(i.expectedUnit?' · '+i.baseUnit+'→'+i.expectedUnit:''))).join('<br>')}</div>`:''}</div>`).join('')||'<div class="empty">Belum ada receipt yang cocok dengan SJ aktif.</div>'}</div>`)}
   // v1.2.9.1.1 — Fix HTML number step Pembayaran Outlet: Rupiah bulat/desimal 2 digit valid, max tetap sisa piutang per SJ.
   function directOutletPayment(){
