@@ -214,3 +214,11 @@ html{background:#fbf7f2!important;color-scheme:light;max-width:100%;min-height:1
 @keyframes wwRefreshSpinV15221{to{transform:rotate(360deg)}}
 @media(max-width:380px){.topbar{padding-inline:12px}.topbar-actions{gap:6px}.ww-refresh-btn-v15221{flex-basis:38px;width:38px;height:38px}.topbar .brand-lockup.compact{gap:7px}}
 @media(prefers-reduced-motion:reduce){.ww-refresh-btn-v15221.is-loading svg{animation-duration:2s}}
+
+/* v1.5.2.23: explicit SJ status stages; black/white high contrast and touch-friendly. */
+.ww-sj-stages-v15223{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin:12px 0}
+.ww-sj-stage-v15223{border:1.5px solid #a9a9a9;border-radius:12px;background:#fff;color:#333;min-width:0;min-height:50px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:7px 2px;font-size:10px;font-weight:800;overflow-wrap:anywhere}
+.ww-sj-stage-v15223 b{font-size:15px;font-weight:900}
+.ww-sj-stage-v15223.is-active{border-color:#b52b2b;background:#fff3f1;color:#9c1717;box-shadow:inset 0 0 0 1px #b52b2b}
+.ww-sj-stage-v15223:focus-visible{outline:3px solid #b52b2b;outline-offset:2px}
+@media(max-width:360px){.ww-sj-stages-v15223{gap:4px}.ww-sj-stage-v15223{font-size:9px;padding-inline:1px}}
