@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  window.WW_FRONTEND_BUILD='2026-11-08.1.5.2.22-inapp-refresh-safe';
+  window.WW_FRONTEND_BUILD='2026-11-16.1.5.2.23-sj-lifecycle-view';
 
 
   const $ = (q, root = document) => root.querySelector(q);
@@ -1506,6 +1506,30 @@
     const st=String(x&&x.status||'').trim().toUpperCase();
     return (st==='DRAFT'||st==='DIKIRIM')&&!wwSjArchivedV15220(x);
   }
+  // v1.5.2.23 — Four distinct lifecycle views, sourced from actual SJ status.
+  // No client-side status changes. SELISIH and DITERIMA_SEBAGIAN are NOT SELESAI.
+  let wwSelectedSjStageV15223='DRAFT';
+  const wwSjStatusLabelsV15223={DRAFT:'DRAFT',DIKIRIM:'DIKIRIM',DITERIMA:'DITERIMA',SELESAI:'SELESAI'};
+  function wwSjStageV15223(x){
+    const st=String(x&&x.status||'').trim().toUpperCase();
+    if(st==='DRAFT'||st==='DIKIRIM'||st==='SELESAI')return st;
+    if(['DITERIMA','DITERIMA_SEBAGIAN','SELISIH'].includes(st))return 'DITERIMA';
+    return '';
+  }
+  function wwSjIsNovOrLaterV15223(x){
+    const month=wwSjMonthKeyV15220(x);
+    return !!month&&month>=WW_SJ_FIRST_VISIBLE_MONTH_V15220;
+  }
+  function wwSjShowLifecycleV15223(x){
+    return !!x&&!!x.sjId&&!!x.noSj&&wwSjIsNovOrLaterV15223(x)&&!!wwSjStageV15223(x);
+  }
+  function wwSjFilteredLifecycleV15223(rows,outletCode,stage){
+    const code=String(outletCode||'ALL').trim().toUpperCase();
+    return (Array.isArray(rows)?rows:[]).filter(x=>wwSjShowLifecycleV15223(x)&&
+      wwSjStageV15223(x)===stage&&(code==='ALL'||wwRequestOutletV1522(x)===code))
+      .sort((a,b)=>String(b.noSj||'').localeCompare(String(a.noSj||''))||
+        String(b.createdAt||'').localeCompare(String(a.createdAt||'')));
+  }
   // UI only: the active queue is November 2026 onward.
   // Earlier DRAFT/DIKIRIM remain in canonical sheets and all audit reports.
   function wwDraftSjCountV15211(deliveries,outletCode='ALL'){
@@ -1602,7 +1626,7 @@
       progress=all.filter(x=>x.group==='IN_TRANSIT'),
       history=all.filter(x=>x.group==='HISTORY'),
       allSjRows=wwSjQueueRowsV15219(d.deliveries||[],canonical?wwQueueV1526.rows:[]),
-      rows=allSjRows.filter(wwSjOperationalV15220),
+      rows=allSjRows.filter(wwSjShowLifecycleV15223),
       oldCount=allSjRows.filter(wwSjArchivedV15220).length;
     const tools=[];
     if(roleCan('DELIVERY_CREATE'))tools.push('<button class="btn btn-primary" id="ghNewSj">+ SJ Manual</button>');
@@ -1634,7 +1658,13 @@
       '" data-ww-request-outlet="'+esc(k)+'" aria-pressed="'+(k===wwSelectedOutletV1522)+'">'+
       '<span>'+esc(k)+'</span><b>'+num(wwDraftSjCountV15211(grouped.get(k).rows),0)+'</b></button>').join('');
     const selected=grouped.get(wwSelectedOutletV1522),
-      entries=wwRecentSjForOutletV15210(rows,wwSelectedOutletV1522),
+      stageCounts=Object.fromEntries(Object.keys(wwSjStatusLabelsV15223).map(stage=>
+        [stage,wwSjFilteredLifecycleV15223(rows,wwSelectedOutletV1522,stage).length])),
+      stageTabs=Object.keys(wwSjStatusLabelsV15223).map(stage=>
+        '<button type="button" class="ww-sj-stage-v15223 '+(stage===wwSelectedSjStageV15223?'is-active':'')+
+        '" data-ww-sj-stage="'+stage+'" aria-pressed="'+(stage===wwSelectedSjStageV15223)+'">'+
+        '<span>'+stage+'</span><b>'+num(stageCounts[stage]||0,0)+'</b></button>').join(''),
+      entries=wwSjFilteredLifecycleV15223(rows,wwSelectedOutletV1522,wwSelectedSjStageV15223),
       knownSjIds=new Set(rows.map(x=>String(x&&x.sjId||'')).filter(Boolean)),
       knownSjNos=new Set(rows.map(x=>String(x&&x.noSj||'')).filter(Boolean)),
       missing=req.filter(x=>(wwSelectedOutletV1522==='ALL'||wwRequestOutletV1522(x)===wwSelectedOutletV1522)&&
@@ -1654,25 +1684,28 @@
         return '<button class="direct-card direct-click ww-ops-request-card ww-request-item" type="button" data-sjid="'+esc(x.sjId)+'">'+
           '<b>'+esc(x.noSj)+' · '+esc(x.outletName||x.outletCode||'-')+'</b>'+
           '<small>'+esc(displayDateShort(x.shipDate||x.createdAt))+' · '+num((x.itemCount||(x.lines||[]).length),0)+' bahan</small>'+
-          deliveryStatusBadge(x.status)+'<span class="ww-request-item-link">'+esc(action)+' ›</span></button>';
+          deliveryStatusBadge(x.status)+'<span class="ww-request-item-link">'+
+          esc(['DITERIMA_SEBAGIAN','SELISIH'].includes(String(x.status||'').toUpperCase())?
+            'Penerimaan perlu pemeriksaan':action)+' ›</span></button>';
       }).join('');
     const loader=!canonical?'<div class="ww-queue-loading"><span class="ww-spin-v1526" aria-hidden="true"></span><span>'+
       (wwQueueErrorV1526?'Status terbaru belum terbaca: '+esc(wwQueueErrorV1526)+' · ketuk Muat Ulang':'Menyinkronkan status Surat Jalan terbaru…')+
       '</span><button class="btn btn-soft" id="wwQueueRetryV1526" type="button">Muat Ulang</button></div>':'';
     const n={PREPARE:req.length,IN_TRANSIT:progress.length,HISTORY:history.length};
     sheetHtml('Bahan yang Harus Dikirim Sekarang',
-      '<div class="ww-request-top"><b>Surat Jalan Terbaru · November 2026</b><span>'+
-      num(wwDraftSjCountV15211(entries),0)+' DRAFT</span></div>'+
-      '<div class="ww-life-note">Antrean aktif hanya SJ DRAFT / DIKIRIM sejak November 2026. Arsip sebelumnya tetap tersimpan pada spreadsheet Warehouse.'+
-      (oldCount?' · '+num(oldCount,0)+' SJ lama tersembunyi dari data yang dimuat.':'')+'</div>'+
+      '<div class="ww-request-top"><b>Surat Jalan · November 2026</b><span>'+
+      num(wwDraftSjCountV15211(rows,wwSelectedOutletV1522),0)+' DRAFT</span></div>'+
+      '<div class="ww-life-note">Lihat status asli SJ November 2026 dan seterusnya. DRAFT = belum dikirim; DIKIRIM = menunggu penerimaan; DITERIMA = penerimaan tercatat (termasuk parsial/selisih); SELESAI = sudah direkonsiliasi. Data lama tetap di spreadsheet.'+
+      (oldCount?' · '+num(oldCount,0)+' DRAFT/DIKIRIM lama diarsipkan dari tampilan.':'')+'</div>'+
       '<div class="direct-toolbar"><button class="btn btn-soft" type="button" id="wwSJRefreshNowV15219">Perbarui SJ Semua Outlet</button></div>'+
       loader+
       (wwQueueErrorV1526?'<div class="ww-dispatch-pending-note" role="status">Pembacaan status SJ belum berhasil: '+esc(wwQueueErrorV1526)+'. Data modul Warehouse ditampilkan sementara; jangan buat SJ ganda.</div>':'')+
       '<div class="ww-request-tabs" role="group" aria-label="Pilih outlet">'+(menu||'Belum ada outlet aktif')+'</div>'+
+      '<div class="ww-sj-stages-v15223" role="group" aria-label="Pilih status Surat Jalan">'+stageTabs+'</div>'+
       '<div class="ww-request-section"><div class="ww-request-section-head"><b>'+esc(selected?selected.name:'Semua Outlet')+
-      '</b><span>'+num(wwDraftSjCountV15211(entries),0)+' DRAFT</span></div><div class="ww-request-scroll">'+
-      (sj||'<div class="empty">Belum ada Surat Jalan pada outlet ini. Ketuk Muat Ulang bila perlu.</div>')+'</div></div>'+
-      '<div class="ww-life-note">Pilih SJ DRAFT untuk Periksa Bahan / Cetak Thermal dan Konfirmasi Kirim. Stok hanya berkurang setelah pengiriman dikonfirmasi.</div>'+
+      '</b><span>'+num(entries.length,0)+' '+esc(wwSelectedSjStageV15223)+'</span></div><div class="ww-request-scroll">'+
+      (sj||'<div class="empty">Belum ada SJ berstatus '+esc(wwSelectedSjStageV15223)+' untuk outlet ini. Tekan Perbarui SJ jika diperlukan.</div>')+'</div></div>'+
+      '<div class="ww-life-note">Pada DRAFT: Periksa Bahan lalu Konfirmasi Kirim. Pada DIKIRIM: tunggu bukti penerimaan outlet. DITERIMA dan SELESAI hanya ditampilkan dari status backend, tidak dapat diubah lewat filter ini. Stok hanya berubah lewat transaksi resmi.</div>'+
       (missing.length?'<details class="ww-sj-collapse"><summary>Permintaan Belum Ada SJ <span>'+num(missing.length,0)+' permintaan</span></summary>'+
         '<div class="direct-list">'+requests+'</div></details>':'')+
       '<details class="ww-sj-collapse"><summary>Dalam Pengiriman / Penerimaan <span>'+num(n.IN_TRANSIT||0,0)+' permintaan</span></summary>'+
@@ -1710,7 +1743,12 @@
       catch(e){toast(e.message,'warning')}
     };
     const diag=$('#ghDiag');if(diag)diag.onclick=async()=>{try{const z=await withBusy('Diagnostik…',()=>callDirect('auditReceiptSyncDiagnosticAppV1260'));showDiagnostic(z)}catch(e){toast(e.message,'warning')}};
-    $$('[data-ww-request-outlet]').forEach(b=>b.onclick=()=>{wwSelectedOutletV1522=b.dataset.wwRequestOutlet;directDelivery(false)});
+    $('[data-ww-request-outlet]').forEach(b=>b.onclick=()=>{wwSelectedOutletV1522=b.dataset.wwRequestOutlet;directDelivery(false)});
+    $('[data-ww-sj-stage]').forEach(b=>b.onclick=()=>{
+      if(Object.prototype.hasOwnProperty.call(wwSjStatusLabelsV15223,b.dataset.wwSjStage)){
+        wwSelectedSjStageV15223=b.dataset.wwSjStage;directDelivery(false);
+      }
+    });
     $$('[data-request-id]').forEach(b=>b.onclick=()=>{const x=(wwQueueV1526&&wwQueueV1526.rows||[]).find(q=>String(q.requestId)===b.dataset.requestId);if(x&&x.sjStatus==='MISSING_SJ')wwRequestLifecycleDetailV1526(x.requestId);else opsRequestDetailV43(b.dataset.requestId)});
     $$('[data-ww-progress-id]').forEach(b=>b.onclick=()=>wwRequestLifecycleDetailV1526(b.dataset.wwProgressId));
     Array.from(document.querySelectorAll('[data-sjid]')).forEach(b=>b.onclick=()=>wwSJOpenFreshV15219(b.dataset.sjid));
