@@ -228,3 +228,12 @@ html{background:#fbf7f2!important;color-scheme:light;max-width:100%;min-height:1
 .ww-reset-archive-v15224{margin-top:14px;border:1.5px solid #999;border-radius:12px;background:#fff}
 .ww-reset-archive-notice-v15224{padding:12px;line-height:1.5;font-size:12px;background:#f5f5f5;color:#333}
 .ww-reset-archive-v15224 .direct-list{max-height:350px;overflow:auto;padding:10px}
+
+/* Wills Warehouse 1.5.2.25: quick physical picking controls. */
+.ww-pick-stepper-v15225{display:flex;align-items:center;gap:6px;max-width:100%;margin-top:4px}
+.ww-pick-stepper-v15225 .ww-pick-qty{flex:1;min-width:50px;text-align:center;font-size:18px;font-weight:700;min-height:42px}
+.ww-pick-step-v15225{display:flex;align-items:center;justify-content:center;min-width:46px;min-height:44px;padding:4px 12px;background:#fff3ee;color:#a72b12;border:1.5px solid #df7e60;border-radius:10px;font-size:22px;font-weight:700}
+.ww-pick-step-v15225:disabled,.ww-pick-preset-v15225:disabled{opacity:.45}
+.ww-pick-presets-v15225{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:7px 0 12px}
+.ww-pick-preset-v15225{border-radius:9px;border:1px solid #adadad;background:#fff;color:#292929;min-height:38px;padding:7px 5px;font-weight:700;font-size:12px}
+.ww-pick-preset-v15225:focus-visible,.ww-pick-step-v15225:focus-visible{outline:3px solid #ec684b;outline-offset:2px}
