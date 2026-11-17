@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  window.WW_FRONTEND_BUILD='2026-11-16.1.5.2.24-sj-reset-16nov-archive';
+  window.WW_FRONTEND_BUILD='2026-11-17.1.5.2.25-pick-preflight-safety';
 
 
   const $ = (q, root = document) => root.querySelector(q);
@@ -92,8 +92,8 @@
     OWNER:['*'],
     ADMIN:['PURCHASE','PACKING','EXPENSE','SUPPLIER_MASTER','INTERNAL_PRICE','REQUEST_SYNC','DELIVERY_CREATE','DELIVERY_CANCEL','DELIVERY_PREPARE','DELIVERY_DISPATCH','DELIVERY_SYNC','DELIVERY_COMPLETE','OUTLET_PAYMENT','AUDIT_OPERATIONAL','FINANCE_REPORT','DISPATCH_REPORT'],
     ADMIN_1:['PURCHASE','PACKING','EXPENSE','SUPPLIER_MASTER','INTERNAL_PRICE','CENTRAL_PRICE','OUTLET_PAYMENT','SUPPLIER_PAYMENT','PACKING_WAGE_PAYMENT','AUDIT_OPERATIONAL','FINANCE_REPORT','DISPATCH_REPORT'],
-    ADMIN_2:['REQUEST_SYNC','DELIVERY_CREATE','DELIVERY_CANCEL','DELIVERY_PREPARE','DELIVERY_DISPATCH','DELIVERY_SYNC','DELIVERY_COMPLETE','AUDIT_OPERATIONAL','DISPATCH_REPORT'],
-    STAFF_GUDANG:['PACKING','DELIVERY_PREPARE','DELIVERY_DISPATCH','DELIVERY_SYNC','DISPATCH_REPORT'],
+    ADMIN_2:['PURCHASE','PACKING','REQUEST_SYNC','DELIVERY_CREATE','DELIVERY_CANCEL','DELIVERY_PREPARE','DELIVERY_DISPATCH','DELIVERY_SYNC','DELIVERY_COMPLETE','AUDIT_OPERATIONAL','DISPATCH_REPORT'],
+    STAFF_GUDANG:['PURCHASE','PACKING','REQUEST_SYNC','DELIVERY_PREPARE','DELIVERY_DISPATCH','DELIVERY_SYNC','DISPATCH_REPORT'],
     STAFF_LOGISTIK:['PACKING','DELIVERY_PREPARE','DELIVERY_DISPATCH','DELIVERY_SYNC','DISPATCH_REPORT'],
     FINANCE:['EXPENSE','OUTLET_PAYMENT','SUPPLIER_PAYMENT','PACKING_WAGE_PAYMENT','DELIVERY_SYNC','DELIVERY_COMPLETE','FINANCE_REPORT','DISPATCH_REPORT']
   });
@@ -1121,13 +1121,13 @@
       srcBox.innerHTML=`<b>${esc(map.sourceName)} → ${esc(map.outputName)}</b><br>1 ${esc(sourceUnit)} = ${num(factor)} ${esc(baseUnit)} · standar 1 ${esc(output&&output.receiveUnit||'pcs')} = ${num(std)} ${esc(baseUnit)}<br>Stok sumber tersedia ${num(Number(st.qty||0)/factor)} ${esc(sourceUnit)}.`;
       let q,r,w,a;try{q=parseNonNeg(input.value||'0','Bahan sumber');r=parseNonNeg(remain.value||'0','Sisa');w=parseNonNeg(waste.value||'0','Waste');a=Number(actual.value||0);}catch(e){box.className='demo-box';box.textContent=e.message;return null;}
       const inputBase=q*factor,packedBase=inputBase-r-w;if(inputBase<=0||packedBase<=0||!Number.isInteger(a)||a<=0){box.className='demo-box';box.innerHTML=`Input canonical ${num(inputBase)} ${esc(baseUnit)}. Isi hasil aktual untuk melihat variance.`;return null;}
-      const theoretical=packedBase/std,variance=a-theoretical,variancePct=theoretical>0?variance/theoretical*100:0,avg=packedBase/a,yieldBase=a*std-packedBase,fillPct=(avg/std-1)*100,abs=Math.abs(variance),status=abs<=2?'AMAN':abs<=5?'PERHATIKAN':'CEK';
+      const theoretical=packedBase/std,variance=a-theoretical,variancePct=theoretical>0?variance/theoretical*100:0,avg=packedBase/a,yieldBase=a*std-packedBase,fillPct=(avg/std-1)*100,abs=Math.abs(variance),overNominal=yieldBase>0.000001,status=overNominal?'CEK':abs<=2?'AMAN':abs<=5?'PERHATIKAN':'CEK';
       box.className='notice '+(status==='AMAN'?'ok':status==='PERHATIKAN'?'warn':'bad');
-      box.innerHTML=`<b>Teori ${num(theoretical)} pcs → Aktual ${num(a,0)} pcs</b><br>Variance ${(variance>=0?'+':'')+num(variance)} pcs (${(variancePct>=0?'+':'')+num(variancePct)}%) · Status <b>${status}</b><br>Rata-rata aktual ${num(avg)} ${esc(baseUnit)}/pcs vs standar ${num(std)} · standard-equivalent variance ${(yieldBase>=0?'+':'')+num(yieldBase)} ${esc(baseUnit)}.<br><small>Nilai bahan tetap dibagi ke hasil aktual; selisih ini tercatat di Ledger Variance Packing.</small>`;
+      box.innerHTML=`<b>Teori ${num(theoretical)} pcs → Aktual ${num(a,0)} pcs</b><br>Variance ${(variance>=0?'+':'')+num(variance)} pcs (${(variancePct>=0?'+':'')+num(variancePct)}%) · Status <b>${status}</b><br>Rata-rata aktual ${num(avg)} ${esc(baseUnit)}/pcs vs standar ${num(std)} · standard-equivalent variance ${(yieldBase>=0?'+':'')+num(yieldBase)} ${esc(baseUnit)}.${overNominal?'<br><b>PERIKSA BERAT:</b> hasil kemasan nominal melebihi bahan fisik yang dipakai. Timbang ulang dan isi Catatan QC.':''}<br><small>Nilai bahan tetap dibagi ke hasil aktual; selisih ini tercatat di Ledger Variance Packing.</small>`;
       return{map,source,output,inputQtyReceive:q,inputQtyBase:inputBase,actual:a,remainder:r,waste:w,theoretical,variance,status};
     };
     [sel,input,actual,remain,waste].forEach(x=>{x.addEventListener('input',calc);x.addEventListener('change',calc)});calc();$('#ghCancel').onclick=closeSheet;
-    form.onsubmit=async e=>{e.preventDefault();const c=calc();if(!c)return toast('Lengkapi data packing.');if(c.status==='CEK'&&String($('#ghPackNote').value||'').trim().length<5)return toast('Variance lebih dari 5 pack. Isi Catatan QC.');const fd=new FormData(form);await writeDirect('packing','postPackingBatch',{mappingId:c.map.id,inputQtyReceive:c.inputQtyReceive,inputQtyBase:c.inputQtyBase,outputQtyUnit:c.actual,remainderQtyBase:c.remainder,wasteQtyBase:c.waste,packer:fd.get('packer'),wageAmount:Number(fd.get('wageAmount')||0),note:fd.get('note')});};
+    form.onsubmit=async e=>{e.preventDefault();const c=calc();if(!c)return toast('Lengkapi data packing.');if(c.status==='CEK'&&String($('#ghPackNote').value||'').trim().length<5)return toast('Hasil packing perlu pemeriksaan berat/variance. Isi Catatan QC minimal 5 karakter.');const fd=new FormData(form);await writeDirect('packing','postPackingBatch',{mappingId:c.map.id,inputQtyReceive:c.inputQtyReceive,inputQtyBase:c.inputQtyBase,outputQtyUnit:c.actual,remainderQtyBase:c.remainder,wasteQtyBase:c.waste,packer:fd.get('packer'),wageAmount:Number(fd.get('wageAmount')||0),note:fd.get('note')});};
   }
   // v4.3 · Permintaan outlet: ringkasan dan cetak tanpa mutasi data.
   function opsRequestV43(requestId) {
@@ -1180,7 +1180,7 @@
       ' · SJ '+esc(req.linkedNoSj||'belum tersinkron')+'</span></div>'+
       '<div class="ww-preprint-check"><div class="ww-preprint-head"><b>1. Cek & Catat Barang Gudang</b>'+
       '<span>Isi jumlah nyata yang bisa disiapkan</span></div>'+
-      '<p>Isi 0 bila kosong. Jika hanya tersedia sebagian, isi jumlah yang bisa dikirim serta alasannya. Ini belum mengurangi stok.</p>'+
+      '<p>Gunakan tombol − / + / Stok Kosong / Sesuai untuk menyesuaikan jumlah. Isi alasan jika barang kurang atau kosong. Pemeriksaan ini tidak memotong stok. Penambahan di atas permintaan memerlukan persetujuan backend &amp; Owner.</p>'+
       '<form id="wwPickingFormV1525"><div id="wwPickingContentV1525" class="ww-preprint-results" role="status"><span class="ww-spin-v1526" aria-hidden="true"></span> Memuat rincian bahan, harga, dan status DRAFT…</div>'+
       '<button class="btn btn-primary" id="wwPickingSaveV1525" type="submit" disabled>Simpan Hasil Pemeriksaan</button></form></div>'+
       '<div class="ww-preprint-head"><b>2. Cetak Hasil Pemeriksaan</b><span>Setelah tersimpan</span></div>'+
@@ -1234,7 +1234,11 @@
           '<div class="ww-pick-price"><b>Harga internal SJ: '+(price&&Number(price.unitPrice)>0?rp(Number(price.unitPrice)):'BELUM DIATUR')+' / '+esc(l.sendUnit)+'</b>'+ 
           (price&&price.changed?'<small>Harga Pusat terbaru '+rp(Number(price.effectiveMasterPrice))+' berbeda. Harga SJ tetap mengikuti snapshot; konfirmasi Owner sebelum merevisi.</small>':'')+'</div>'+
           '<label class="field"><span>Jumlah disiapkan (0 = stok kosong)</span>'+
-          '<input type="number" class="ww-pick-qty" min="0" max="'+Number(l.requestedQtyUnit)+'" step="0.000001" required value="'+qty+'"></label>'+
+          '<div class="ww-pick-stepper-v15225"><button type="button" class="ww-pick-step-v15225" data-ww-pick-step="-1" aria-label="Kurangi satu unit">−</button>'+
+          '<input type="number" class="ww-pick-qty" min="0" max="'+Number(l.requestedQtyUnit)+'" step="0.000001" required value="'+qty+'">'+
+          '<button type="button" class="ww-pick-step-v15225" data-ww-pick-step="1" aria-label="Tambah satu unit">+</button></div></label>'+
+          '<div class="ww-pick-presets-v15225"><button type="button" class="ww-pick-preset-v15225" data-ww-pick-preset="zero">Stok Kosong (0)</button>'+
+          '<button type="button" class="ww-pick-preset-v15225" data-ww-pick-preset="all">Sesuai Permintaan</button></div>'+
           '<label class="field"><span>Alasan jika kurang atau kosong</span>'+
           '<textarea class="ww-pick-reason" placeholder="Contoh: stok kosong / belum packing">'+esc(l.reason||'')+'</textarea></label>'+
           '<small class="ww-pick-row-status">'+esc(wwPickingStatusV1525(l))+'</small></div>';
@@ -1246,7 +1250,8 @@
         (report.checked?'Hasil pemeriksaan sebelumnya ditemukan; boleh dicetak atau diperbarui.':'Belum ada pemeriksaan tersimpan. Sesuaikan jumlah nyata lalu simpan.')+
         '</div>'+notes;
       save.disabled=adminLocked||!report.lines.length;
-      if(adminLocked)$$('.ww-pick-qty,.ww-pick-reason',root).forEach(input=>{input.disabled=true;input.setAttribute('aria-readonly','true')});
+      if(adminLocked)$('.ww-pick-qty,.ww-pick-reason,.ww-pick-step-v15225,.ww-pick-preset-v15225',root)
+        .forEach(input=>{input.disabled=true;input.setAttribute('aria-readonly','true')});
       const update=()=>{
         if(wwPickingReportV1525.has(id)){
           wwPickingReportV1525.delete(id);togglePrint();
@@ -1262,9 +1267,24 @@
           chip.className='ww-pick-stage '+(qty<=0?'is-short':qty<max-0.000001?'is-partial':'is-ready');
         });
       };
-      $$('[data-ww-pick-line]',root).forEach(card=>{
-        card.querySelector('.ww-pick-qty').addEventListener('input',update);
+      $('[data-ww-pick-line]',root).forEach(card=>{
+        const qtyInput=card.querySelector('.ww-pick-qty');
+        const requestedMax=Number(qtyInput.max||0);
+        qtyInput.addEventListener('input',update);
         card.querySelector('.ww-pick-reason').addEventListener('input',update);
+        // Simplified physical picking: plus/minus never bypass canonical request cap.
+        card.querySelectorAll('[data-ww-pick-step]').forEach(button=>button.addEventListener('click',()=>{
+          if(adminLocked)return;
+          const delta=Number(button.dataset.wwPickStep||0),current=Number(qtyInput.value||0);
+          const next=Math.min(requestedMax,Math.max(0,current+delta));
+          qtyInput.value=String(next);
+          qtyInput.dispatchEvent(new Event('input',{bubbles:true}));
+        }));
+        card.querySelectorAll('[data-ww-pick-preset]').forEach(button=>button.addEventListener('click',()=>{
+          if(adminLocked)return;
+          qtyInput.value=String(button.dataset.wwPickPreset==='zero'?0:requestedMax);
+          qtyInput.dispatchEvent(new Event('input',{bubbles:true}));
+        }));
       });
       if(report.checked){
         wwPickingReportV1525.set(id,report);togglePrint();
@@ -1888,8 +1908,35 @@
     };
     const check=$('#ghCheckSjStatus');if(check)check.onclick=()=>wwSjWithLoadingV15211(check,()=>dispatchCheckStatusV44(id));
     const recovery=$('#ghRecoveryLocalSJ');if(recovery)recovery.onclick=()=>wwSjWithLoadingV15211(recovery,()=>recoverSjLocalV1527(id));
-    const k=$('#ghSendSj');if(k)k.onclick=()=>{
+    const k=$('#ghSendSj');if(k)k.onclick=async()=>{
       if(wwSjArchivedV15220(d)){toast('SJ sebelum reset hanya arsip. Dilarang konfirmasi ulang.','warning');return;}
+      if(dispatchPendingV44(id)){toast('Pengiriman sebelumnya belum terverifikasi. Tekan Cek Status Kirim.','warning');return;}
+      if(req&&req.requestId){
+        try{
+          // Fail-closed dispatch preflight. Read-only, does not write stock or status.
+          const requestId=String(req.requestId);
+          const checks=await withBusy('Memastikan picking & harga SJ sudah tersimpan…',()=>Promise.all([
+            bridge.call('getWarehouseRequestAvailabilityV1525',state.token,requestId),
+            bridge.call('getWarehousePickingPricesV1526',state.token,requestId)
+          ]));
+          const picking=checks[0],pricing=checks[1];
+          if(!picking||!picking.checked||String(picking.status||'').toUpperCase()!=='DRAFT'||
+             String(picking.sjId||'')!==String(id))
+            throw Error('Hasil cek bahan DRAFT belum terverifikasi. Buka Periksa Bahan lalu simpan terlebih dahulu.');
+          if(!pricing||pricing.ok!==true||!Array.isArray(pricing.lines))
+            throw Error('Harga SJ belum dapat diverifikasi dari Warehouse.');
+          const priced=new Map(pricing.lines.map(x=>[Number(x.lineNo),Number(x.unitPrice||0)]));
+          if(!Array.isArray(picking.lines)||!picking.lines.length)
+            throw Error('Detail bahan hasil pemeriksaan tidak tersedia.');
+          const lacksPrice=picking.lines.some(x=>Number(x.approvedQtyUnit||0)>0&&
+            !(priced.get(Number(x.lineNo))>0));
+          if(lacksPrice)throw Error('Ada bahan yang disiapkan tetapi harga internalnya belum tersedia.');
+        }catch(err){
+          toast('Konfirmasi Kirim ditahan: '+String(err&&err.message||err)+
+            ' Periksa ulang SJ dan harga.','warning',12000);
+          return;
+        }
+      }
       if(!confirm('PERIODE BARU 16/11. Pastikan stok fisik & pengiriman lama telah direkonsiliasi. '+
         'Hanya qty yang sudah disiapkan akan mengurangi stok. Barang benar-benar siap dikirim?'))return;
       return wwSjWithLoadingV15211(k,()=>writeDeliveryDirect('dispatch_'+id,'dispatchDelivery',{sjId:id},id));
