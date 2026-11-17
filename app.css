@@ -237,3 +237,5 @@ html{background:#fbf7f2!important;color-scheme:light;max-width:100%;min-height:1
 .ww-pick-presets-v15225{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:7px 0 12px}
 .ww-pick-preset-v15225{border-radius:9px;border:1px solid #adadad;background:#fff;color:#292929;min-height:38px;padding:7px 5px;font-weight:700;font-size:12px}
 .ww-pick-preset-v15225:focus-visible,.ww-pick-step-v15225:focus-visible{outline:3px solid #ec684b;outline-offset:2px}
+
+/* SJ snapshot-valued thermal print. No extra UI layout required. */
