@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  window.WW_FRONTEND_BUILD='2026-11-17.1.5.2.25-pick-preflight-safety';
+  window.WW_FRONTEND_BUILD='2026-11-17.1.5.2.26-sj-snapshot-price-print';
 
 
   const $ = (q, root = document) => root.querySelector(q);
@@ -1277,12 +1277,15 @@
           if(adminLocked)return;
           const delta=Number(button.dataset.wwPickStep||0),current=Number(qtyInput.value||0);
           const next=Math.min(requestedMax,Math.max(0,current+delta));
+          if(next===current)return; // No draft-dirty state on no-op button press.
           qtyInput.value=String(next);
           qtyInput.dispatchEvent(new Event('input',{bubbles:true}));
         }));
         card.querySelectorAll('[data-ww-pick-preset]').forEach(button=>button.addEventListener('click',()=>{
           if(adminLocked)return;
-          qtyInput.value=String(button.dataset.wwPickPreset==='zero'?0:requestedMax);
+          const target=button.dataset.wwPickPreset==='zero'?0:requestedMax;
+          if(Number(qtyInput.value||0)===target)return;
+          qtyInput.value=String(target);
           qtyInput.dispatchEvent(new Event('input',{bubbles:true}));
         }));
       });
@@ -1980,8 +1983,37 @@
   }
   function centerThermal(text,width){const t=String(text||'').slice(0,width),left=Math.max(0,Math.floor((width-t.length)/2));return ' '.repeat(left)+t;}
   function deliveryDisplayNote(d,req){return req?String(req.note||'').trim():String((d&&d.note)||'').trim();}
-  function deliveryThermalText(d,width){
+  // v1.5.2.26 — Official print endpoint returns historical, per-SJ price snapshots.
+  // Fail closed if the print data doesn't match the same canonical SJ and quantities.
+  function wwSjValidateValuePrintV15226(d,printData){
+    if(!d||!d.sjId||!printData||printData.ok!==true||!printData.sj||
+       String(printData.sj.sjId)!==String(d.sjId))
+      throw Error('Data cetak bernilai tidak cocok dengan SJ.');
+    if(String(printData.sj.status||'').toUpperCase()!==String(d.status||'').toUpperCase())
+      throw Error('Status SJ berubah saat mengambil nilai bahan. Buka kembali Surat Jalan.');
+    const source=Array.isArray(d.lines)?d.lines:[];
+    const approved=source.filter(l=>Number(l.qtyUnit||0)>0);
+    const priced=Array.isArray(printData.lines)?printData.lines:[];
+    if(priced.length!==approved.length)throw Error('Jumlah baris harga SJ tidak sesuai bahan yang dikirim.');
+    const byLine=new Map(priced.map(l=>[Number(l.lineNo),l]));
+    let total=0;
+    for(const l of approved){
+      const p=byLine.get(Number(l.lineNo));
+      if(!p||String(p.code||'')!==String(l.code||'')||
+         Math.abs(Number(p.qty||0)-Number(l.qtyUnit||0))>0.000001)
+        throw Error('Qty atau kode bahan cetak berbeda dengan SJ '+String(l.name||''));
+      const price=Number(p.unitPrice),amount=Number(p.lineTotal);
+      if(!Number.isFinite(price)||price<=0||!Number.isFinite(amount)||amount<0)
+        throw Error('Harga internal '+String(l.name||l.code||'')+' belum valid. Cetak ditahan.');
+      if(Math.abs(amount-price*Number(l.qtyUnit))>Math.max(2,0.00001*amount))
+        throw Error('Subtotal harga berbeda dari qty × harga: '+String(l.name||''));
+      total+=amount;
+    }
+    return {byLine,total};
+  }
+  function deliveryThermalText(d,width,printData){
     width=Number(width)===48?48:32;const hr='-'.repeat(width),out=[],req=findRequestForDelivery(d),user=(state.data||{}).user||{};
+    const values=printData?wwSjValidateValuePrintV15226(d,printData):null;
     const sjStatus=String(d.status||'').trim().toUpperCase();
     const printStage=sjStatus==='DRAFT'?'DRAFT - BELUM DIKIRIM':sjStatus==='DIKIRIM'?'SIAP KIRIM':'CHECKLIST SURAT JALAN';
     out.push(centerThermal('WILLS COFFEE',width));out.push(centerThermal(printStage,width));out.push(hr);
@@ -1990,13 +2022,14 @@
     if(req)wrapThermal('Permintaan: '+displayDateShort(req.requestDate||req.createdAt),width).forEach(x=>out.push(x));if(req&&req.needDate)wrapThermal('Dibutuhkan: '+displayDateShort(req.needDate),width).forEach(x=>out.push(x));
     {const rf=String(d.outletReceiptFirstDate||''),rl=String(d.outletReceiptLastDate||''),rc=Number(d.outletReceiptCount||0),label=!rl?(rc>0?'Sudah diterima - tanggal belum tercatat':'Belum diterima'):rf&&rf!==rl?displayDateShort(rf)+' - '+displayDateShort(rl):displayDateShort(rl);wrapThermal('Diterima Outlet: '+label,width).forEach(x=>out.push(x));}
     wrapThermal('Dicetak: '+new Intl.DateTimeFormat('id-ID',{dateStyle:'short',timeStyle:'short'}).format(new Date()),width).forEach(x=>out.push(x));wrapThermal('Petugas: '+(user.name||'-')+' / '+roleName(user.role),width).forEach(x=>out.push(x));out.push(hr);
-    (d.lines||[]).forEach((l,i)=>{const requested=Number(l.requestedQtyUnit!=null?l.requestedQtyUnit:(l.qtyUnit||0)),approved=Number(l.qtyUnit||0),status=String(l.fulfillmentStatus||'DIPENUHI');wrapThermal('[ ] '+(i+1)+'. '+l.name,width).forEach(x=>out.push(x));wrapThermal('    Diminta: '+num(requested)+' '+(l.sendUnit||''),width).forEach(x=>out.push(x));wrapThermal('    Disiapkan: '+num(approved)+' '+(l.sendUnit||''),width).forEach(x=>out.push(x));if(status!=='DIPENUHI')wrapThermal('    Status: '+status,width).forEach(x=>out.push(x));if(l.fulfillmentReason)wrapThermal('    Alasan: '+l.fulfillmentReason,width).forEach(x=>out.push(x));out.push('');});
+    (d.lines||[]).forEach((l,i)=>{const requested=Number(l.requestedQtyUnit!=null?l.requestedQtyUnit:(l.qtyUnit||0)),approved=Number(l.qtyUnit||0),status=String(l.fulfillmentStatus||'DIPENUHI');wrapThermal('[ ] '+(i+1)+'. '+l.name,width).forEach(x=>out.push(x));wrapThermal('    Diminta: '+num(requested)+' '+(l.sendUnit||''),width).forEach(x=>out.push(x));wrapThermal('    Disiapkan: '+num(approved)+' '+(l.sendUnit||''),width).forEach(x=>out.push(x));if(values&&approved>0){const price=values.byLine.get(Number(l.lineNo));wrapThermal('    Harga/unit: '+rp(Number(price.unitPrice)),width).forEach(x=>out.push(x));wrapThermal('    Subtotal: '+rp(Number(price.lineTotal)),width).forEach(x=>out.push(x));}if(status!=='DIPENUHI')wrapThermal('    Status: '+status,width).forEach(x=>out.push(x));if(l.fulfillmentReason)wrapThermal('    Alasan: '+l.fulfillmentReason,width).forEach(x=>out.push(x));out.push('');});
+    if(values){out.push(hr);wrapThermal('TOTAL NILAI SJ: '+rp(values.total),width).forEach(x=>out.push(x));out.push('Harga di atas adalah snapshot saat SJ dibuat/dikirim; tidak mengikuti harga master terbaru.');}
     out.push(hr);out.push('CHECK GUDANG');out.push('[ ] Jumlah sesuai draft');out.push('[ ] Kondisi bahan baik');out.push('[ ] Sudah dimuat/dibawa');out.push('');out.push('CHECK BARISTA OUTLET');out.push('[ ] Nama bahan sesuai');out.push('[ ] Jumlah diterima sesuai');out.push('[ ] Kondisi bahan baik');out.push('');wrapThermal('Nama Barista: __________________',width).forEach(x=>out.push(x));wrapThermal('Paraf: _________________________',width).forEach(x=>out.push(x));out.push(hr);wrapThermal('Setelah dicek, foto checklist ini dan kirim ke grup.',width).forEach(x=>out.push(x));{const note=deliveryDisplayNote(d,req);if(note){out.push(hr);wrapThermal('Catatan: '+note,width).forEach(x=>out.push(x));}}out.push('');out.push('');return out.join('\n');
   }
   // V1.5.2.19 — Printer never trusts a stale cached SJ status or item list.
   // DRAFT prints as CHECKLIST ONLY; DIKIRIM prints as final SJ. No stock write.
   async function directPrintDeliveryDraft(id){
-    let d;
+    let d,printData=null;
     try{
       const fresh=await withBusy('Mengambil data SJ terbaru sebelum cetak…',
         ()=>bridge.call('getDeliveryDetailFreshV1354',state.token,id));
@@ -2015,6 +2048,12 @@
       d=((state.data||{}).deliveries||[]).find(x=>String(x.sjId)===String(id));
       if(!d||!Array.isArray(d.lines)||!d.lines.length)
         throw Error('Detail SJ tidak tersedia setelah pembaruan.');
+      // DRAFT remains a non-priced checklist. Final SJ must read official snapshot.
+      if(String(d.status||'').toUpperCase()!=='DRAFT'){
+        printData=await withBusy('Memverifikasi harga snapshot setiap bahan…',
+          ()=>bridge.call('getDeliveryPrintDataV1500',state.token,id));
+        wwSjValidateValuePrintV15226(d,printData);
+      }
     }catch(err){
       toast('Cetak tertahan: '+String(err&&err.message||err)+
         '. Perbarui SJ lalu periksa kembali; jangan Konfirmasi Kirim ulang.','warning',12000);
@@ -2023,10 +2062,10 @@
     let saved=32;try{saved=Number(localStorage.getItem('ww_thermal_width')||32)}catch(e){}
     if(saved!==48)saved=32;
     const stage=String(d.status||'').toUpperCase(),isDraft=stage==='DRAFT',
-      initial=deliveryThermalText(d,saved),
+      initial=deliveryThermalText(d,saved,printData),
       guidance=isDraft?
         '<div class="ww-dispatch-pending-note" role="status"><b>CHECKLIST DRAFT · BELUM DIKIRIM</b><p>Cetak ini untuk pengecekan bahan. Bukan bukti bahwa stok sudah keluar. Konfirmasi Kirim hanya setelah barang benar-benar disiapkan dan statusnya pasti.</p></div>':
-        '<div class="ww-preprint-summary"><b>Surat Jalan dari Warehouse · Status '+esc(stage)+'</b><p>Data dan jumlah bahan dibaca ulang dari Warehouse sebelum cetak.</p></div>';
+        '<div class="ww-preprint-summary"><b>Surat Jalan dari Warehouse · Status '+esc(stage)+'</b><p>Jumlah dan harga per item berasal dari snapshot resmi SJ. Total nilai tetap, tidak berubah karena harga beli terbaru.</p></div>';
     sheetHtml('Cetak Thermal Bluetooth',guidance+
       '<p>Periksa nomor SJ, outlet, dan jumlah bahan. Pilih lebar printer lalu cetak.</p>'+
       '<label class="field thermal-width"><span>Lebar Printer</span><select id="thermalWidth">'+
@@ -2041,7 +2080,7 @@
     const sel=$('#thermalWidth'),preview=$('#thermalPreview');
     const update=()=>{const w=Number(sel.value)===48?48:32;
       try{localStorage.setItem('ww_thermal_width',String(w))}catch(e){}
-      preview.textContent=deliveryThermalText(d,w);return preview.textContent};
+      preview.textContent=deliveryThermalText(d,w,printData);return preview.textContent};
     sel.onchange=update;
     $('#thermalBack').onclick=closeSheet;
     $('#thermalRawbt').onclick=()=>printRawBt(update());
