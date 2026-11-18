@@ -1,6 +1,6 @@
-const CACHE = 'wills-warehouse-shell-v1.5.2.28-sj-two-route-send';
+const CACHE = 'wills-warehouse-shell-v1.5.2.29-sj-two-route-verified';
 const ASSETS = [
-  './','./index.html','./app.css?v=1.5.2.28-sj-two-route-send','./config.js?v=0.6.6','./bridge.js?v=0.6.6','./wills-ui-v41.js?v=1.5.2.2','./app.js?v=1.5.2.28-sj-two-route-send','./wills-ui-v41.css?v=4.4.0',
+  './','./index.html','./app.css?v=1.5.2.29-sj-two-route-verified','./config.js?v=0.6.6','./bridge.js?v=0.6.6','./wills-ui-v41.js?v=1.5.2.2','./app.js?v=1.5.2.29-sj-two-route-verified','./wills-ui-v41.css?v=4.4.0',
   './feature-v1370.js?v=1.5.2.3','./manifest.webmanifest',
   './logo.png','./icon-192.png','./icon-512.png','./maskable-512.png','./apple-touch-icon.png','./favicon-64.png'
 ];
