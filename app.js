@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  window.WW_FRONTEND_BUILD='2026-11-18.1.5.2.30-lock-safe-send';
+  window.WW_FRONTEND_BUILD='2026-11-18.1.5.2.31-verified-sj-recovery';
 
 
   const $ = (q, root = document) => root.querySelector(q);
@@ -859,7 +859,12 @@
   // Read-only backend check. NO dispatch, NO ledger posting, NO status mutation.
   const WW_RECOVERY_SJ_V1527=Object.freeze({
     'SJID-20261029-234354-7996FA2573':'SJ-20261029-0003',
-    'SJID-20261031-061351-DB8DACB09F':'SJ-20261031-0002'
+    'SJID-20261031-061351-DB8DACB09F':'SJ-20261031-0002',
+    // 18 Nov 2026: audited across SJ, Txn, Transit Ledger and Recovery Queue.
+    // REVIEW_OUTLET_REQUEST_AVAILABILITY succeeded; dispatch never posted.
+    // Owner-only local recovery; still requires fresh backend DRAFT x3,
+    // min 5 minutes, matching local idempotency identity and typed consent.
+    'SJID-20261117-213000-043BEB5AC3':'SJ-20261117-0007'
   });
   const wwRecoveryBusyV1527=new Set();
   function sjRecoveryEligibleV1527(id,d){
@@ -887,9 +892,10 @@
       const second=await bridge.call('getDeliveryDetailFreshV1354',state.token,id);
       if(!valid(second)||String(first.updatedAt||'')!==String(second.updatedAt||''))
         throw new Error('Pembacaan backend berubah/tidak konsisten.');
-      const typed=window.prompt('Audit ledger Warehouse sebelumnya tidak menemukan dispatch POSTED untuk '+expected+'. '+
-        'Status backend masih DRAFT. Membuka pengunci LOKAL saja, tanpa mengirim/stok. '+
-        'Pastikan tidak ada proses Kirim dari HP lain. Ketik nomor SJ untuk melanjutkan:','');
+      const typed=window.prompt('AUDIT PEMULIHAN '+expected+'. '+ 
+        'Surat Jalan masih DRAFT pada tiga pemeriksaan, tidak memiliki referensi dispatch. '+
+        'Melepas pengunci HANYA di perangkat ini; stok dan transaksi tidak berubah. '+
+        'Pastikan tidak ada HP lain yang masih menjalankan pengiriman. Ketik nomor SJ untuk melanjutkan:','');
       if(String(typed||'').trim()!==expected){toast('Nomor SJ tidak sesuai.','warning');return;}
       if(!window.confirm('Lepas pengunci lokal '+expected+'? Tidak akan menekan Kirim atau mengubah ledger.'))return;
       const third=await bridge.call('getDeliveryDetailFreshV1354',state.token,id);
@@ -899,7 +905,8 @@
       if(!latest||String(latest.idem)!==String(pending.idem))
         throw new Error('Identitas percobaan Kirim berubah.');
       dispatchClearPendingV44(id);upsertFreshDeliveryV1354(third);
-      toast('Pengunci '+expected+' dilepas. Tidak ada pengiriman baru.','success',12000);
+      toast('Pengunci lokal '+expected+' berhasil dilepas. Tidak ada transaksi baru. Periksa barang fisik sebelum mengonfirmasi Kirim.','success',12000);
+      // Repaint current detail using the canonical SJ and restored four-button flow.
       dispatchUpdateIfVisibleV44(id);
     }catch(e){
       toast('Recovery tertahan: '+String(e&&e.message||e)+'. Tidak ada data gudang yang diubah.','warning',12000);
@@ -937,7 +944,10 @@
         toast((fresh.noSj||'Surat Jalan')+' berstatus '+fresh.status+'. Tidak ada pengiriman ulang.','success');
         // A confirmed fresh SJ is already upserted; no full-module reload or modal repaint.
       }else{
-        toast('SJ masih DRAFT di snapshot. Ada percobaan kirim yang belum terverifikasi. Jangan klik Kirim lagi; cek Riwayat/Audit Recovery.','warning',12000);
+        const current=((state.data||{}).deliveries||[]).find(x=>String(x.sjId)===String(id));
+        if(sjRecoveryEligibleV1527(id,current))
+          toast('Backend masih DRAFT dan belum mengonfirmasi pengiriman. Gunakan Verifikasi & Buka Pengunci (Owner) di bawah untuk audit aman.','warning',13000);
+        else toast('SJ masih DRAFT. Pengiriman belum pasti; jangan klik Kirim lagi. Periksa Audit Recovery Owner.','warning',12000);
         dispatchUpdateIfVisibleV44(id);
       }
     }catch(err){toast('Status belum berhasil dibaca. Jangan kirim ulang: '+String(err&&err.message||err),'warning',12000);}
@@ -1876,7 +1886,11 @@
         if(stillWorking)
           actions.push('<button type="button" class="btn ww-sj-action ww-sj-action--status is-loading" disabled aria-busy="true" id="wwSjWaitingV15215">'+
             icons.clock+'<span>Sedang diproses · Jangan klik ulang</span></button>');
-        else actions.push(button('ghCheckSjStatus','status',icons.clock,'Cek Status Kirim'));
+        else {
+          actions.push(button('ghCheckSjStatus','status',icons.clock,'Cek Status Kirim'));
+          if(sjRecoveryEligibleV1527(d&&d.sjId,d))
+            actions.push(button('ghOwnerUnlockVerifiedV15231','check',icons.clipboard,'Verifikasi & Buka Pengunci (Owner)'));
+        }
       }else{
         if(permissions.canPrint)actions.push(button('ghPrintSj','thermal',icons.printer,'Cetak Thermal'));
         if(permissions.canPrepare&&req&&req.requestId)
@@ -2153,6 +2167,8 @@
       return wwSjWithLoadingV15211(c,()=>writeDeliveryDirect('cancel_'+id,'ownerCancelDeliveryDraftV1527',{sjId:id,reason:'Dibatalkan dari GitHub PWA'},id));
     };
     const check=$('#ghCheckSjStatus');if(check)check.onclick=()=>wwSjWithLoadingV15211(check,()=>dispatchCheckStatusV44(id));
+    const ownerUnlock=$('#ghOwnerUnlockVerifiedV15231');
+    if(ownerUnlock)ownerUnlock.onclick=()=>wwSjWithLoadingV15211(ownerUnlock,()=>recoverSjLocalV1527(id));
     const recovery=$('#ghRecoveryLocalSJ');if(recovery)recovery.onclick=()=>wwSjWithLoadingV15211(recovery,()=>recoverSjLocalV1527(id));
     const pickCheck=$('#ghPickCheckV15230');if(pickCheck)pickCheck.onclick=()=>
       wwSjWithLoadingV15211(pickCheck,()=>wwSjPickReconcileV15230(id,req));
