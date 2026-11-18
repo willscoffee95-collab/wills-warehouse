@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  window.WW_FRONTEND_BUILD='2026-11-17.1.5.2.26-sj-snapshot-price-print';
+  window.WW_FRONTEND_BUILD='2026-11-18.1.5.2.27-sj-fast-ui-fix';
 
 
   const $ = (q, root = document) => root.querySelector(q);
@@ -494,6 +494,7 @@
     if(!force && state.modulePromises[name])return state.modulePromises[name];
     const p=bridge.call('getAppModule',state.token,name).then(data=>{
       Object.assign(state.data,data||{}); state.moduleReady[name]=true; delete state.modulePromises[name];
+      if(name==='delivery')wwSJLastModuleAtV15219=Date.now();
       updateNotificationBadge(); return state.data;
     }).catch(err=>{delete state.modulePromises[name];throw err});
     state.modulePromises[name]=p; return p;
@@ -526,6 +527,13 @@
     if (!actionNames[action]) return toast('Fitur tidak dikenali.');
     if (!actionAllowed(action)) return toast('Menu ini tidak termasuk hak akses ' + roleName(currentRole()) + '.');
     if (featureOpening || busyDepth > 0) return;
+    // Display SJ immediately; background reads must not block the staff screen.
+    // Each real action still reads fresh canonical SJ detail from backend.
+    if(action==='delivery'){
+      wwSelectedOutletV1522='ALL';
+      openDirectSheet(action);
+      return;
+    }
     featureOpening = true;
     if (trigger) {
       trigger.disabled = true;
@@ -535,7 +543,7 @@
     beginBusy('Membuka ' + actionNames[action] + '…');
     try {
       const moduleName=ACTION_DATA_MODULE[action]||'';
-      if(moduleName)await ensureModule(moduleName,action==='delivery');
+      if(moduleName)await ensureModule(moduleName,false);
       if(action==='delivery')wwSelectedOutletV1522='ALL';
       openDirectSheet(action);
     } catch (err) {
@@ -588,7 +596,13 @@
   async function writeDirect(action,method,payload){
     if(opsWriteInFlightV43.has(action)){toast('Transaksi sedang diproses; jangan tekan Simpan dua kali.','warning');return null;}
     opsWriteInFlightV43.add(action);const idem=idemKey(action);beginBusy('Menyimpan…');try{const r=await bridge.call(method,state.token,payload||{},idem);if(r&&r.ok===false)throw new Error(r.message||'Transaksi gagal');localStorage.removeItem('ww_gh_idem_'+action);toast('Berhasil disimpan'+(r&&r.txnId?' · '+r.txnId:''));closeSheet();invalidateDataModules();refreshBootstrapLight().catch(err=>console.warn('[Wills Warehouse] refresh ringan:',err.message));return r}catch(e){toast(e.message);throw e}finally{opsWriteInFlightV43.delete(action);endBusy()}}
-  async function reloadDeliveryModule(){const m=await bridge.call('getAppModule',state.token,'delivery');Object.assign(state.data,m||{});state.moduleReady.delivery=true;return m;}
+  async function reloadDeliveryModule(){
+    const m=await bridge.call('getAppModule',state.token,'delivery');
+    Object.assign(state.data,m||{});state.moduleReady.delivery=true;
+    wwSJLastModuleAtV15219=Date.now();
+    if(currentSheetKey()==='delivery-list')directDelivery(false);
+    return m;
+  }
   function upsertFreshDeliveryV1354(d){
     if(!d||!d.sjId)return;
     state.data=state.data||{};
@@ -1250,7 +1264,7 @@
         (report.checked?'Hasil pemeriksaan sebelumnya ditemukan; boleh dicetak atau diperbarui.':'Belum ada pemeriksaan tersimpan. Sesuaikan jumlah nyata lalu simpan.')+
         '</div>'+notes;
       save.disabled=adminLocked||!report.lines.length;
-      if(adminLocked)$('.ww-pick-qty,.ww-pick-reason,.ww-pick-step-v15225,.ww-pick-preset-v15225',root)
+      if(adminLocked)$$('.ww-pick-qty,.ww-pick-reason,.ww-pick-step-v15225,.ww-pick-preset-v15225',root)
         .forEach(input=>{input.disabled=true;input.setAttribute('aria-readonly','true')});
       const update=()=>{
         if(wwPickingReportV1525.has(id)){
@@ -1267,7 +1281,7 @@
           chip.className='ww-pick-stage '+(qty<=0?'is-short':qty<max-0.000001?'is-partial':'is-ready');
         });
       };
-      $('[data-ww-pick-line]',root).forEach(card=>{
+      $$('[data-ww-pick-line]',root).forEach(card=>{
         const qtyInput=card.querySelector('.ww-pick-qty');
         const requestedMax=Number(qtyInput.max||0);
         qtyInput.addEventListener('input',update);
@@ -1433,12 +1447,13 @@
   function wwReloadQueueV1526(force=false){
     if(wwQueuePromiseV1526)return wwQueuePromiseV1526;
     if(!force&&wwQueueV1526)return Promise.resolve(wwQueueV1526);
-    wwQueuePromiseV1526=withBusy('Menyinkronkan status permintaan & Surat Jalan…',async()=>{
+    // Background canonical queue does not lock menu/buttons while waiting.
+    wwQueuePromiseV1526=(async()=>{
       const out=await bridge.call('getWarehouseRequestLifecycleV1526',state.token);
       if(!out||out.ok!==true||!Array.isArray(out.rows))throw Error('Daftar status canonical belum tersedia.');
       wwQueueV1526=out;wwQueueErrorV1526='';wwQueueFetchedAtV1526=Date.now();
       return out;
-    }).catch(err=>{wwQueueErrorV1526=String(err&&err.message||err);throw err;}).finally(()=>{
+    })().catch(err=>{wwQueueErrorV1526=String(err&&err.message||err);throw err;}).finally(()=>{
       wwQueuePromiseV1526=null;
       if(currentSheetKey()==='delivery-list')directDelivery(false);
     });
@@ -1621,26 +1636,31 @@
     return [...byId.values()];
   }
   let wwSJRefreshPromiseV15219=null,wwSJLastModuleAtV15219=0;
+  // v1.5.2.27 — deduplicate on-demand SJ reads (no backend writes).
   function wwSJRefreshV15219(force=false){
     if(wwSJRefreshPromiseV15219)return wwSJRefreshPromiseV15219;
-    if(!force&&Date.now()-wwSJLastModuleAtV15219<30000&&
-       wwQueueV1526&&Date.now()-wwQueueFetchedAtV1526<30000)return Promise.resolve(true);
-    wwSJRefreshPromiseV15219=withBusy('Memuat permintaan dan Surat Jalan semua outlet…',async()=>{
-      // Refresh both sources; one failing must not hide the other.
+    const now=Date.now(),ttlMs=60000,
+      needModule=force||!state.moduleReady.delivery||now-wwSJLastModuleAtV15219>ttlMs,
+      needQueue=force||!wwQueueV1526||now-wwQueueFetchedAtV1526>ttlMs;
+    if(!needModule&&!needQueue)return Promise.resolve(true);
+    const run=async()=>{
       const results=await Promise.allSettled([
-        reloadDeliveryModule(),wwReloadQueueV1526(true)
+        needModule?reloadDeliveryModule():Promise.resolve({cached:true}),
+        needQueue?wwReloadQueueV1526(true):Promise.resolve({cached:true})
       ]);
-      if(results[0].status==='fulfilled')wwSJLastModuleAtV15219=Date.now();
       if(results[0].status==='rejected'&&results[1].status==='rejected')
         throw Error('Modul SJ dan status canonical gagal: '+
           String(results[0].reason&&results[0].reason.message||results[0].reason));
       if(currentSheetKey()==='delivery-list')directDelivery(false);
       if(results[0].status==='rejected')
-        toast('Daftar SJ detail belum diperbarui; status permintaan tersedia. Ketuk Perbarui SJ lagi.','warning',10000);
+        toast('Detail SJ belum berhasil dimuat. Tekan Perbarui SJ.','warning',10000);
       if(results[1].status==='rejected')
-        toast('Status permintaan gagal dibaca, tetapi daftar SJ berhasil dimuat.','warning',10000);
+        toast('Status canonical belum tersedia; daftar SJ tetap dapat dilihat.','warning',10000);
       return true;
-    }).finally(()=>{wwSJRefreshPromiseV15219=null;});
+    };
+    wwSJRefreshPromiseV15219=(force?
+      withBusy('Memperbarui SJ semua outlet…',run):run())
+      .finally(()=>{wwSJRefreshPromiseV15219=null;});
     return wwSJRefreshPromiseV15219;
   }
   async function wwSJOpenFreshV15219(id){
@@ -1802,8 +1822,8 @@
       catch(e){toast(e.message,'warning')}
     };
     const diag=$('#ghDiag');if(diag)diag.onclick=async()=>{try{const z=await withBusy('Diagnostik…',()=>callDirect('auditReceiptSyncDiagnosticAppV1260'));showDiagnostic(z)}catch(e){toast(e.message,'warning')}};
-    $('[data-ww-request-outlet]').forEach(b=>b.onclick=()=>{wwSelectedOutletV1522=b.dataset.wwRequestOutlet;directDelivery(false)});
-    $('[data-ww-sj-stage]').forEach(b=>b.onclick=()=>{
+    $$('[data-ww-request-outlet]').forEach(b=>b.onclick=()=>{wwSelectedOutletV1522=b.dataset.wwRequestOutlet;directDelivery(false)});
+    $$('[data-ww-sj-stage]').forEach(b=>b.onclick=()=>{
       if(Object.prototype.hasOwnProperty.call(wwSjStatusLabelsV15223,b.dataset.wwSjStage)){
         wwSelectedSjStageV15223=b.dataset.wwSjStage;directDelivery(false);
       }
@@ -2843,7 +2863,7 @@
       bridge.call('getAppSessionShellV1360',token).then(shell=>{
         state.data=normalizeShellDataV1360(shell,state.data);$('#profileBtn').textContent=initials((state.data.user&&state.data.user.name)||'WW');
         return refreshBootstrapLight();
-      }).then(()=>{setTimeout(()=>{['delivery','purchase'].forEach(name=>ensureModule(name).catch(()=>{}));},60);}).catch(err=>{
+      }).then(()=>{/* modules loaded only when opened */}).catch(err=>{
         if(isSessionErrorV1360(err))invalidateSessionV1360('Sesi berakhir. Silakan login kembali.');
         else console.warn('[Wills Warehouse] background refresh:',err&&err.message||err);
       });
@@ -2853,7 +2873,7 @@
       // First-load / cache kosong: validasi shell ringan dulu, tampilkan app, lalu bootstrap berat di background.
       const shell=await bridge.call('getAppSessionShellV1360',token);
       state.moduleReady=Object.create(null);state.modulePromises=Object.create(null);applyAppDataV1360(token,shell,false);
-      refreshBootstrapLight().then(()=>{setTimeout(()=>{['delivery','purchase'].forEach(name=>ensureModule(name).catch(()=>{}));},60);}).catch(err=>console.warn('[Wills Warehouse] bootstrap fresh:',err&&err.message||err));
+      refreshBootstrapLight().then(()=>{/* modules loaded only when opened */}).catch(err=>console.warn('[Wills Warehouse] bootstrap fresh:',err&&err.message||err));
       if(!silent)toast('Sistem siap digunakan.','success');return true;
     } catch (err) {
       if(isSessionErrorV1360(err))invalidateSessionV1360('Sesi berakhir. Silakan login kembali.');
@@ -2878,7 +2898,7 @@
       if(existing){
         if(cached){
           bridge.call('getAppSessionShellV1360',existing).then(shell=>{state.data=normalizeShellDataV1360(shell,state.data);return refreshBootstrapLight();}).catch(err=>{if(isSessionErrorV1360(err))invalidateSessionV1360('Sesi berakhir. Silakan login kembali.');});
-          setTimeout(()=>{['delivery','purchase'].forEach(name=>ensureModule(name).catch(()=>{}));},120);return;
+          /* no startup module prefetch */return;
         }
         if(await loadAppWithToken(existing,true))return;
       }
@@ -2900,7 +2920,7 @@
     try {
       const r = await bridge.call('loginWarehouse', { username, pin });
       state.moduleReady=Object.create(null);state.modulePromises=Object.create(null);applyAppDataV1360(r.token,{user:r.user,warehouseName:r.warehouseName,version:r.version},false);
-      refreshBootstrapLight().then(()=>{setTimeout(()=>{['delivery','purchase'].forEach(name=>ensureModule(name).catch(()=>{}));},60);}).catch(err=>console.warn('[Wills Warehouse] login background bootstrap:',err&&err.message||err));
+      refreshBootstrapLight().then(()=>{/* modules loaded only when opened */}).catch(err=>console.warn('[Wills Warehouse] login background bootstrap:',err&&err.message||err));
       $('#loginPin').value = '';
     } catch (err) {
       toast(err.message);
