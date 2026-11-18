@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  window.WW_FRONTEND_BUILD='2026-11-18.1.5.2.28-sj-two-route-send';
+  window.WW_FRONTEND_BUILD='2026-11-18.1.5.2.29-sj-two-route-verified';
 
 
   const $ = (q, root = document) => root.querySelector(q);
@@ -1943,8 +1943,8 @@
         throw Error('Jumlah bahan tidak valid. Buka Periksa / Koreksi Bahan.');
       used.add(lineNo);
       const price=priceByLine.get(lineNo);
-      if(!price||!Number.isFinite(Number(price.unitPrice))||
-         Number(price.unitPrice)<=0)
+      if(approved>0&&(!price||!Number.isFinite(Number(price.unitPrice))||
+         Number(price.unitPrice)<=0))
         throw Error('Harga internal untuk '+String(l.name||code)+' belum tersedia.');
       if(Math.abs(approved-requested)>0.000001)hasDifference=true;
       if(approved>0)anyPositive=true;
