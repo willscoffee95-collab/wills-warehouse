@@ -239,3 +239,7 @@ html{background:#fbf7f2!important;color-scheme:light;max-width:100%;min-height:1
 .ww-pick-preset-v15225:focus-visible,.ww-pick-step-v15225:focus-visible{outline:3px solid #ec684b;outline-offset:2px}
 
 /* SJ snapshot-valued thermal print. No extra UI layout required. */
+
+/* Warehouse 1.5.2.28 — obvious two-route SJ confirmation guidance. */
+.ww-sj-two-routes-v15228{margin:12px 0 10px;padding:12px 13px;border:1px solid #ead6ce;border-radius:12px;background:#fff9f5;color:#73372b;font-size:13px;line-height:1.5}
+.ww-sj-two-routes-v15228 b{color:#aa3526}
