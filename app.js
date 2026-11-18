@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  window.WW_FRONTEND_BUILD='2026-11-18.1.5.2.29-sj-two-route-verified';
+  window.WW_FRONTEND_BUILD='2026-11-18.1.5.2.30-lock-safe-send';
 
 
   const $ = (q, root = document) => root.querySelector(q);
@@ -1865,7 +1865,9 @@
     const button=(id,style,icon,label)=>
       '<button type="button" class="btn ww-sj-action ww-sj-action--'+style+'" id="'+id+'">'+icon+'<span>'+label+'</span></button>';
     if(status==='DRAFT'){
-      if(pendingDispatch){
+      if(!pendingDispatch&&wwSjPickHoldV15230(d&&d.sjId)){
+        actions.push(button('ghPickCheckV15230','status',icons.clock,'Cek Status Pemeriksaan'));
+      }else if(pendingDispatch){
         // Keep print available as a clearly marked DRAFT CHECKLIST, never as
         // an acknowledged shipment. Fetch canonical SJ before printing.
         if(permissions.canPrint)actions.push(button('ghPrintSj','thermal',icons.printer,'Cetak Checklist · DRAFT'));
@@ -1958,6 +1960,89 @@
       throw Error('Hasil pemeriksaan terkunci. Hubungi Owner.');
     return {needsSave:!report.checked,hasDifference,items,lineCount:items.length};
   }
+  // v1.5.2.30 — fail closed when picking writes have uncertain results.
+  // Never auto-retry writes. Backoff is exclusively for READ-ONLY status checks.
+  function wwSjLockErrorV15230(err){
+    return /batas waktu penguncian|kunci terlalu lama|lock.*(timeout|timed out|busy)|could not obtain lock/i
+      .test(String(err&&err.message||err||''));
+  }
+  function wwSjPickHoldKeyV15230(id){
+    return 'ww_pickfast_pending_v15230_'+String(id||'').replace(/[^A-Za-z0-9_-]/g,'');
+  }
+  function wwSjPickHoldV15230(id){
+    try{return JSON.parse(localStorage.getItem(wwSjPickHoldKeyV15230(id))||'null')}
+    catch(_){return {at:Date.now(),phase:'UNREADABLE'}}
+  }
+  function wwSjPickHoldSaveV15230(id,requestId,phase){
+    const key=wwSjPickHoldKeyV15230(id),
+      value=JSON.stringify({id:String(id),requestId:String(requestId),phase,at:Date.now()});
+    try{localStorage.setItem(key,value);return localStorage.getItem(key)===value}
+    catch(_){return false}
+  }
+  function wwSjPickHoldClearV15230(id){
+    try{localStorage.removeItem(wwSjPickHoldKeyV15230(id))}catch(_){}
+  }
+  function wwSjPickRefreshActionsV15230(id){
+    const node=$('[data-ww-sj-live-actions]');
+    if(node)node.dataset.wwSjKey='';
+    wwSjUpdateDetailV15213(id);
+  }
+  async function wwSjReadLockSafeV15230(method,...args){
+    for(let count=0;count<3;count++){
+      try{return await bridge.call(method,state.token,...args)}
+      catch(e){
+        if(!wwSjLockErrorV15230(e)||count===2)throw e;
+        await new Promise(resolve=>setTimeout(resolve,[650,1250][count]));
+      }
+    }
+  }
+  async function wwSjPickReconcileV15230(id,req){
+    const sid=String(id),hold=wwSjPickHoldV15230(sid);
+    if(!hold)return {ok:true};
+    try{
+      const fresh=await withBusy('Cek status SJ tanpa menulis stok…',
+        ()=>wwSjReadLockSafeV15230('getDeliveryDetailFreshV1354',sid));
+      if(!fresh||String(fresh.sjId)!==sid)throw Error('Rincian SJ tidak cocok.');
+      upsertFreshDeliveryV1354(fresh);
+      const status=String(fresh.status||'').toUpperCase();
+      if(status!=='DRAFT'){
+        wwSjPickHoldClearV15230(sid);
+        if(status==='DIKIRIM'||status==='DITERIMA'||status==='DITERIMA_SEBAGIAN'||
+           status==='SELISIH'||status==='SELESAI')dispatchApplyStatusV44(sid,fresh);
+        wwSjPickRefreshActionsV15230(sid);
+        toast('Status terverifikasi: '+status+'. Tidak dilakukan pengiriman ulang.','success',10000);
+        return {ok:true,status};
+      }
+      const requestId=String(hold.requestId||(req&&req.requestId)||'');
+      if(!requestId)throw Error('ID permintaan tidak ditemukan.');
+      const r=await withBusy('Cek hasil pemeriksaan tanpa menulis…',
+        ()=>wwSjReadLockSafeV15230('getWarehouseRequestAvailabilityV1525',requestId));
+      if(!r||String(r.sjId)!==sid||String(r.status).toUpperCase()!=='DRAFT')
+        throw Error('Status pemeriksaan tidak cocok dengan SJ.');
+      if(r.checked){
+        wwSjPickHoldClearV15230(sid);
+        wwSjPickRefreshActionsV15230(sid);
+        toast('Hasil cek sudah tersimpan. Silakan konfirmasi kirim lagi setelah memastikan barang fisik siap.','success',11500);
+        return {ok:true,checked:true};
+      }
+      if(hold.phase==='LOCK_TIMEOUT'&&Date.now()-Number(hold.at||0)>=90000){
+        const again=await wwSjReadLockSafeV15230('getWarehouseRequestAvailabilityV1525',requestId);
+        if(again&&String(again.sjId)===sid&&
+           String(again.status).toUpperCase()==='DRAFT'&&!again.checked){
+          wwSjPickHoldClearV15230(sid);
+          wwSjPickRefreshActionsV15230(sid);
+          toast('DRAFT terverifikasi dan pemeriksaan belum tersimpan. Tombol cepat aktif kembali.','warning',11500);
+          return {ok:true,checked:false};
+        }
+      }
+      toast('Hasil pemeriksaan masih belum pasti. Jangan ulang Kirim; cek lagi setelah proses aktif selesai.','warning',12000);
+      return {ok:false,pending:true};
+    }catch(e){
+      toast('Belum dapat memastikan status: '+String(e&&e.message||e)+
+        '. Jangan klik Kirim ulang.','warning',12000);
+      return {ok:false,error:String(e&&e.message||e)};
+    }
+  }
   const wwSjQuickPreflightActiveV15228=new Set();
   async function wwSjQuickDispatchV15228(id,d,req){
     const sid=String(id||'');
@@ -1966,6 +2051,7 @@
     }
     if(String(d&&d.status||'').toUpperCase()!=='DRAFT'||wwSjArchivedV15220(d))
       return toast('SJ ini bukan DRAFT aktif. Buka ulang Surat Jalan.','warning');
+    if(wwSjPickHoldV15230(sid))return wwSjPickReconcileV15230(sid,req);
     if(dispatchPendingV44(sid)||opsWriteInFlightV43.has('dispatch_'+sid)||
        wwDispatchWatchersV15214.has(sid))
       return toast('Status pengiriman belum pasti. Gunakan Cek Status Kirim.','warning');
@@ -1999,12 +2085,11 @@
             throw Error('Jumlah SJ manual berubah. Periksa rincian sebelum dikirim.');
         }
       }else{
-        const result=await withBusy('Memastikan bahan dan harga SJ…',
-          ()=>Promise.all([
-            bridge.call('getWarehouseRequestAvailabilityV1525',state.token,requestId),
-            bridge.call('getWarehousePickingPricesV1526',state.token,requestId)
-          ]));
-        const report=result[0],prices=result[1];
+        // Sequential read-only requests avoid competing for the project lock.
+        const report=await withBusy('Memeriksa bahan DRAFT…',
+          ()=>wwSjReadLockSafeV15230('getWarehouseRequestAvailabilityV1525',requestId));
+        const prices=await withBusy('Memeriksa harga SJ…',
+          ()=>wwSjReadLockSafeV15230('getWarehousePickingPricesV1526',requestId));
         const plan=wwSjQuickPickPlanV15228(sid,report,prices);
         if(plan.needsSave){
           if(!roleCan('DELIVERY_PREPARE'))
@@ -2013,18 +2098,27 @@
           // uncertain. Never automatically retry a potentially posted review.
           const key='pickfast_'+Array.from(requestId).reduce(
             (h,ch)=>Math.imul(h^ch.charCodeAt(0),16777619)>>>0,2166136261).toString(16)+'_'+requestId.length;
-          const saved=await withBusy('Mencatat semua bahan sesuai permintaan…',
-            ()=>bridge.call('saveWarehouseRequestAvailabilityV1525',state.token,
-              {requestId,sjId:sid,items:plan.items},idemKey(key)));
+          if(!wwSjPickHoldSaveV15230(sid,requestId,'PICK_UNCERTAIN'))
+            throw Error('Pengaman status gagal disimpan di perangkat. Gunakan Periksa Bahan.');
+          let saved;
+          try{
+            saved=await withBusy('Mencatat semua bahan sesuai permintaan…',
+              ()=>bridge.call('saveWarehouseRequestAvailabilityV1525',state.token,
+                {requestId,sjId:sid,items:plan.items},idemKey(key)));
+          }catch(e){
+            if(wwSjLockErrorV15230(e))wwSjPickHoldSaveV15230(sid,requestId,'LOCK_TIMEOUT');
+            throw e;
+          }
           if(!saved||saved.ok!==true)
             throw Error('Pemeriksaan otomatis belum terkonfirmasi. Cek kembali DRAFT, jangan kirim ulang.');
           const verified=await withBusy('Memverifikasi hasil pemeriksaan…',
-            ()=>bridge.call('getWarehouseRequestAvailabilityV1525',state.token,requestId));
+            ()=>wwSjReadLockSafeV15230('getWarehouseRequestAvailabilityV1525',requestId));
           const verifiedPlan=wwSjQuickPickPlanV15228(sid,verified,prices);
           if(!verified.checked||verifiedPlan.needsSave||verifiedPlan.hasDifference||
              verifiedPlan.lineCount!==plan.lineCount)
             throw Error('Hasil pemeriksaan otomatis berbeda. Jangan kirim; buka Periksa Bahan.');
           localStorage.removeItem('ww_gh_idem_'+key);
+          wwSjPickHoldClearV15230(sid);
           wwPickingReportV1525.set(requestId,verified);
         }else{
           wwPickingReportV1525.set(requestId,report);
@@ -2036,8 +2130,12 @@
       // writes the stock ledger and updates status exactly once.
       return await writeDeliveryDirect('dispatch_'+sid,'dispatchDelivery',{sjId:sid},sid);
     }catch(err){
-      toast('Konfirmasi Kirim tertahan: '+String(err&&err.message||err)+
-        ' Periksa SJ dan jangan klik ulang bila penyimpanan belum pasti.','warning',13000);
+      if(wwSjPickHoldV15230(sid)){
+        wwSjPickRefreshActionsV15230(sid);
+        toast((wwSjLockErrorV15230(err)?'Warehouse sedang sibuk. ':'Hasil pemeriksaan belum pasti. ')+
+          'Tidak mengulang pengiriman. Gunakan Cek Status Pemeriksaan.','warning',13000);
+      }else toast('Konfirmasi Kirim tertahan: '+String(err&&err.message||err)+
+        ' Periksa status SJ sebelum mencoba lagi.','warning',13000);
       return null;
     }finally{
       wwSjQuickPreflightActiveV15228.delete(sid);
@@ -2056,6 +2154,8 @@
     };
     const check=$('#ghCheckSjStatus');if(check)check.onclick=()=>wwSjWithLoadingV15211(check,()=>dispatchCheckStatusV44(id));
     const recovery=$('#ghRecoveryLocalSJ');if(recovery)recovery.onclick=()=>wwSjWithLoadingV15211(recovery,()=>recoverSjLocalV1527(id));
+    const pickCheck=$('#ghPickCheckV15230');if(pickCheck)pickCheck.onclick=()=>
+      wwSjWithLoadingV15211(pickCheck,()=>wwSjPickReconcileV15230(id,req));
     const k=$('#ghSendSj');if(k)k.onclick=()=>
       wwSjWithLoadingV15211(k,()=>wwSjQuickDispatchV15228(id,d,req));
 
