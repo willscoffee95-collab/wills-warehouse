@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  window.WW_FRONTEND_BUILD='2026-11-18.1.5.2.27-sj-fast-ui-fix';
+  window.WW_FRONTEND_BUILD='2026-11-18.1.5.2.28-sj-two-route-send';
 
 
   const $ = (q, root = document) => root.querySelector(q);
@@ -1878,18 +1878,20 @@
       }else{
         if(permissions.canPrint)actions.push(button('ghPrintSj','thermal',icons.printer,'Cetak Thermal'));
         if(permissions.canPrepare&&req&&req.requestId)
-          actions.push(button('wwSjCheckMaterialsV15210','check',icons.clipboard,'Periksa Bahan'));
+          actions.push(button('wwSjCheckMaterialsV15210','check',icons.clipboard,'Periksa / Koreksi Bahan'));
         if(permissions.canCancel)
           actions.push(button('ghCancelSj','cancel',icons.warning,'Batalkan'));
         if(permissions.canDispatch)
-          actions.push(button('ghSendSj','send',icons.truck,'Konfirmasi Kirim'));
+          actions.push(button('ghSendSj','send',icons.truck,'Konfirmasi Kirim · Cepat'));
       }
     }else if(status==='DIKIRIM'&&permissions.canPrint){
       actions.push(button('ghPrintSj','ready',icons.printer,'Cetak Thermal · SIAP KIRIM'));
     }else if(status!=='DIBATALKAN'&&permissions.canPrint){
       actions.push(button('ghPrintSj','thermal',icons.printer,'Cetak Thermal'));
     }
-    return actions.length?'<div class="ww-sj-action-panel'+(actions.length===1?' is-single':'')+
+    const twoRoutes=status==='DRAFT'&&!pendingDispatch&&permissions.canPrepare&&permissions.canDispatch&&req&&req.requestId;
+    return actions.length?(twoRoutes?'<p class="ww-sj-two-routes-v15228">Jika seluruh bahan tersedia dan jumlah sesuai, tekan <b>Konfirmasi Kirim · Cepat</b>. Jika perlu mengurangi, menambah, atau mengosongkan jumlah, pilih <b>Periksa / Koreksi Bahan</b> terlebih dahulu.</p>':'')+
+      '<div class="ww-sj-action-panel'+(actions.length===1?' is-single':'')+
       '" role="group" aria-label="Aksi Surat Jalan">'+actions.join('')+'</div>':'';
   }
   // Network operations always show an in-button spinner in addition to the existing busy indicator.
@@ -1918,6 +1920,129 @@
       }
     }
   }
+  // v1.5.2.28 — Same warehouse lifecycle, two paths:
+  // (1) unchanged quantities: record exact request as picking before dispatch.
+  // (2) edited quantities: require a pre-saved, audited picking review.
+  // No stock is mutated until the existing dispatchDelivery transaction.
+  function wwSjQuickPickPlanV15228(sjId,report,pricing){
+    if(!report||String(report.sjId||'')!==String(sjId)||
+       String(report.status||'').toUpperCase()!=='DRAFT'||
+       !Array.isArray(report.lines)||report.lines.length===0)
+      throw Error('Detail DRAFT belum dapat diverifikasi. Buka Periksa Bahan.');
+    if(!pricing||pricing.ok!==true||!Array.isArray(pricing.lines))
+      throw Error('Harga internal SJ belum dapat diverifikasi.');
+    const priceByLine=new Map(pricing.lines.map(l=>[Number(l.lineNo),l]));
+    const used=new Set(),items=[];
+    let anyPositive=false,hasDifference=false;
+    for(const l of report.lines){
+      const lineNo=Number(l.lineNo),code=String(l.code||''),
+        requested=Number(l.requestedQtyUnit),approved=Number(l.approvedQtyUnit);
+      if(!Number.isInteger(lineNo)||lineNo<1||used.has(lineNo)||!code||
+         !Number.isFinite(requested)||requested<=0||
+         !Number.isFinite(approved)||approved<0||approved>requested+0.000001)
+        throw Error('Jumlah bahan tidak valid. Buka Periksa / Koreksi Bahan.');
+      used.add(lineNo);
+      const price=priceByLine.get(lineNo);
+      if(!price||!Number.isFinite(Number(price.unitPrice))||
+         Number(price.unitPrice)<=0)
+        throw Error('Harga internal untuk '+String(l.name||code)+' belum tersedia.');
+      if(Math.abs(approved-requested)>0.000001)hasDifference=true;
+      if(approved>0)anyPositive=true;
+      items.push({lineNo,code,approvedQtyUnit:String(requested),reason:''});
+    }
+    if(!anyPositive)
+      throw Error('Semua jumlah 0. Tidak ada bahan untuk dikirim; gunakan pemeriksaan dan koreksi.');
+    if(!report.checked&&hasDifference)
+      throw Error('Ada jumlah yang berbeda dari permintaan tetapi belum disimpan. Gunakan Periksa / Koreksi Bahan.');
+    if(!report.checked&&report.lockedForStaff)
+      throw Error('Hasil pemeriksaan terkunci. Hubungi Owner.');
+    return {needsSave:!report.checked,hasDifference,items,lineCount:items.length};
+  }
+  const wwSjQuickPreflightActiveV15228=new Set();
+  async function wwSjQuickDispatchV15228(id,d,req){
+    const sid=String(id||'');
+    if(wwSjQuickPreflightActiveV15228.has(sid)){
+      toast('Pengiriman sedang diperiksa. Jangan tekan dua kali.','warning');return null;
+    }
+    if(String(d&&d.status||'').toUpperCase()!=='DRAFT'||wwSjArchivedV15220(d))
+      return toast('SJ ini bukan DRAFT aktif. Buka ulang Surat Jalan.','warning');
+    if(dispatchPendingV44(sid)||opsWriteInFlightV43.has('dispatch_'+sid)||
+       wwDispatchWatchersV15214.has(sid))
+      return toast('Status pengiriman belum pasti. Gunakan Cek Status Kirim.','warning');
+    if(!roleCan('DELIVERY_DISPATCH'))
+      return toast('Akun ini tidak memiliki izin mengirim bahan.','warning');
+    const confirmed=window.confirm(
+      'KONFIRMASI KIRIM '+String(d.noSj||'')+'\n\n'+
+      'Saya sudah memastikan barang fisik siap dikirim.\n'+
+      '• Jika seluruh jumlah sesuai, hasil cek akan disimpan otomatis.\n'+
+      '• Jika pernah dikoreksi, jumlah yang sudah tersimpan akan dipakai.\n'+
+      '• Stok hanya berkurang melalui transaksi pengiriman resmi.\n\n'+
+      'Lanjutkan pengiriman sekarang?');
+    if(!confirmed)return null;
+    wwSjQuickPreflightActiveV15228.add(sid);
+    try{
+      const requestId=String(req&&req.requestId||'');
+      if(!requestId){
+        // A manual SJ may have no originating outlet request; do not invent
+        // an availability review or silently bypass status checks.
+        const latest=await withBusy('Memeriksa SJ manual terbaru…',
+          ()=>bridge.call('getDeliveryDetailFreshV1354',state.token,sid));
+        if(!latest||String(latest.sjId||'')!==sid||String(latest.status||'').toUpperCase()!=='DRAFT'||
+           !Array.isArray(latest.lines)||!latest.lines.length)
+          throw Error('SJ manual tidak valid. Buka ulang rincian.');
+        if(!Array.isArray(d.lines)||d.lines.length!==latest.lines.length)
+          throw Error('Rincian SJ manual telah berubah. Buka ulang Surat Jalan.');
+        for(const l of latest.lines){
+          const old=d.lines.find(x=>Number(x.lineNo)===Number(l.lineNo));
+          if(!old||String(old.code)!==String(l.code)||
+             Math.abs(Number(old.qtyUnit||0)-Number(l.qtyUnit||0))>0.000001)
+            throw Error('Jumlah SJ manual berubah. Periksa rincian sebelum dikirim.');
+        }
+      }else{
+        const result=await withBusy('Memastikan bahan dan harga SJ…',
+          ()=>Promise.all([
+            bridge.call('getWarehouseRequestAvailabilityV1525',state.token,requestId),
+            bridge.call('getWarehousePickingPricesV1526',state.token,requestId)
+          ]));
+        const report=result[0],prices=result[1];
+        const plan=wwSjQuickPickPlanV15228(sid,report,prices);
+        if(plan.needsSave){
+          if(!roleCan('DELIVERY_PREPARE'))
+            throw Error('Akun belum memiliki izin pemeriksaan bahan. Hubungi Admin/Owner.');
+          // A deterministic idempotency key is reused if the response is
+          // uncertain. Never automatically retry a potentially posted review.
+          const key='pickfast_'+Array.from(requestId).reduce(
+            (h,ch)=>Math.imul(h^ch.charCodeAt(0),16777619)>>>0,2166136261).toString(16)+'_'+requestId.length;
+          const saved=await withBusy('Mencatat semua bahan sesuai permintaan…',
+            ()=>bridge.call('saveWarehouseRequestAvailabilityV1525',state.token,
+              {requestId,sjId:sid,items:plan.items},idemKey(key)));
+          if(!saved||saved.ok!==true)
+            throw Error('Pemeriksaan otomatis belum terkonfirmasi. Cek kembali DRAFT, jangan kirim ulang.');
+          const verified=await withBusy('Memverifikasi hasil pemeriksaan…',
+            ()=>bridge.call('getWarehouseRequestAvailabilityV1525',state.token,requestId));
+          const verifiedPlan=wwSjQuickPickPlanV15228(sid,verified,prices);
+          if(!verified.checked||verifiedPlan.needsSave||verifiedPlan.hasDifference||
+             verifiedPlan.lineCount!==plan.lineCount)
+            throw Error('Hasil pemeriksaan otomatis berbeda. Jangan kirim; buka Periksa Bahan.');
+          localStorage.removeItem('ww_gh_idem_'+key);
+          wwPickingReportV1525.set(requestId,verified);
+        }else{
+          wwPickingReportV1525.set(requestId,report);
+        }
+      }
+      if(dispatchPendingV44(sid))
+        throw Error('Ada pengiriman belum terverifikasi. Cek Status Kirim.');
+      // The canonical dispatch mechanism holds the idempotency guard,
+      // writes the stock ledger and updates status exactly once.
+      return await writeDeliveryDirect('dispatch_'+sid,'dispatchDelivery',{sjId:sid},sid);
+    }catch(err){
+      toast('Konfirmasi Kirim tertahan: '+String(err&&err.message||err)+
+        ' Periksa SJ dan jangan klik ulang bila penyimpanan belum pasti.','warning',13000);
+      return null;
+    }finally{
+      wwSjQuickPreflightActiveV15228.delete(sid);
+    }
+  }
   // Shared bindings for initial render and in-place actions replacement.
   // A replaced action panel must bind its own handlers, not rebuild the sheet.
   function wwSjBindActionsV15213(id,d,req){
@@ -1931,39 +2056,8 @@
     };
     const check=$('#ghCheckSjStatus');if(check)check.onclick=()=>wwSjWithLoadingV15211(check,()=>dispatchCheckStatusV44(id));
     const recovery=$('#ghRecoveryLocalSJ');if(recovery)recovery.onclick=()=>wwSjWithLoadingV15211(recovery,()=>recoverSjLocalV1527(id));
-    const k=$('#ghSendSj');if(k)k.onclick=async()=>{
-      if(wwSjArchivedV15220(d)){toast('SJ sebelum reset hanya arsip. Dilarang konfirmasi ulang.','warning');return;}
-      if(dispatchPendingV44(id)){toast('Pengiriman sebelumnya belum terverifikasi. Tekan Cek Status Kirim.','warning');return;}
-      if(req&&req.requestId){
-        try{
-          // Fail-closed dispatch preflight. Read-only, does not write stock or status.
-          const requestId=String(req.requestId);
-          const checks=await withBusy('Memastikan picking & harga SJ sudah tersimpan…',()=>Promise.all([
-            bridge.call('getWarehouseRequestAvailabilityV1525',state.token,requestId),
-            bridge.call('getWarehousePickingPricesV1526',state.token,requestId)
-          ]));
-          const picking=checks[0],pricing=checks[1];
-          if(!picking||!picking.checked||String(picking.status||'').toUpperCase()!=='DRAFT'||
-             String(picking.sjId||'')!==String(id))
-            throw Error('Hasil cek bahan DRAFT belum terverifikasi. Buka Periksa Bahan lalu simpan terlebih dahulu.');
-          if(!pricing||pricing.ok!==true||!Array.isArray(pricing.lines))
-            throw Error('Harga SJ belum dapat diverifikasi dari Warehouse.');
-          const priced=new Map(pricing.lines.map(x=>[Number(x.lineNo),Number(x.unitPrice||0)]));
-          if(!Array.isArray(picking.lines)||!picking.lines.length)
-            throw Error('Detail bahan hasil pemeriksaan tidak tersedia.');
-          const lacksPrice=picking.lines.some(x=>Number(x.approvedQtyUnit||0)>0&&
-            !(priced.get(Number(x.lineNo))>0));
-          if(lacksPrice)throw Error('Ada bahan yang disiapkan tetapi harga internalnya belum tersedia.');
-        }catch(err){
-          toast('Konfirmasi Kirim ditahan: '+String(err&&err.message||err)+
-            ' Periksa ulang SJ dan harga.','warning',12000);
-          return;
-        }
-      }
-      if(!confirm('PERIODE BARU 16/11. Pastikan stok fisik & pengiriman lama telah direkonsiliasi. '+
-        'Hanya qty yang sudah disiapkan akan mengurangi stok. Barang benar-benar siap dikirim?'))return;
-      return wwSjWithLoadingV15211(k,()=>writeDeliveryDirect('dispatch_'+id,'dispatchDelivery',{sjId:id},id));
-    };
+    const k=$('#ghSendSj');if(k)k.onclick=()=>
+      wwSjWithLoadingV15211(k,()=>wwSjQuickDispatchV15228(id,d,req));
 
   }
   function directDeliveryDetail(id){
